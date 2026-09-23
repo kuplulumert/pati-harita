@@ -1,0 +1,862 @@
+{
+  "$comment": "geofire-common ile üretilmiş referans değerler. firebase/tests/contract.test.ts bu dosyayı geofire-common'a karşı doğrular; AnimalKit'in GeohashTests'i de aynı dosyayı kullanır.",
+  "encode": [
+    {
+      "name": "Kadıköy, İstanbul",
+      "lat": 40.9903,
+      "lng": 29.029,
+      "precision": 10,
+      "geohash": "sxk9hw43b9"
+    },
+    {
+      "name": "Kızılay, Ankara",
+      "lat": 39.9208,
+      "lng": 32.8541,
+      "precision": 10,
+      "geohash": "sxp75e7es0"
+    },
+    {
+      "name": "Alsancak, İzmir",
+      "lat": 38.4379,
+      "lng": 27.1432,
+      "precision": 10,
+      "geohash": "swg69tmhfr"
+    },
+    {
+      "name": "Geohash referansı (Danimarka)",
+      "lat": 57.64911,
+      "lng": 10.40744,
+      "precision": 10,
+      "geohash": "u4pruydqqv"
+    },
+    {
+      "name": "Sidney",
+      "lat": -33.8688,
+      "lng": 151.2093,
+      "precision": 10,
+      "geohash": "r3gx2f77bn"
+    },
+    {
+      "name": "Ekvator / başlangıç meridyeni",
+      "lat": 0,
+      "lng": 0,
+      "precision": 10,
+      "geohash": "7zzzzzzzzz"
+    },
+    {
+      "name": "Tarih değiştirme çizgisi yakını",
+      "lat": -16.5,
+      "lng": 179.9995,
+      "precision": 10,
+      "geohash": "rvpfpur8s3"
+    },
+    {
+      "name": "Kuzey kutbu yakını",
+      "lat": 89.5,
+      "lng": -45,
+      "precision": 10,
+      "geohash": "fzzvpuzzrc"
+    }
+  ],
+  "queryBounds": [
+    {
+      "name": "Kadıköy, İstanbul",
+      "lat": 40.9903,
+      "lng": 29.029,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "sxk9hw0",
+          "sxk9hwh"
+        ],
+        [
+          "sxk9hqh",
+          "sxk9hq~"
+        ],
+        [
+          "sxk9hwh",
+          "sxk9hw~"
+        ],
+        [
+          "sxk9ht0",
+          "sxk9hth"
+        ],
+        [
+          "sxk9hmh",
+          "sxk9hm~"
+        ],
+        [
+          "sxk9hth",
+          "sxk9ht~"
+        ]
+      ]
+    },
+    {
+      "name": "Kadıköy, İstanbul",
+      "lat": 40.9903,
+      "lng": 29.029,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "sxk9h",
+          "sxk9j"
+        ],
+        [
+          "sxk9j",
+          "sxk9k"
+        ],
+        [
+          "sxk9k",
+          "sxk9m"
+        ],
+        [
+          "sxk9m",
+          "sxk9n"
+        ]
+      ]
+    },
+    {
+      "name": "Kadıköy, İstanbul",
+      "lat": 40.9903,
+      "lng": 29.029,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "sxk8",
+          "sxkb"
+        ],
+        [
+          "sxkb",
+          "sxkd"
+        ]
+      ]
+    },
+    {
+      "name": "Kadıköy, İstanbul",
+      "lat": 40.9903,
+      "lng": 29.029,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "sxk0",
+          "sxkh"
+        ],
+        [
+          "sxm0",
+          "sxmh"
+        ],
+        [
+          "sxhh",
+          "sxh~"
+        ],
+        [
+          "sxjh",
+          "sxj~"
+        ]
+      ]
+    },
+    {
+      "name": "Kızılay, Ankara",
+      "lat": 39.9208,
+      "lng": 32.8541,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "sxp75e0",
+          "sxp75eh"
+        ],
+        [
+          "sxp75eh",
+          "sxp75e~"
+        ],
+        [
+          "sxp75d0",
+          "sxp75dh"
+        ],
+        [
+          "sxp75dh",
+          "sxp75d~"
+        ]
+      ]
+    },
+    {
+      "name": "Kızılay, Ankara",
+      "lat": 39.9208,
+      "lng": 32.8541,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "sxp75",
+          "sxp76"
+        ],
+        [
+          "sxp7h",
+          "sxp7j"
+        ]
+      ]
+    },
+    {
+      "name": "Kızılay, Ankara",
+      "lat": 39.9208,
+      "lng": 32.8541,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "sxp6",
+          "sxp8"
+        ],
+        [
+          "sxp4",
+          "sxp6"
+        ]
+      ]
+    },
+    {
+      "name": "Kızılay, Ankara",
+      "lat": 39.9208,
+      "lng": 32.8541,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "sxp0",
+          "sxph"
+        ],
+        [
+          "sxn0",
+          "sxnh"
+        ],
+        [
+          "sxph",
+          "sxp~"
+        ],
+        [
+          "sxnh",
+          "sxn~"
+        ]
+      ]
+    },
+    {
+      "name": "Alsancak, İzmir",
+      "lat": 38.4379,
+      "lng": 27.1432,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "swg69th",
+          "swg69t~"
+        ],
+        [
+          "swg69t0",
+          "swg69th"
+        ],
+        [
+          "swg69sh",
+          "swg69s~"
+        ],
+        [
+          "swg69s0",
+          "swg69sh"
+        ]
+      ]
+    },
+    {
+      "name": "Alsancak, İzmir",
+      "lat": 38.4379,
+      "lng": 27.1432,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "swg69",
+          "swg6b"
+        ],
+        [
+          "swg6d",
+          "swg6e"
+        ],
+        [
+          "swg6c",
+          "swg6d"
+        ],
+        [
+          "swg6f",
+          "swg6g"
+        ]
+      ]
+    },
+    {
+      "name": "Alsancak, İzmir",
+      "lat": 38.4379,
+      "lng": 27.1432,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "swg6",
+          "swg7"
+        ],
+        [
+          "swg4",
+          "swg5"
+        ],
+        [
+          "swg7",
+          "swg8"
+        ],
+        [
+          "swg5",
+          "swg6"
+        ],
+        [
+          "swg3",
+          "swg4"
+        ],
+        [
+          "swg1",
+          "swg2"
+        ]
+      ]
+    },
+    {
+      "name": "Alsancak, İzmir",
+      "lat": 38.4379,
+      "lng": 27.1432,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "swg0",
+          "swgh"
+        ],
+        [
+          "swf0",
+          "swfh"
+        ],
+        [
+          "swgh",
+          "swg~"
+        ],
+        [
+          "swfh",
+          "swf~"
+        ]
+      ]
+    },
+    {
+      "name": "Geohash referansı (Danimarka)",
+      "lat": 57.64911,
+      "lng": 10.40744,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "u4pruy0",
+          "u4pruyh"
+        ],
+        [
+          "u4pruwh",
+          "u4pruw~"
+        ],
+        [
+          "u4pruyh",
+          "u4pruy~"
+        ],
+        [
+          "u4pruz0",
+          "u4pruzh"
+        ],
+        [
+          "u4pruxh",
+          "u4prux~"
+        ],
+        [
+          "u4pruzh",
+          "u4pruz~"
+        ]
+      ]
+    },
+    {
+      "name": "Geohash referansı (Danimarka)",
+      "lat": 57.64911,
+      "lng": 10.40744,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "u4pru",
+          "u4prv"
+        ],
+        [
+          "u4prv",
+          "u4prw"
+        ],
+        [
+          "u4r2h",
+          "u4r2j"
+        ],
+        [
+          "u4r2j",
+          "u4r2k"
+        ]
+      ]
+    },
+    {
+      "name": "Geohash referansı (Danimarka)",
+      "lat": 57.64911,
+      "lng": 10.40744,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "u4pq",
+          "u4ps"
+        ],
+        [
+          "u4pn",
+          "u4pq"
+        ],
+        [
+          "u4pw",
+          "u4py"
+        ],
+        [
+          "u4r2",
+          "u4r4"
+        ],
+        [
+          "u4r0",
+          "u4r2"
+        ],
+        [
+          "u4r8",
+          "u4rb"
+        ]
+      ]
+    },
+    {
+      "name": "Geohash referansı (Danimarka)",
+      "lat": 57.64911,
+      "lng": 10.40744,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "u4p",
+          "u4q"
+        ],
+        [
+          "u4n",
+          "u4p"
+        ],
+        [
+          "u60",
+          "u61"
+        ],
+        [
+          "u4r",
+          "u4s"
+        ],
+        [
+          "u4q",
+          "u4r"
+        ],
+        [
+          "u62",
+          "u63"
+        ]
+      ]
+    },
+    {
+      "name": "Sidney",
+      "lat": -33.8688,
+      "lng": 151.2093,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "r3gx2f0",
+          "r3gx2fh"
+        ],
+        [
+          "r3gx2fh",
+          "r3gx2f~"
+        ],
+        [
+          "r3gx2c0",
+          "r3gx2ch"
+        ],
+        [
+          "r3gx2ch",
+          "r3gx2c~"
+        ]
+      ]
+    },
+    {
+      "name": "Sidney",
+      "lat": -33.8688,
+      "lng": 151.2093,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "r3gx20",
+          "r3gx2h"
+        ],
+        [
+          "r3gx30",
+          "r3gx3h"
+        ],
+        [
+          "r3gx2h",
+          "r3gx2~"
+        ],
+        [
+          "r3gx3h",
+          "r3gx3~"
+        ],
+        [
+          "r3gx0h",
+          "r3gx0~"
+        ],
+        [
+          "r3gx1h",
+          "r3gx1~"
+        ]
+      ]
+    },
+    {
+      "name": "Sidney",
+      "lat": -33.8688,
+      "lng": 151.2093,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "r3gx",
+          "r3gy"
+        ],
+        [
+          "r3gr",
+          "r3gs"
+        ],
+        [
+          "r658",
+          "r659"
+        ],
+        [
+          "r652",
+          "r653"
+        ],
+        [
+          "r3gw",
+          "r3gx"
+        ],
+        [
+          "r3gq",
+          "r3gr"
+        ]
+      ]
+    },
+    {
+      "name": "Sidney",
+      "lat": -33.8688,
+      "lng": 151.2093,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "r3gh",
+          "r3g~"
+        ],
+        [
+          "r650",
+          "r65h"
+        ]
+      ]
+    },
+    {
+      "name": "Ekvator / başlangıç meridyeni",
+      "lat": 0,
+      "lng": 0,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "7zzzzzs",
+          "7zzzzz~"
+        ],
+        [
+          "kpbpbp8",
+          "kpbpbph"
+        ],
+        [
+          "ebpbpbh",
+          "ebpbpbs"
+        ],
+        [
+          "s000000",
+          "s000008"
+        ]
+      ]
+    },
+    {
+      "name": "Ekvator / başlangıç meridyeni",
+      "lat": 0,
+      "lng": 0,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "7zzzzh",
+          "7zzzz~"
+        ],
+        [
+          "kpbpbh",
+          "kpbpb~"
+        ],
+        [
+          "ebpbp0",
+          "ebpbph"
+        ],
+        [
+          "s00000",
+          "s0000h"
+        ]
+      ]
+    },
+    {
+      "name": "Ekvator / başlangıç meridyeni",
+      "lat": 0,
+      "lng": 0,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "7zzz",
+          "7zz~"
+        ],
+        [
+          "kpbp",
+          "kpbq"
+        ],
+        [
+          "ebpb",
+          "ebpc"
+        ],
+        [
+          "s000",
+          "s001"
+        ]
+      ]
+    },
+    {
+      "name": "Ekvator / başlangıç meridyeni",
+      "lat": 0,
+      "lng": 0,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "7zzh",
+          "7zz~"
+        ],
+        [
+          "kpbh",
+          "kpb~"
+        ],
+        [
+          "ebp0",
+          "ebph"
+        ],
+        [
+          "s000",
+          "s00h"
+        ]
+      ]
+    },
+    {
+      "name": "Tarih değiştirme çizgisi yakını",
+      "lat": -16.5,
+      "lng": 179.9995,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "rvpfpuh",
+          "rvpfpu~"
+        ],
+        [
+          "2j040h0",
+          "2j040hh"
+        ],
+        [
+          "rvpfpgh",
+          "rvpfpg~"
+        ],
+        [
+          "2j04050",
+          "2j0405h"
+        ]
+      ]
+    },
+    {
+      "name": "Tarih değiştirme çizgisi yakını",
+      "lat": -16.5,
+      "lng": 179.9995,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "rvpfph",
+          "rvpfp~"
+        ],
+        [
+          "2j040h",
+          "2j040~"
+        ],
+        [
+          "rvpfp0",
+          "rvpfph"
+        ],
+        [
+          "2j0400",
+          "2j040h"
+        ]
+      ]
+    },
+    {
+      "name": "Tarih değiştirme çizgisi yakını",
+      "lat": -16.5,
+      "lng": 179.9995,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "rvpf",
+          "rvpg"
+        ],
+        [
+          "2j04",
+          "2j05"
+        ],
+        [
+          "rvpc",
+          "rvpd"
+        ],
+        [
+          "2j01",
+          "2j02"
+        ]
+      ]
+    },
+    {
+      "name": "Tarih değiştirme çizgisi yakını",
+      "lat": -16.5,
+      "lng": 179.9995,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "rvp0",
+          "rvph"
+        ],
+        [
+          "2j00",
+          "2j0h"
+        ],
+        [
+          "rvph",
+          "rvp~"
+        ],
+        [
+          "2j0h",
+          "2j0~"
+        ],
+        [
+          "ruzh",
+          "ruz~"
+        ],
+        [
+          "2hbh",
+          "2hb~"
+        ]
+      ]
+    },
+    {
+      "name": "Kuzey kutbu yakını",
+      "lat": 89.5,
+      "lng": -45,
+      "radiusMeters": 300,
+      "bounds": [
+        [
+          "fzzu",
+          "fzzw"
+        ],
+        [
+          "gpbh",
+          "gpbk"
+        ]
+      ]
+    },
+    {
+      "name": "Kuzey kutbu yakını",
+      "lat": 89.5,
+      "lng": -45,
+      "radiusMeters": 2000,
+      "bounds": [
+        [
+          "fzw",
+          "fz~"
+        ],
+        [
+          "gp8",
+          "gpd"
+        ]
+      ]
+    },
+    {
+      "name": "Kuzey kutbu yakını",
+      "lat": 89.5,
+      "lng": -45,
+      "radiusMeters": 15000,
+      "bounds": [
+        [
+          "fs",
+          "f~"
+        ],
+        [
+          "gh",
+          "gs"
+        ]
+      ]
+    },
+    {
+      "name": "Kuzey kutbu yakını",
+      "lat": 89.5,
+      "lng": -45,
+      "radiusMeters": 50000,
+      "bounds": [
+        [
+          "0",
+          "h"
+        ]
+      ]
+    }
+  ],
+  "distances": [
+    {
+      "from": [
+        40.9903,
+        29.029
+      ],
+      "to": [
+        41.0422,
+        29.0083
+      ],
+      "meters": 6026.674484333276
+    },
+    {
+      "from": [
+        39.9208,
+        32.8541
+      ],
+      "to": [
+        38.4379,
+        27.1432
+      ],
+      "meters": 519019.0239024662
+    },
+    {
+      "from": [
+        0,
+        179.9
+      ],
+      "to": [
+        0,
+        -179.9
+      ],
+      "meters": 22238.985328911924
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "$comment": "iOS (AnimalKit) ve Firestore kurallarının paylaştığı sabitler. Burayı değiştirirseniz ReportLifecycle.swift, Need.swift ve firestore.rules'u da güncelleyin; iki taraftaki testler uyumsuzluğu yakalar.",
+  "collection": "reports",
+  "species": ["cat", "dog", "bird", "other"],
+  "needs": {
+    "emergency": { "lifetimeHours": 12 },
+    "injured": { "lifetimeHours": 24 },
+    "babies": { "lifetimeHours": 72 },
+    "vet": { "lifetimeHours": 48 },
+    "food": { "lifetimeHours": 12 },
+    "shelter": { "lifetimeHours": 72 },
+    "other": { "lifetimeHours": 24 }
+  },
+  "claimHours": 3,
+  "goneThreshold": 2,
+  "retentionDays": 30,
+  "clockSkewMinutes": 15,
+  "maxBackdateHours": 24,
+  "geohashPrecision": 10
+}

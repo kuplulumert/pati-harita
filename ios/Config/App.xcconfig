@@ -1,0 +1,7 @@
+// Ortak derleme ayarları. Gizli anahtarlar Secrets.xcconfig'tadır (git'e girmez).
+// Kurulum: cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig
+
+GOOGLE_MAPS_API_KEY =
+DEVELOPMENT_TEAM =
+
+#include? "Secrets.xcconfig"

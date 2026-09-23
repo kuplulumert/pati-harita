@@ -1,0 +1,151 @@
+# Pati Harita
+
+Sokakta yardıma ihtiyacı olan hayvanlar için **yaşayan, sürekli güncellenen bir yardım haritası**.
+Sosyal medya ya da ilan uygulaması değil; tek ekranı olan, birkaç saniyede kullanılan bir harita.
+
+> Hayvan gördüm → haritada işaretledim → neye ihtiyacı olduğunu seçtim → yakındakiler gördü → biri yardım etti → işaret kapandı.
+
+## Kullanıcı deneyimi
+
+**Ana ekran doğrudan haritadır** (Google Maps). Üstte "3 hayvan yardım bekliyor" gibi canlı bir durum etiketi, altta tek büyük düğme: **Hayvan gördüm**.
+
+### İşaretleme: 3 dokunuş, birkaç saniye
+
+1. **Hayvan gördüm** → harita bulunduğun noktaya yaklaşır, ortada sabit bir iğne belirir.
+   Konum yanlışsa haritayı kaydırmak yeterli; iğne hep ortada kalır. Haritaya **uzun basmak** da o noktadan işaretlemeyi başlatır.
+2. **Tür**: Kedi · Köpek · Kuş · Diğer
+3. **İhtiyaç**: Acil yardım (en üstte, kırmızı) · Mama / su · Yaralı / hasta · Barınak ihtiyacı · Yavruları var · Veteriner desteği · Diğer
+
+İhtiyaca dokunduğun an işaret kaydedilir. Onay ekranı, form, fotoğraf, açıklama yok. Yanlışlık olursa 5 saniye boyunca **Geri al** görünür.
+Bağlantı zayıfsa işaret yine anında haritada görünür ve bağlantı gelince gönderilir.
+
+### Haritada işaretleri okumak
+
+| Görsel | Anlamı |
+| --- | --- |
+| Renk + simge | İhtiyaç (kırmızı ünlem = acil, turuncu bandaj = yaralı, yeşil çatal-bıçak = mama/su, mavi steteskop = veteriner, mor ev = barınak, pembe ayıcık = yavrular, gri = diğer) |
+| Köşedeki emoji | Tür (🐈 🐕 🐦 🐾) |
+| Mavi "yürüyen kişi" rozeti | Biri ilgileniyor |
+| Büyük ve haleli işaret | Acil |
+| Soluklaşan işaret | Bir süredir kimse doğrulamadı |
+
+Üst üste binen işaretlerde acil olan üstte çizilir. Sağ üstteki **i** düğmesi bu açıklamayı gösterir.
+
+### İşarete dokununca
+
+Yalnızca temel bilgiler: **ihtiyaç, tür, ne zaman işaretlendiği, uzaklık ve mevcut durum** ("Yardım bekliyor", "Biri ilgileniyor · 12 dk önce", "Sen ilgileniyorsun · 2 sa 40 dk kaldı").
+Altında duruma göre değişen düğmeler:
+
+| Kim | Görülen eylemler |
+| --- | --- |
+| Yoldan geçen | **İlgileniyorum** · Hâlâ orada · Artık yok · Yol tarifi |
+| İlgilenen kişi | **Çözüldü** · Vazgeç · Artık yok · Yol tarifi |
+| İşareti koyan | **İlgileniyorum** · Çözüldü · Hâlâ orada · Artık yok · Yol tarifi |
+
+**Çözüldü** denince işaret aktif haritadan kalkar.
+
+### Eski işaretler haritada kalmaz
+
+- Her ihtiyacın bir ömrü var (acil ve mama/su 12 sa, yaralı ve diğer 24 sa, veteriner 48 sa, barınak ve yavrular 72 sa). Süre dolunca işaret haritadan kalkar.
+- Hayvanı yine gören herkes **Hâlâ orada** diyerek süreyi yeniden başlatır. İşaret yaşlandıkça soluklaşır.
+- **Artık yok**: iki farklı kişi (ya da işareti koyan / ilgilenen kişi tek başına) derse işaret kapanır.
+- **İlgileniyorum** 3 saat geçerlidir; çözülmezse işaret kendiliğinden yeniden "yardım bekliyor" olur.
+- Sunucuda her 10 dakikada bir temizlik çalışır; kapanan işaretler 30 gün sonra veritabanından silinir.
+
+## Teknik çözüm (özet)
+
+| Katman | Seçim | Neden |
+| --- | --- | --- |
+| iOS | SwiftUI (iOS 17+), Google Maps SDK | Tek ekran, akıcı harita; istenen Google Maps |
+| Alan mantığı | `AnimalKit` Swift paketi | Durum makinesi, geohash ve biçimlendirme ağdan bağımsız ve test edilebilir |
+| Veri | Cloud Firestore | Canlı dinleme (harita kendiliğinden güncellenir), çevrimdışı yazma, sunucu yönetmeye gerek yok |
+| Kimlik | Firebase anonim oturum | Kayıt/giriş yok; yalnızca "kim koydu, kim ilgileniyor" ayrımı için |
+| Kurallar | Firestore Security Rules | İstemcideki durum makinesinin aynısı sunucuda zorunlu |
+| Temizlik | Cloud Functions (zamanlanmış) + Firestore TTL | Süresi dolanları kapatır, kapananları siler |
+| Konum sorgusu | Geohash (geofire-common'ın Swift karşılığı) | Yalnızca görünen bölgedeki işaretler dinlenir |
+
+Ayrıntılar: [docs/architecture.md](docs/architecture.md)
+
+## Depo yapısı
+
+```
+ios/
+  project.yml                 XcodeGen tanımı (Xcode projesi buradan üretilir)
+  Config/                     xcconfig; API anahtarı Secrets.xcconfig'ta (git'e girmez)
+  PatiHarita/                 SwiftUI uygulaması
+    App/                      açılış, oturum, konum
+    Data/                     Firestore ve demo veri kaynakları
+    Map/                      harita ekranı, Google Maps köprüsü, view model
+    Report/                   işaretleme paneli, işaret kartı, açıklama ekranı
+    Design/                   işaret görünümü ve renkler
+  Packages/AnimalKit/         saf alan mantığı + testleri
+firebase/
+  firestore.rules             güvenlik kuralları (durum makinesi)
+  firestore.indexes.json      indeksler + TTL
+  functions/                  zamanlanmış temizlik fonksiyonu
+  tests/                      kural ve sözleşme testleri (emülatörde)
+shared/
+  report-contract.json        iOS ve Firebase'in ortak sabitleri
+  geohash-vectors.json        geohash referans değerleri
+docs/architecture.md
+```
+
+## Çalıştırma
+
+Gerekenler: Xcode 16.3+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`brew install xcodegen`), Node 22, Java 21 (emülatör için).
+
+### 1. iOS uygulaması — demo modu (Firebase gerekmez)
+
+```bash
+cd ios
+cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # Google Maps API anahtarını yazın
+xcodegen
+open PatiHarita.xcodeproj
+```
+
+`GoogleService-Info.plist` yoksa uygulama **demo modunda** açılır: çevrede örnek işaretler görünür, tüm akış denenebilir, veriler yalnızca cihazdadır.
+Simülatörün varsayılan konumu Kadıköy'dür (`ios/Kadikoy.gpx`).
+
+Google Maps anahtarı: Google Cloud Console → *Maps SDK for iOS*'i etkinleştirin → API anahtarı oluşturup iOS uygulaması (`app.patiharita.ios`) ile kısıtlayın.
+
+### 2. Yerel Firebase emülatörleriyle
+
+```bash
+cd firebase
+npm install && npm install --prefix functions
+npm run emulators            # Firestore, Auth, Functions + arayüz: http://127.0.0.1:4000
+```
+
+Xcode'da *Edit Scheme → Run → Arguments* altında `-useEmulator`'ı işaretleyin. Gerçek bir Firebase projesi gerekmez.
+
+### 3. Gerçek Firebase projesi
+
+1. [Firebase konsolunda](https://console.firebase.google.com) proje oluşturun ve iOS uygulaması ekleyin (bundle id `app.patiharita.ios`).
+   İndirilen `GoogleService-Info.plist`'i `ios/PatiHarita/` içine koyup `xcodegen`'i yeniden çalıştırın.
+2. **Authentication → Sign-in method → Anonymous**'ı açın.
+3. **Firestore Database** oluşturun (ör. `eur3` ya da `europe-west1`).
+4. `firebase/.firebaserc` içindeki `demo-patiharita`'yı kendi proje kimliğinizle değiştirip dağıtın:
+   ```bash
+   cd firebase
+   npx firebase deploy --only firestore            # kurallar, indeksler, TTL
+   npx firebase deploy --only functions            # Blaze (kullandıkça öde) planı gerekir
+   ```
+5. **App Check**: Debug derlemeler hata ayıklama sağlayıcısını, Release derlemeler DeviceCheck'i kullanır. Konsolda uygulamayı kaydedin; zorunlu kılmayı (enforcement) yayından önce açın.
+
+## Testler
+
+```bash
+cd firebase && npm test                          # 43 test: kurallar, temizlik fonksiyonu, geohash referansları
+cd ios/Packages/AnimalKit && swift test          # durum makinesi, geohash, sözleşme, biçimlendirme
+```
+
+`shared/` altındaki dosyalar iki tarafı birbirine bağlar: iOS ile Firestore kuralları aynı süreleri ve kuralları kullanmazsa testler başarısız olur.
+GitHub Actions her push'ta Firebase testlerini, AnimalKit testlerini ve iOS uygulamasının derlemesini çalıştırır (`.github/workflows/ci.yml`).
+
+## Sonraki adımlar
+
+- **Yakındakilere bildirim**: acil/yaralı işaretlerde, kaba konumuna (geohash-5) abone olan kullanıcılara FCM ile bildirim.
+- **Kümeleme**: yoğun bölgelerde işaretleri Google Maps Utils ile gruplamak.
+- **Kötüye kullanıma karşı**: App Check'i zorunlu kılmak, kullanıcı başına hız sınırı, "yanlış işaret" bildirimi.
+- Uygulama simgesi, tek ekranlık ilk açılış, karanlık harita stili, VoiceOver ince ayarları.
+- Android / web istemcisi (aynı Firestore kuralları ve `shared/` sözleşmesiyle).

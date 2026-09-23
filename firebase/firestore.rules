@@ -1,0 +1,207 @@
+rules_version = '2';
+
+// Pati Harita — Firestore güvenlik kuralları.
+//
+// Her işaret (report) küçük bir durum makinesidir:
+//
+//   open ──İlgileniyorum──▶ claimed ──Çözüldü──▶ closed(resolved)
+//    ▲                         │
+//    └──Vazgeç / süre doldu────┘
+//
+//   open|claimed ──"Artık yok" (2 kişi, ya da bildiren/ilgilenen)──▶ closed(gone)
+//   open|claimed ──süresi doldu (Cloud Function)──────────────────▶ closed(expired)
+//
+// İstemci tarafındaki karşılığı: ios/Packages/AnimalKit/Sources/AnimalKit/ReportLifecycle.swift
+// Paylaşılan sabitler: shared/report-contract.json (testler iki tarafın uyumunu doğrular).
+//
+// Zaman damgaları istemci saatiyle yazılır (çevrimdışı işaretlemede "görüldüğü an" korunur);
+// kurallar bunları request.time'a göre makul sınırlar içinde tutar.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Genel yardımcılar -------------------------------------------------
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+
+    function lifetimeHours() {
+      return {
+        'emergency': 12,
+        'injured': 24,
+        'babies': 72,
+        'vet': 48,
+        'food': 12,
+        'shelter': 72,
+        'other': 24
+      };
+    }
+    function lifetime(need) { return duration.value(lifetimeHours()[need], 'h'); }
+    function claimDuration() { return duration.value(3, 'h'); }
+    function retention() { return duration.value(30, 'd'); }
+    function maxBackdate() { return duration.value(24, 'h'); }
+    // İstemci saati ile sunucu saati arasındaki kabul edilebilir fark.
+    function skew() { return duration.value(15, 'm'); }
+    // İstemcinin tarih + süre hesabındaki yuvarlama farkları için pay.
+    function rounding() { return duration.value(1, 'm'); }
+
+    // "Şimdi" anlamına gelmesi gereken, istemcinin yazdığı bir zaman damgası.
+    function isNow(t) {
+      return t is timestamp && t > request.time - skew() && t < request.time + skew();
+    }
+
+    // ---- Doküman şekli -----------------------------------------------------
+
+    function reportKeys() {
+      return ['species', 'need', 'lat', 'lng', 'geohash', 'status', 'closedReason',
+              'reporterId', 'createdAt', 'lastSeenAt', 'expiresAt', 'claimedBy',
+              'claimedAt', 'claimExpiresAt', 'goneReports', 'closedAt', 'purgeAt'];
+    }
+
+    function validShape(d) {
+      return d.keys().hasAll(reportKeys()) && d.keys().hasOnly(reportKeys())
+        && d.species in ['cat', 'dog', 'bird', 'other']
+        && d.need in lifetimeHours()
+        && d.lat is number && d.lat >= -90 && d.lat <= 90
+        && d.lng is number && d.lng >= -180 && d.lng <= 180
+        && d.geohash is string && d.geohash.matches('^[0-9b-hjkmnp-z]{10}$')
+        && d.status in ['open', 'claimed', 'closed']
+        && d.reporterId is string
+        && d.createdAt is timestamp
+        && d.lastSeenAt is timestamp
+        && d.expiresAt is timestamp
+        && d.goneReports is list && d.goneReports.size() <= 20
+        && ((d.claimedBy == null && d.claimedAt == null && d.claimExpiresAt == null)
+            || (d.claimedBy is string && d.claimedAt is timestamp && d.claimExpiresAt is timestamp))
+        && (d.status != 'claimed' || d.claimedBy != null)
+        && ((d.status == 'closed'
+              && d.closedReason in ['resolved', 'gone', 'expired']
+              && d.closedAt is timestamp
+              && d.purgeAt is timestamp)
+            || (d.status != 'closed'
+              && d.closedReason == null
+              && d.closedAt == null
+              && d.purgeAt == null));
+    }
+
+    // ---- Durum yardımcıları ------------------------------------------------
+
+    function isActive(r) { return r.status in ['open', 'claimed']; }
+    function hasLiveClaim(r) { return r.status == 'claimed' && r.claimExpiresAt > request.time; }
+    function isClaimer(r) { return hasLiveClaim(r) && r.claimedBy == me(); }
+    function isReporter(r) { return r.reporterId == me(); }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Hayvanın kim/ne/nerede bilgisi oluşturulduktan sonra değişmez.
+    function identityUnchanged() {
+      return !changedKeys().hasAny(['species', 'need', 'lat', 'lng', 'geohash',
+                                    'reporterId', 'createdAt']);
+    }
+
+    function closesAs(reason) {
+      let after = request.resource.data;
+      return after.status == 'closed'
+        && after.closedReason == reason
+        && isNow(after.closedAt)
+        && after.purgeAt > after.closedAt
+        && after.purgeAt <= after.closedAt + retention() + rounding();
+    }
+
+    // ---- Oluşturma -------------------------------------------------------
+
+    function validCreate(d) {
+      return validShape(d)
+        && d.reporterId == me()
+        && d.status == 'open'
+        && d.claimedBy == null
+        && d.goneReports.size() == 0
+        // Çevrimdışı işaretlenip sonradan senkronlanan kayıtlara izin ver.
+        && d.createdAt < request.time + skew()
+        && d.createdAt > request.time - maxBackdate()
+        && d.lastSeenAt == d.createdAt
+        && d.expiresAt > d.createdAt
+        && d.expiresAt <= d.createdAt + lifetime(d.need) + rounding();
+    }
+
+    // ---- Eylemler ----------------------------------------------------------
+
+    // "İlgileniyorum": açık (ya da sahipliği süresi dolmuş) işareti üstüne al.
+    function isClaim() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return changedKeys().hasOnly(['status', 'claimedBy', 'claimedAt', 'claimExpiresAt', 'expiresAt'])
+        && !hasLiveClaim(before)
+        && after.status == 'claimed'
+        && after.claimedBy == me()
+        && isNow(after.claimedAt)
+        && after.claimExpiresAt > after.claimedAt
+        && after.claimExpiresAt <= after.claimedAt + claimDuration() + rounding()
+        // İlgilenilen işaret, sahiplik süresi bitmeden haritadan düşmesin.
+        && (after.expiresAt == before.expiresAt
+            || (after.expiresAt > before.expiresAt && after.expiresAt <= after.claimExpiresAt));
+    }
+
+    // "Vazgeç": yalnızca şu an ilgilenen kişi bırakabilir.
+    function isRelease() {
+      let after = request.resource.data;
+      return changedKeys().hasOnly(['status', 'claimedBy', 'claimedAt', 'claimExpiresAt'])
+        && isClaimer(resource.data)
+        && after.status == 'open'
+        && after.claimedBy == null;
+    }
+
+    // "Çözüldü": ilgilenen kişi ya da işareti koyan kişi kapatabilir.
+    function isResolve() {
+      return changedKeys().hasOnly(['status', 'closedReason', 'closedAt', 'purgeAt'])
+        && (isClaimer(resource.data) || isReporter(resource.data))
+        && closesAs('resolved');
+    }
+
+    // "Hâlâ orada": herkes işaretin ömrünü ihtiyaca göre uzatabilir (asla kısaltamaz).
+    function isConfirm() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return changedKeys().hasOnly(['lastSeenAt', 'expiresAt'])
+        && isNow(after.lastSeenAt)
+        && after.lastSeenAt > before.lastSeenAt
+        && (after.expiresAt == before.expiresAt
+            || (after.expiresAt > before.expiresAt
+                && after.expiresAt <= after.lastSeenAt + lifetime(before.need) + rounding()));
+    }
+
+    // "Artık yok": her kullanıcı bir kez bildirebilir. 2 farklı kişi, ya da
+    // işareti koyan / şu an ilgilenen kişi bildirirse işaret kapanır.
+    function isGoneReport() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let keys = changedKeys();
+      return !(me() in before.goneReports)
+        && after.goneReports == before.goneReports.concat([me()])
+        && (keys.hasOnly(['goneReports'])
+            || (keys.hasOnly(['goneReports', 'status', 'closedReason', 'closedAt', 'purgeAt'])
+                && closesAs('gone')
+                && (after.goneReports.size() >= 2 || isReporter(before) || isClaimer(before))));
+    }
+
+    // "Geri al": kimse dokunmadıysa işareti koyan kişi silebilir.
+    function canRetract(r) {
+      return isReporter(r) && r.status == 'open' && r.goneReports.size() == 0;
+    }
+
+    // ---- Koleksiyonlar -----------------------------------------------------
+
+    match /reports/{reportId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && validCreate(request.resource.data);
+      allow update: if signedIn()
+        && isActive(resource.data)
+        && validShape(request.resource.data)
+        && identityUnchanged()
+        && (isClaim() || isRelease() || isResolve() || isConfirm() || isGoneReport());
+      allow delete: if signedIn() && canRetract(resource.data);
+    }
+  }
+}

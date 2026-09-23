@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firebase kurulumu</title>
+<style>
+  :root { --ink:#1b1f24; --muted:#667085; --line:#e4e7ec; --bg:#f6f7f9; --card:#fff; --accent:#f57c00; --ok:#12b76a; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; padding:20px 16px 48px; }
+  main { max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:14px; }
+  h1 { font-size:22px; margin:0; }
+  .lead { color:var(--muted); margin:4px 0 6px; }
+  .id { display:flex; gap:8px; align-items:center; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:12px 14px; }
+  .id label { font-weight:600; white-space:nowrap; }
+  .id input { flex:1; min-width:0; font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:10px; }
+  .step { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:14px 16px; display:grid; grid-template-columns:28px 1fr; gap:4px 12px; }
+  .step.done { opacity:.6; }
+  .step input[type=checkbox] { width:22px; height:22px; margin:2px 0 0; accent-color:var(--ok); }
+  .step h2 { font-size:16px; margin:0; }
+  .step ol, .step p { grid-column:2; margin:4px 0 0; padding-left:18px; color:#344054; }
+  .step p { padding-left:0; }
+  .go { grid-column:2; justify-self:start; margin-top:8px; display:inline-block; background:var(--ink); color:#fff; text-decoration:none; padding:8px 14px; border-radius:10px; font-weight:600; font-size:14px; }
+  .go.off { background:#d0d5dd; pointer-events:none; }
+  b.k { background:#fff4e5; padding:0 4px; border-radius:4px; font-weight:600; }
+  details { grid-column:2; margin-top:8px; }
+  pre { max-height:220px; overflow:auto; background:#0f172a; color:#e2e8f0; font-size:11.5px; padding:10px; border-radius:10px; }
+  .btns { grid-column:2; display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btns .go, .btns .copy { margin-top:8px; }
+  .copy { font:inherit; font-size:14px; font-weight:600; border:0; background:var(--accent); color:#fff; padding:8px 14px; border-radius:10px; cursor:pointer; margin-top:8px; }
+  .note { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <div>
+    <h1>Pati Harita · Firebase kurulumu</h1>
+    <p class="lead">Her adımdaki düğme Firebase konsolunu yeni sekmede açar. Bitirdiğin adımı işaretle. Toplam 5–10 dakika.</p>
+  </div>
+
+  <div class="id">
+    <label for="pid">Proje ID</label>
+    <input id="pid" placeholder="1. adımdan sonra buraya yaz (ör. pati-harita-1a2b3)" autocomplete="off">
+  </div>
+
+  <section class="step" data-step="1">
+    <input type="checkbox" aria-label="Tamamlandı">
+    <h2>1. Proje oluştur</h2>
+    <ol>
+      <li><b class="k">Proje oluştur</b>'a bas, adını <b class="k">pati-harita</b> yap.</li>
+      <li>Google Analytics'i kapatabilirsin.</li>
+      <li>Proje açılınca adres çubuğundaki <b class="k">/project/…/</b> kısmındaki kimliği yukarıdaki kutuya yaz.</li>
+    </ol>
+    <a class="go" href="https://console.firebase.google.com/" target="_blank" rel="noopener">Firebase konsolunu aç</a>
+  </section>
+
+  <section class="step" data-step="2">
+    <input type="checkbox" aria-label="Tamamlandı">
+    <h2>2. Anonim girişi aç</h2>
+    <ol>
+      <li><b class="k">Başlayın</b>'a bas (ilk seferse).</li>
+      <li><b class="k">Anonymous</b> → <b class="k">Etkinleştir</b> → <b class="k">Kaydet</b>.</li>
+    </ol>
+    <a class="go needs-id" data-path="authentication/providers" target="_blank" rel="noopener">Authentication'ı aç</a>
+  </section>
+
+  <section class="step" data-step="3">
+    <input type="checkbox" aria-label="Tamamlandı">
+    <h2>3. Veritabanını oluştur</h2>
+    <ol>
+      <li><b class="k">Veritabanı oluştur</b>'a bas.</li>
+      <li>Konum: <b class="k">eur3 (Europe)</b>.</li>
+      <li><b class="k">Production mode</b> seç ve oluştur.</li>
+    </ol>
+    <a class="go needs-id" data-path="firestore" target="_blank" rel="noopener">Firestore'u aç</a>
+  </section>
+
+  <section class="step" data-step="4">
+    <input type="checkbox" aria-label="Tamamlandı">
+    <h2>4. Güvenlik kurallarını yapıştır</h2>
+    <ol>
+      <li>Aşağıdaki <b class="k">Kuralları kopyala</b> düğmesine bas.</li>
+      <li>Rules sekmesindeki her şeyi silip yapıştır, <b class="k">Yayınla</b>'ya bas.</li>
+    </ol>
+    <div class="btns"><button class="copy" id="copyRules" type="button">Kuralları kopyala</button>
+    <a class="go needs-id" data-path="firestore/databases/-default-/rules" target="_blank" rel="noopener">Rules sekmesini aç</a></div>
+    <details><summary class="note">Kuralları göster</summary><pre id="rules">rules_version = &#x27;2&#x27;;
+
+// Pati Harita — Firestore güvenlik kuralları.
+//
+// Her işaret (report) küçük bir durum makinesidir:
+//
+//   open ──İlgileniyorum──▶ claimed ──Çözüldü──▶ closed(resolved)
+//    ▲                         │
+//    └──Vazgeç / süre doldu────┘
+//
+//   open|claimed ──&quot;Artık yok&quot; (2 kişi, ya da bildiren/ilgilenen)──▶ closed(gone)
+//   open|claimed ──süresi doldu (Cloud Function)──────────────────▶ closed(expired)
+//
+// İstemci tarafındaki karşılığı: ios/Packages/AnimalKit/Sources/AnimalKit/ReportLifecycle.swift
+// Paylaşılan sabitler: shared/report-contract.json (testler iki tarafın uyumunu doğrular).
+//
+// Zaman damgaları istemci saatiyle yazılır (çevrimdışı işaretlemede &quot;görüldüğü an&quot; korunur);
+// kurallar bunları request.time&#x27;a göre makul sınırlar içinde tutar.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Genel yardımcılar -------------------------------------------------
+
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+
+    function lifetimeHours() {
+      return {
+        &#x27;emergency&#x27;: 12,
+        &#x27;injured&#x27;: 24,
+        &#x27;babies&#x27;: 72,
+        &#x27;vet&#x27;: 48,
+        &#x27;food&#x27;: 12,
+        &#x27;shelter&#x27;: 72,
+        &#x27;other&#x27;: 24
+      };
+    }
+    function lifetime(need) { return duration.value(lifetimeHours()[need], &#x27;h&#x27;); }
+    function claimDuration() { return duration.value(3, &#x27;h&#x27;); }
+    function retention() { return duration.value(30, &#x27;d&#x27;); }
+    function maxBackdate() { return duration.value(24, &#x27;h&#x27;); }
+    // İstemci saati ile sunucu saati arasındaki kabul edilebilir fark.
+    function skew() { return duration.value(15, &#x27;m&#x27;); }
+    // İstemcinin tarih + süre hesabındaki yuvarlama farkları için pay.
+    function rounding() { return duration.value(1, &#x27;m&#x27;); }
+
+    // &quot;Şimdi&quot; anlamına gelmesi gereken, istemcinin yazdığı bir zaman damgası.
+    function isNow(t) {
+      return t is timestamp &amp;&amp; t &gt; request.time - skew() &amp;&amp; t &lt; request.time + skew();
+    }
+
+    // ---- Doküman şekli -----------------------------------------------------
+
+    function reportKeys() {
+      return [&#x27;species&#x27;, &#x27;need&#x27;, &#x27;lat&#x27;, &#x27;lng&#x27;, &#x27;geohash&#x27;, &#x27;status&#x27;, &#x27;closedReason&#x27;,
+              &#x27;reporterId&#x27;, &#x27;createdAt&#x27;, &#x27;lastSeenAt&#x27;, &#x27;expiresAt&#x27;, &#x27;claimedBy&#x27;,
+              &#x27;claimedAt&#x27;, &#x27;claimExpiresAt&#x27;, &#x27;goneReports&#x27;, &#x27;closedAt&#x27;, &#x27;purgeAt&#x27;];
+    }
+
+    function validShape(d) {
+      return d.keys().hasAll(reportKeys()) &amp;&amp; d.keys().hasOnly(reportKeys())
+        &amp;&amp; d.species in [&#x27;cat&#x27;, &#x27;dog&#x27;, &#x27;bird&#x27;, &#x27;other&#x27;]
+        &amp;&amp; d.need in lifetimeHours()
+        &amp;&amp; d.lat is number &amp;&amp; d.lat &gt;= -90 &amp;&amp; d.lat &lt;= 90
+        &amp;&amp; d.lng is number &amp;&amp; d.lng &gt;= -180 &amp;&amp; d.lng &lt;= 180
+        &amp;&amp; d.geohash is string &amp;&amp; d.geohash.matches(&#x27;^[0-9b-hjkmnp-z]{10}$&#x27;)
+        &amp;&amp; d.status in [&#x27;open&#x27;, &#x27;claimed&#x27;, &#x27;closed&#x27;]
+        &amp;&amp; d.reporterId is string
+        &amp;&amp; d.createdAt is timestamp
+        &amp;&amp; d.lastSeenAt is timestamp
+        &amp;&amp; d.expiresAt is timestamp
+        &amp;&amp; d.goneReports is list &amp;&amp; d.goneReports.size() &lt;= 20
+        &amp;&amp; ((d.claimedBy == null &amp;&amp; d.claimedAt == null &amp;&amp; d.claimExpiresAt == null)
+            || (d.claimedBy is string &amp;&amp; d.claimedAt is timestamp &amp;&amp; d.claimExpiresAt is timestamp))
+        &amp;&amp; (d.status != &#x27;claimed&#x27; || d.claimedBy != null)
+        &amp;&amp; ((d.status == &#x27;closed&#x27;
+              &amp;&amp; d.closedReason in [&#x27;resolved&#x27;, &#x27;gone&#x27;, &#x27;expired&#x27;]
+              &amp;&amp; d.closedAt is timestamp
+              &amp;&amp; d.purgeAt is timestamp)
+            || (d.status != &#x27;closed&#x27;
+              &amp;&amp; d.closedReason == null
+              &amp;&amp; d.closedAt == null
+              &amp;&amp; d.purgeAt == null));
+    }
+
+    // ---- Durum yardımcıları ------------------------------------------------
+
+    function isActive(r) { return r.status in [&#x27;open&#x27;, &#x27;claimed&#x27;]; }
+    function hasLiveClaim(r) { return r.status == &#x27;claimed&#x27; &amp;&amp; r.claimExpiresAt &gt; request.time; }
+    function isClaimer(r) { return hasLiveClaim(r) &amp;&amp; r.claimedBy == me(); }
+    function isReporter(r) { return r.reporterId == me(); }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // Hayvanın kim/ne/nerede bilgisi oluşturulduktan sonra değişmez.
+    function identityUnchanged() {
+      return !changedKeys().hasAny([&#x27;species&#x27;, &#x27;need&#x27;, &#x27;lat&#x27;, &#x27;lng&#x27;, &#x27;geohash&#x27;,
+                                    &#x27;reporterId&#x27;, &#x27;createdAt&#x27;]);
+    }
+
+    function closesAs(reason) {
+      let after = request.resource.data;
+      return after.status == &#x27;closed&#x27;
+        &amp;&amp; after.closedReason == reason
+        &amp;&amp; isNow(after.closedAt)
+        &amp;&amp; after.purgeAt &gt; after.closedAt
+        &amp;&amp; after.purgeAt &lt;= after.closedAt + retention() + rounding();
+    }
+
+    // ---- Oluşturma -------------------------------------------------------
+
+    function validCreate(d) {
+      return validShape(d)
+        &amp;&amp; d.reporterId == me()
+        &amp;&amp; d.status == &#x27;open&#x27;
+        &amp;&amp; d.claimedBy == null
+        &amp;&amp; d.goneReports.size() == 0
+        // Çevrimdışı işaretlenip sonradan senkronlanan kayıtlara izin ver.
+        &amp;&amp; d.createdAt &lt; request.time + skew()
+        &amp;&amp; d.createdAt &gt; request.time - maxBackdate()
+        &amp;&amp; d.lastSeenAt == d.createdAt
+        &amp;&amp; d.expiresAt &gt; d.createdAt
+        &amp;&amp; d.expiresAt &lt;= d.createdAt + lifetime(d.need) + rounding();
+    }
+
+    // ---- Eylemler ----------------------------------------------------------
+
+    // &quot;İlgileniyorum&quot;: açık (ya da sahipliği süresi dolmuş) işareti üstüne al.
+    function isClaim() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return changedKeys().hasOnly([&#x27;status&#x27;, &#x27;claimedBy&#x27;, &#x27;claimedAt&#x27;, &#x27;claimExpiresAt&#x27;, &#x27;expiresAt&#x27;])
+        &amp;&amp; !hasLiveClaim(before)
+        &amp;&amp; after.status == &#x27;claimed&#x27;
+        &amp;&amp; after.claimedBy == me()
+        &amp;&amp; isNow(after.claimedAt)
+        &amp;&amp; after.claimExpiresAt &gt; after.claimedAt
+        &amp;&amp; after.claimExpiresAt &lt;= after.claimedAt + claimDuration() + rounding()
+        // İlgilenilen işaret, sahiplik süresi bitmeden haritadan düşmesin.
+        &amp;&amp; (after.expiresAt == before.expiresAt
+            || (after.expiresAt &gt; before.expiresAt &amp;&amp; after.expiresAt &lt;= after.claimExpiresAt));
+    }
+
+    // &quot;Vazgeç&quot;: yalnızca şu an ilgilenen kişi bırakabilir.
+    function isRelease() {
+      let after = request.resource.data;
+      return changedKeys().hasOnly([&#x27;status&#x27;, &#x27;claimedBy&#x27;, &#x27;claimedAt&#x27;, &#x27;claimExpiresAt&#x27;])
+        &amp;&amp; isClaimer(resource.data)
+        &amp;&amp; after.status == &#x27;open&#x27;
+        &amp;&amp; after.claimedBy == null;
+    }
+
+    // &quot;Çözüldü&quot;: ilgilenen kişi ya da işareti koyan kişi kapatabilir.
+    function isResolve() {
+      return changedKeys().hasOnly([&#x27;status&#x27;, &#x27;closedReason&#x27;, &#x27;closedAt&#x27;, &#x27;purgeAt&#x27;])
+        &amp;&amp; (isClaimer(resource.data) || isReporter(resource.data))
+        &amp;&amp; closesAs(&#x27;resolved&#x27;);
+    }
+
+    // &quot;Hâlâ orada&quot;: herkes işaretin ömrünü ihtiyaca göre uzatabilir (asla kısaltamaz).
+    function isConfirm() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return changedKeys().hasOnly([&#x27;lastSeenAt&#x27;, &#x27;expiresAt&#x27;])
+        &amp;&amp; isNow(after.lastSeenAt)
+        &amp;&amp; after.lastSeenAt &gt; before.lastSeenAt
+        &amp;&amp; (after.expiresAt == before.expiresAt
+            || (after.expiresAt &gt; before.expiresAt
+                &amp;&amp; after.expiresAt &lt;= after.lastSeenAt + lifetime(before.need) + rounding()));
+    }
+
+    // &quot;Artık yok&quot;: her kullanıcı bir kez bildirebilir. 2 farklı kişi, ya da
+    // işareti koyan / şu an ilgilenen kişi bildirirse işaret kapanır.
+    function isGoneReport() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let keys = changedKeys();
+      return !(me() in before.goneReports)
+        &amp;&amp; after.goneReports == before.goneReports.concat([me()])
+        &amp;&amp; (keys.hasOnly([&#x27;goneReports&#x27;])
+            || (keys.hasOnly([&#x27;goneReports&#x27;, &#x27;status&#x27;, &#x27;closedReason&#x27;, &#x27;closedAt&#x27;, &#x27;purgeAt&#x27;])
+                &amp;&amp; closesAs(&#x27;gone&#x27;)
+                &amp;&amp; (after.goneReports.size() &gt;= 2 || isReporter(before) || isClaimer(before))));
+    }
+
+    // &quot;Geri al&quot;: kimse dokunmadıysa işareti koyan kişi silebilir.
+    function canRetract(r) {
+      return isReporter(r) &amp;&amp; r.status == &#x27;open&#x27; &amp;&amp; r.goneReports.size() == 0;
+    }
+
+    // ---- Koleksiyonlar -----------------------------------------------------
+
+    match /reports/{reportId} {
+      allow read: if signedIn();
+      allow create: if signedIn() &amp;&amp; validCreate(request.resource.data);
+      allow update: if signedIn()
+        &amp;&amp; isActive(resource.data)
+        &amp;&amp; validShape(request.resource.data)
+        &amp;&amp; identityUnchanged()
+        &amp;&amp; (isClaim() || isRelease() || isResolve() || isConfirm() || isGoneReport());
+      allow delete: if signedIn() &amp;&amp; canRetract(resource.data);
+    }
+  }
+}
+</pre></details>
+  </section>
+
+  <section class="step" data-step="5">
+    <input type="checkbox" aria-label="Tamamlandı">
+    <h2>5. Web uygulaması ekle</h2>
+    <ol>
+      <li>Aşağıda <b class="k">Uygulamalarınız</b> → <b class="k">&lt;/&gt;</b> (Web) simgesine bas.</li>
+      <li>Takma ad: <b class="k">pati-web</b>. Hosting kutusunu işaretleme. <b class="k">Kaydet</b>.</li>
+      <li>Çıkan <b class="k">firebaseConfig = { … }</b> kısmını kopyalayıp sohbete yapıştır.</li>
+    </ol>
+    <a class="go needs-id" data-path="settings/general" target="_blank" rel="noopener">Proje ayarlarını aç</a>
+    <p class="note">Bu bilgiler gizli değil; her web uygulamasında açıkça bulunur. Veriyi 4. adımdaki kurallar korur.</p>
+  </section>
+</main>
+<script>
+  const store = { get(k) { try { return localStorage.getItem(k); } catch { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch {} } };
+  const pid = document.getElementById("pid");
+  function updateLinks() {
+    const id = pid.value.trim().replace(/[^a-z0-9-]/gi, "");
+    document.querySelectorAll(".needs-id").forEach(a => {
+      if (id) { a.href = `https://console.firebase.google.com/project/${id}/${a.dataset.path}`; a.classList.remove("off"); }
+      else { a.removeAttribute("href"); a.classList.add("off"); a.title = "Önce Proje ID'yi yaz"; }
+    });
+    store.set("pid", id);
+  }
+  pid.value = store.get("pid") || "";
+  pid.addEventListener("input", updateLinks);
+  updateLinks();
+  document.querySelectorAll(".step").forEach(s => {
+    const cb = s.querySelector("input[type=checkbox]"), key = "step" + s.dataset.step;
+    cb.checked = store.get(key) === "1"; s.classList.toggle("done", cb.checked);
+    cb.addEventListener("change", () => { s.classList.toggle("done", cb.checked); store.set(key, cb.checked ? "1" : "0"); });
+  });
+  document.getElementById("copyRules").addEventListener("click", async (e) => {
+    const text = document.getElementById("rules").textContent, btn = e.currentTarget;
+    try { await navigator.clipboard.writeText(text); btn.textContent = "Kopyalandı ✓"; }
+    catch {
+      const d = btn.closest(".step").querySelector("details"); d.open = true;
+      const r = document.createRange(); r.selectNodeContents(document.getElementById("rules"));
+      const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      btn.textContent = "Metin seçildi, Ctrl/Cmd + C ile kopyala";
+    }
+  });
+</script>
+</body>
+</html>

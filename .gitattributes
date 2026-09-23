@@ -1,0 +1,4 @@
+# Depo her platformda LF satır sonu kullanır (iOS tarafı macOS’ta açılır).
+* text=auto eol=lf
+*.png binary
+*.jar binary

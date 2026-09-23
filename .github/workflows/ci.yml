@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  firebase:
+    name: Firebase kuralları ve fonksiyonlar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            firebase/package-lock.json
+            firebase/functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Bağımlılıklar
+        run: |
+          npm ci --prefix firebase
+          npm ci --prefix firebase/functions
+      - name: Fonksiyonlar tip kontrolü
+        run: npm run typecheck --prefix firebase/functions
+      - name: Testler (Firestore emülatörü)
+        working-directory: firebase
+        run: npm test
+
+  animalkit:
+    name: AnimalKit (Swift)
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: swift test
+        working-directory: ios/Packages/AnimalKit
+        run: swift test
+
+  ios-app:
+    name: iOS uygulaması derlemesi
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      - name: Xcode projesini üret
+        working-directory: ios
+        run: |
+          brew install xcodegen
+          xcodegen
+      - name: Derle (simülatör, imzasız)
+        working-directory: ios
+        run: |
+          xcodebuild build \
+            -project PatiHarita.xcodeproj \
+            -scheme PatiHarita \
+            -destination 'generic/platform=iOS Simulator' \
+            -skipPackagePluginValidation \
+            CODE_SIGNING_ALLOWED=NO

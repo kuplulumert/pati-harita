@@ -1,0 +1,22 @@
+# macOS / Xcode
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.build/
+.swiftpm/
+# XcodeGen üretir; project.yml kaynaktır
+ios/*.xcodeproj
+ios/*.xcworkspace
+
+# Gizli yapılandırma — asla commit etmeyin
+ios/Config/Secrets.xcconfig
+ios/PatiHarita/GoogleService-Info.plist
+
+# Node / Firebase
+node_modules/
+firebase/functions/lib/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
+.firebase/
