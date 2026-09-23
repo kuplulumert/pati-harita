@@ -38,7 +38,9 @@ final class AppEnvironment {
     static func bootstrap(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppEnvironment {
         let mapsKey = (Bundle.main.object(forInfoDictionaryKey: "GMSApiKey") as? String)?
             .trimmingCharacters(in: .whitespaces) ?? ""
-        _ = GMSServices.provideAPIKey(mapsKey)
+        // Boş anahtar SDK'yı başlatmaz ve ilk GMSMapView GMSServicesException ile çöker.
+        // Anahtar yoksa yer tutucuyla başlatılır: harita zemini yüklenmez ama uygulama açılır.
+        _ = GMSServices.provideAPIKey(mapsKey.isEmpty ? "missing-api-key" : mapsKey)
         let mapsWarning = mapsKey.isEmpty ? "Google Maps API anahtarı eksik: ios/Config/Secrets.xcconfig" : nil
 
         if arguments.contains("-useEmulator") {

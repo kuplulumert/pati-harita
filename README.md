@@ -108,6 +108,18 @@ Simülatörün varsayılan konumu Kadıköy'dür (`ios/Kadikoy.gpx`).
 
 Google Maps anahtarı: Google Cloud Console → *Maps SDK for iOS*'i etkinleştirin → API anahtarı oluşturup iOS uygulaması (`app.patiharita.ios`) ile kısıtlayın.
 
+### Mac olmadan: tarayıcıda simülatör
+
+CI her push'ta uygulamanın simülatör paketini üretir ve uygulamayı simülatörde açıp ekran görüntüsü alır.
+
+1. GitHub → **Actions** → son çalışma → *Artifacts* altından `PatiHarita-simulator`'ı indirin. İçinden `PatiHarita-simulator.zip` çıkar.
+2. [appetize.io](https://appetize.io)'da hesap açıp bu zip'i yükleyin (iOS). Uygulama tarayıcıda bir iPhone simülatöründe açılır.
+3. Konum: Appetize'ın ayarlarından konumu değiştirebilirsiniz; demo modu bakılan bölgeye örnek işaretler koyar.
+
+Google Maps anahtarı yoksa harita zemini boş görünür, akış yine denenebilir. Anahtarı depo ayarlarında
+**Secrets → Actions → `GOOGLE_MAPS_API_KEY`** olarak tanımlayınca sonraki derlemelere girer.
+Açılış ekran görüntüsü aynı çalışmada `simulator-screenshot` artifact'ındadır.
+
 ### 2. Yerel Firebase emülatörleriyle
 
 ```bash
