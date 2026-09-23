@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "demo-patiharita"
+    "default": "pati-harita-44d50",
+    "demo": "demo-patiharita"
   }
 }
