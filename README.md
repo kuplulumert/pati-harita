@@ -147,5 +147,6 @@ GitHub Actions her push'ta Firebase testlerini, AnimalKit testlerini ve iOS uygu
 - **Yakındakilere bildirim**: acil/yaralı işaretlerde, kaba konumuna (geohash-5) abone olan kullanıcılara FCM ile bildirim.
 - **Kümeleme**: yoğun bölgelerde işaretleri Google Maps Utils ile gruplamak.
 - **Kötüye kullanıma karşı**: App Check'i zorunlu kılmak, kullanıcı başına hız sınırı, "yanlış işaret" bildirimi.
-- Uygulama simgesi, tek ekranlık ilk açılış, karanlık harita stili, VoiceOver ince ayarları.
+- Gizlilik politikasını ([taslak](docs/gizlilik-politikasi.md)) tamamlayıp herkese açık bir adreste yayımlamak (App Store ister).
+- Tek ekranlık ilk açılış, karanlık harita stili, VoiceOver ince ayarları. (Simgenin kaynağı: [docs/app-icon.svg](docs/app-icon.svg))
 - Android / web istemcisi (aynı Firestore kuralları ve `shared/` sözleşmesiyle).
