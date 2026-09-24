@@ -20,7 +20,7 @@ workflows:
         BUNDLE_ID: app.patiharita.ios
         # App Store Connect'teki sayısal Apple ID (appstoreconnect.apple.com/apps/<bu>/...).
         # get-latest-build-number paket kimliğini değil bunu ister.
-        APP_STORE_CONNECT_APP_ID: "APP_ID_HENUZ_YOK"
+        APP_STORE_CONNECT_APP_ID: "6815833939"
       xcode: latest
     # Her push'ta değil: TestFlight'a gönderim bilinçli olsun ve Codemagic dakikaları (ayda 500) harcanmasın.
     # Göndermek için: git tag v0.1.0 && git push origin v0.1.0  (ya da Codemagic'te "Start new build").
