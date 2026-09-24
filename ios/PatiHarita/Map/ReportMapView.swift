@@ -80,6 +80,8 @@ struct ReportMapView: UIViewRepresentable {
             mapView.isPitchEnabled = false
             mapView.showsCompass = false
             mapView.insetsLayoutMarginsFromSafeArea = false
+            // Kullanıcının konum noktası mavi kalsın (uygulamanın koyu vurgu rengini almasın).
+            mapView.tintColor = .systemBlue
 
             // Sade harita: işletme ve ulaşım simgeleri gizlenir ki yardım işaretleri öne çıksın.
             let configuration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .muted)
@@ -157,7 +159,10 @@ struct ReportMapView: UIViewRepresentable {
                 size: size
             )
             cameraInFlight = (target, zoom)
-            mapView.setVisibleMapRect(rect, edgePadding: insets, animated: animated)
+            // Dolgu burada verilmez: MapKit `layoutMargins`'i (= insets) bölge hesabına kendisi ekler.
+            // `edgePadding: insets` ile birlikte dolgu iki kez sayılıyordu (CI ekran görüntülerinde iğne
+            // hedefin ~100 nokta altında kalıyor, harita panel büyüdükçe uzaklaşıyordu).
+            mapView.setVisibleMapRect(rect, animated: animated)
         }
 
         private func visibleCenter(of mapView: MKMapView, insets: UIEdgeInsets) -> CLLocationCoordinate2D {
@@ -317,8 +322,11 @@ struct ReportMapView: UIViewRepresentable {
 
                 // Yarıçap dolgulardan bağımsız ölçülür: panel açılıp kapanınca "çok uzak" sınırı oynamasın
                 // (aksi hâlde sınırın hemen ötesinde kart açılıp kapanarak döngüye girebiliyordu).
-                let boundsCenter = MKMapPoint(mapView.centerCoordinate)
+                // `centerCoordinate` değil: MapKit onu da `layoutMargins`'e göre hesaplar.
                 let bounds = mapView.bounds
+                let boundsCenter = MKMapPoint(
+                    mapView.convert(CGPoint(x: bounds.midX, y: bounds.midY), toCoordinateFrom: mapView)
+                )
                 let corners = [
                     CGPoint(x: bounds.minX, y: bounds.minY),
                     CGPoint(x: bounds.maxX, y: bounds.minY),

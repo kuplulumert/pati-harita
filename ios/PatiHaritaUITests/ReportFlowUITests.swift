@@ -42,6 +42,17 @@ final class ReportFlowUITests: XCTestCase {
             .matching(NSPredicate(format: "identifier == %@ AND label == %@", "report-marker", "Mama / su, Kedi"))
             .firstMatch
         XCTAssertTrue(marker.waitForExistence(timeout: 10), "Yeni işaret haritada bulunamadı")
+
+        // İşaret iğnenin gösterdiği yere koyuldu mu: kamera hedefi görünen alanın (üst çubuk ile alt
+        // düğmeler arası) ortasındadır, yeni işaretin ucu da tam orada olmalı. Kenar boşlukları iki kez
+        // sayıldığında bu kayma ~20 nokta oluyordu.
+        sleep(1)
+        let chip = app.staticTexts.element(labelContaining: "Demo modu")
+        XCTAssertTrue(chip.exists, "Üst durum etiketi bulunamadı")
+        let visibleCenterY = (chip.frame.minY + reportButton.frame.minY) / 2
+        XCTAssertEqual(marker.frame.maxY, visibleCenterY, accuracy: 12, "Yeni işaret görünen alanın ortasında değil")
+        XCTAssertEqual(marker.frame.midX, app.frame.midX, accuracy: 12, "Yeni işaret yatayda ortada değil")
+
         marker.tap()
         let claim = app.buttons.element(labelContaining: "İlgileniyorum")
         XCTAssertTrue(claim.waitForExistence(timeout: 5), "İşarete dokununca kart açılmadı")
