@@ -61,9 +61,6 @@ jobs:
           xcodegen
       - name: Derle (simülatör, imzasız)
         working-directory: ios
-        env:
-          # Tanımlı değilse boş kalır; uygulama harita zemini olmadan demo modunda açılır.
-          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
         run: |
           xcodebuild build \
             -project PatiHarita.xcodeproj \
@@ -73,8 +70,7 @@ jobs:
             -derivedDataPath build \
             -skipPackagePluginValidation \
             ONLY_ACTIVE_ARCH=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            GOOGLE_MAPS_API_KEY="$GOOGLE_MAPS_API_KEY"
+            CODE_SIGNING_ALLOWED=NO
       - name: Simülatör paketi
         working-directory: ios/build/Build/Products/Release-iphonesimulator
         run: |
@@ -92,6 +88,7 @@ jobs:
           runtimes = sorted((r for r in devices if ".iOS-" in r), key=version, reverse=True)
           print(next(d["udid"] for r in runtimes for d in devices[r] if d["name"].startswith("iPhone")))
           ')
+          echo "SIMULATOR_UDID=$UDID" >> "$GITHUB_ENV"
           xcrun simctl boot "$UDID"
           xcrun simctl bootstatus "$UDID" -b
           xcrun simctl status_bar "$UDID" override --time 9:41 || true
@@ -110,10 +107,31 @@ jobs:
             tail -50 smoke/log.txt
             exit 1
           fi
+      - name: Arayüz testi (demo akışı, adım adım ekran görüntüsü)
+        working-directory: ios
+        env:
+          # TEST_RUNNER_ önekli değişkenler test sürecine öneksiz geçer (SCREENSHOT_DIR).
+          TEST_RUNNER_SCREENSHOT_DIR: ${{ github.workspace }}/smoke/ui
+        run: |
+          set -o pipefail
+          # Aynı ayarlar: derleme adımının çıktısı yeniden kullanılır, yalnızca test hedefi derlenir.
+          xcodebuild test \
+            -project PatiHarita.xcodeproj \
+            -scheme PatiHarita \
+            -configuration Release \
+            -destination "id=$SIMULATOR_UDID" \
+            -derivedDataPath build \
+            -resultBundlePath "$GITHUB_WORKSPACE/UITests.xcresult" \
+            -only-testing:PatiHaritaUITests \
+            -enableCodeCoverage NO \
+            -skipPackagePluginValidation \
+            ONLY_ACTIVE_ARCH=NO
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: PatiHarita-simulator
           path: PatiHarita-simulator.zip
+          if-no-files-found: ignore
           retention-days: 30
       - uses: actions/upload-artifact@v4
         if: always()
@@ -122,3 +140,10 @@ jobs:
           path: smoke/
           if-no-files-found: ignore
           retention-days: 30
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ui-test-result
+          path: UITests.xcresult
+          if-no-files-found: ignore
+          retention-days: 14

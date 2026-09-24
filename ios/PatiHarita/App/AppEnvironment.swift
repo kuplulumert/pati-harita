@@ -4,7 +4,6 @@ import FirebaseAuth
 import FirebaseCore
 import FirebaseFirestore
 import Foundation
-import GoogleMaps
 
 /// Uygulamanın bağımlılıkları. Açılışta bir kez kurulur.
 ///
@@ -24,7 +23,7 @@ final class AppEnvironment {
     let repository: ReportRepository
     let session: UserSession
     let location: LocationProvider
-    /// Geliştiriciye gösterilecek kurulum uyarısı (eksik anahtar vb.).
+    /// Geliştiriciye gösterilecek kurulum uyarısı (ör. demo modu).
     let setupWarning: String?
 
     init(backend: Backend, repository: ReportRepository, session: UserSession, location: LocationProvider, setupWarning: String?) {
@@ -36,16 +35,9 @@ final class AppEnvironment {
     }
 
     static func bootstrap(arguments: [String] = ProcessInfo.processInfo.arguments) -> AppEnvironment {
-        let mapsKey = (Bundle.main.object(forInfoDictionaryKey: "GMSApiKey") as? String)?
-            .trimmingCharacters(in: .whitespaces) ?? ""
-        // Boş anahtar SDK'yı başlatmaz ve ilk GMSMapView GMSServicesException ile çöker.
-        // Anahtar yoksa yer tutucuyla başlatılır: harita zemini yüklenmez ama uygulama açılır.
-        _ = GMSServices.provideAPIKey(mapsKey.isEmpty ? "missing-api-key" : mapsKey)
-        let mapsWarning = mapsKey.isEmpty ? "Google Maps API anahtarı eksik: ios/Config/Secrets.xcconfig" : nil
-
         if arguments.contains("-useEmulator") {
             configureFirebaseForEmulator()
-            return firebaseEnvironment(backend: .emulator, warning: mapsWarning)
+            return firebaseEnvironment(backend: .emulator)
         }
 
         let hasFirebaseConfig = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil
@@ -56,7 +48,7 @@ final class AppEnvironment {
                 repository: DemoReportRepository(),
                 session: UserSession(userID: DemoReportRepository.demoUserID) { DemoReportRepository.demoUserID },
                 location: LocationProvider(),
-                setupWarning: mapsWarning ?? demoWarning
+                setupWarning: demoWarning
             )
         }
 
@@ -66,10 +58,10 @@ final class AppEnvironment {
         AppCheck.setAppCheckProviderFactory(DeviceCheckProviderFactory())
         #endif
         FirebaseApp.configure()
-        return firebaseEnvironment(backend: .firebase, warning: mapsWarning)
+        return firebaseEnvironment(backend: .firebase)
     }
 
-    private static func firebaseEnvironment(backend: Backend, warning: String?) -> AppEnvironment {
+    private static func firebaseEnvironment(backend: Backend) -> AppEnvironment {
         let auth = Auth.auth()
         return AppEnvironment(
             backend: backend,
@@ -79,7 +71,7 @@ final class AppEnvironment {
                 try await auth.signInAnonymously().user.uid
             },
             location: LocationProvider(),
-            setupWarning: warning
+            setupWarning: nil
         )
     }
 

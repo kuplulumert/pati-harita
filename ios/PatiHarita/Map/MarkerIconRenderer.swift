@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 
-/// `MarkerPin` görünümünü GMSMarker için bitmap'e çevirir. Olası görünüm sayısı az
+/// `MarkerPin` görünümünü harita işareti (`MKAnnotationView`) için bitmap'e çevirir. Olası görünüm sayısı az
 /// (7 ihtiyaç × 4 tür × durum) olduğundan her biri bir kez çizilip önbellekte tutulur.
 final class MarkerIconRenderer {
     private var cache: [MarkerStyle: UIImage] = [:]

@@ -6,8 +6,8 @@ Her teknik karar tek bir hedefe göre verildi: **sokakta, telefon elde, birkaç 
 ```
  iOS (SwiftUI)                                   Firebase
 ┌─────────────────────────────────┐            ┌──────────────────────────────────────┐
-│ MapScreen ── GoogleMapView      │            │ Firestore: reports/{id}              │
-│     │        (GMSMapView)       │  canlı     │   Güvenlik kuralları = durum makinesi│
+│ MapScreen ── ReportMapView      │            │ Firestore: reports/{id}              │
+│     │        (MKMapView)        │  canlı     │   Güvenlik kuralları = durum makinesi│
 │ MapViewModel ─ ReportRepository ├◀─dinleme───┤                                      │
 │     │          (Firestore/Demo) ├──yazma────▶│ Cloud Function (10 dk'da bir)        │
 │ AnimalKit (saf Swift)           │            │   süresi dolanları kapatır           │
@@ -27,8 +27,9 @@ Her teknik karar tek bir hedefe göre verildi: **sokakta, telefon elde, birkaç 
   ekler ve çevrimdışı çalışmaz. Kurallar aynı güvenceyi (geçerli durum geçişleri) gecikmesiz sağlar.
 - **Anonim oturum**: kullanıcıdan hiçbir şey istenmez. Kimlik yalnızca "işareti kim koydu / kim ilgileniyor"
   ayrımı içindir; ileride hesap bağlama (Apple ile giriş) aynı kimliği korur.
-- **Google Maps SDK**: istenen harita sağlayıcısı. SwiftUI'da `UIViewRepresentable` ile sarılır.
-  (MapKit'e geçmek gerekirse yalnızca `GoogleMapView.swift` değişir.)
+- **Apple Haritalar (MapKit)**: iOS'ta yerleşik; API anahtarı, faturalandırma hesabı ve ek SDK gerekmez.
+  SwiftUI'da `UIViewRepresentable` ile sarılır; harita sağlayıcısı değişirse yalnızca `ReportMapView.swift` değişir.
+  Yakınlaştırma web haritası ölçeğindedir (`CameraRequest.zoom`), kamera hedefi alt panelin üstünde kalan alanın ortasıdır.
 - **AnimalKit paketi**: tüm iş kuralları ağdan ve arayüzden bağımsızdır, `swift test` ile saniyeler içinde test edilir.
   Firestore kuralları aynı kuralların sunucu karşılığıdır.
 

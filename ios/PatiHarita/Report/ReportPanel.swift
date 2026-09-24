@@ -66,6 +66,8 @@ struct ReportPanel: View {
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
                 .buttonStyle(PressableStyle())
+                // Arayüz testi için: etiket haritadaki işaretlerle ("Yaralı / hasta, Kedi") karışmasın.
+                .accessibilityIdentifier("species-\(species.rawValue)")
             }
         }
     }
@@ -92,6 +94,7 @@ struct ReportPanel: View {
                 .background(Need.emergency.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             }
             .buttonStyle(PressableStyle())
+            .accessibilityIdentifier("need-\(Need.emergency.rawValue)")
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                 ForEach(Need.allCases.filter { $0 != .emergency }) { need in
@@ -113,6 +116,7 @@ struct ReportPanel: View {
                         .background(need.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
                     .buttonStyle(PressableStyle())
+                    .accessibilityIdentifier("need-\(need.rawValue)")
                 }
             }
         }

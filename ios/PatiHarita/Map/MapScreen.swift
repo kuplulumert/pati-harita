@@ -56,7 +56,7 @@ struct MapScreen: View {
     // MARK: Harita
 
     private func map(safeArea: EdgeInsets) -> some View {
-        GoogleMapView(
+        ReportMapView(
             reports: viewModel.visibleReports,
             selectedID: viewModel.selectedReportID,
             userID: viewModel.userID,

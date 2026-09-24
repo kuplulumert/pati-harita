@@ -42,13 +42,13 @@ reklam, analitik ya da izleme (tracking) aracı içermez.
 
 ## Hizmet sağlayıcılar
 
-Veriler Google'ın altyapısında işlenir:
+Veriler aşağıdaki hizmet sağlayıcıların altyapısında işlenir:
 
 - **Firebase (Google LLC)**: veritabanı (Cloud Firestore, [bölge: ör. Avrupa / eur3]), anonim oturum
   (Firebase Authentication) ve App Check. Firebase, hizmeti sunmak için IP adresi gibi teknik verileri işleyebilir.
   Ayrıntılar: https://firebase.google.com/support/privacy
-- **Google Maps SDK for iOS (Google LLC)**: harita görüntüleri. Google'ın gizlilik politikası:
-  https://policies.google.com/privacy
+- **Apple Haritalar (MapKit)**: harita görüntüleri ve yol tarifi. Apple'ın gizlilik politikası:
+  https://www.apple.com/legal/privacy/
 - **Apple DeviceCheck**: cihaz bütünlüğü doğrulaması.
 
 ## Haklarınız

@@ -12,7 +12,7 @@ struct MarkerStyle: Hashable {
 /// Harita işareti: renk + simge ihtiyacı, köşedeki emoji türü, sol üstteki rozet
 /// birinin ilgilendiğini gösterir. Acil işaretler daha büyük ve haleli çizilir.
 ///
-/// Görünümün alt-orta noktası iğnenin ucudur (GMSMarker.groundAnchor = 0.5, 1).
+/// Görünümün alt-orta noktası iğnenin ucudur (`ReportMapView` işareti bu noktadan konumlar).
 struct MarkerPin: View {
     let style: MarkerStyle
 

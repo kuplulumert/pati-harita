@@ -22,9 +22,6 @@ settings:
 packages:
   AnimalKit:
     path: Packages/AnimalKit
-  GoogleMaps:
-    url: https://github.com/googlemaps/ios-maps-sdk
-    from: "11.0.0"
   Firebase:
     url: https://github.com/firebase/firebase-ios-sdk
     from: "12.0.0"
@@ -51,8 +48,6 @@ targets:
         OTHER_LDFLAGS: ["$(inherited)", "-ObjC"]
     dependencies:
       - package: AnimalKit
-      - package: GoogleMaps
-        product: GoogleMaps
       - package: Firebase
         product: FirebaseCore
       - package: Firebase
@@ -61,6 +56,21 @@ targets:
         product: FirebaseFirestore
       - package: Firebase
         product: FirebaseAppCheck
+
+  # Ana akışı demo modunda simülatörde gerçek dokunuşlarla dener (CI her push'ta çalıştırır).
+  PatiHaritaUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PatiHaritaUITests
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.patiharita.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "1"
+        TEST_TARGET_NAME: PatiHarita
+    dependencies:
+      - target: PatiHarita
 
 schemes:
   PatiHarita:
@@ -76,10 +86,12 @@ schemes:
       simulateLocation:
         allow: true
         defaultLocation: Kadikoy.gpx
+    # AnimalKit testleri burada değil: CI'da `swift test` ile ayrı çalışır; yerelde Packages/AnimalKit'i
+    # Xcode'da açıp Cmd+U. Şemaya eklenirse CI'daki Release UI testi `@testable import` yüzünden derlenmez.
     test:
       config: Debug
-      gatherCoverageData: true
+      gatherCoverageData: false
       targets:
-        - package: AnimalKit/AnimalKitTests
+        - PatiHaritaUITests
     archive:
       config: Release

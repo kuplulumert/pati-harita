@@ -7,7 +7,7 @@ Sosyal medya ya da ilan uygulaması değil; tek ekranı olan, birkaç saniyede k
 
 ## Kullanıcı deneyimi
 
-**Ana ekran doğrudan haritadır** (Google Maps). Üstte "3 hayvan yardım bekliyor" gibi canlı bir durum etiketi, altta tek büyük düğme: **Hayvan gördüm**.
+**Ana ekran doğrudan haritadır** (Apple Haritalar). Üstte "3 hayvan yardım bekliyor" gibi canlı bir durum etiketi, altta tek büyük düğme: **Hayvan gördüm**.
 
 ### İşaretleme: 3 dokunuş, birkaç saniye
 
@@ -56,7 +56,7 @@ Altında duruma göre değişen düğmeler:
 
 | Katman | Seçim | Neden |
 | --- | --- | --- |
-| iOS | SwiftUI (iOS 17+), Google Maps SDK | Tek ekran, akıcı harita; istenen Google Maps |
+| iOS | SwiftUI (iOS 17+), MapKit (Apple Haritalar) | Tek ekran, akıcı harita; API anahtarı ve ücret yok |
 | Alan mantığı | `AnimalKit` Swift paketi | Durum makinesi, geohash ve biçimlendirme ağdan bağımsız ve test edilebilir |
 | Veri | Cloud Firestore | Canlı dinleme (harita kendiliğinden güncellenir), çevrimdışı yazma, sunucu yönetmeye gerek yok |
 | Kimlik | Firebase anonim oturum | Kayıt/giriş yok; yalnızca "kim koydu, kim ilgileniyor" ayrımı için |
@@ -71,11 +71,11 @@ Ayrıntılar: [docs/architecture.md](docs/architecture.md)
 ```
 ios/
   project.yml                 XcodeGen tanımı (Xcode projesi buradan üretilir)
-  Config/                     xcconfig; API anahtarı Secrets.xcconfig'ta (git'e girmez)
+  Config/                     xcconfig; kişisel ayarlar Secrets.xcconfig'ta (git'e girmez)
   PatiHarita/                 SwiftUI uygulaması
     App/                      açılış, oturum, konum
     Data/                     Firestore ve demo veri kaynakları
-    Map/                      harita ekranı, Google Maps köprüsü, view model
+    Map/                      harita ekranı, Apple Haritalar (MapKit) köprüsü, view model
     Report/                   işaretleme paneli, işaret kartı, açıklama ekranı
     Design/                   işaret görünümü ve renkler
   Packages/AnimalKit/         saf alan mantığı + testleri
@@ -98,15 +98,14 @@ Gerekenler: Xcode 16.3+, [XcodeGen](https://github.com/yonaskolb/XcodeGen) (`bre
 
 ```bash
 cd ios
-cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig   # Google Maps API anahtarını yazın
 xcodegen
 open PatiHarita.xcodeproj
 ```
 
 `GoogleService-Info.plist` yoksa uygulama **demo modunda** açılır: çevrede örnek işaretler görünür, tüm akış denenebilir, veriler yalnızca cihazdadır.
-Simülatörün varsayılan konumu Kadıköy'dür (`ios/Kadikoy.gpx`).
+Simülatörün varsayılan konumu Kadıköy'dür (`ios/Kadikoy.gpx`). Harita Apple Haritalar'dır; API anahtarı gerekmez.
 
-Google Maps anahtarı: Google Cloud Console → *Maps SDK for iOS*'i etkinleştirin → API anahtarı oluşturup iOS uygulaması (`app.patiharita.ios`) ile kısıtlayın.
+Kendi iPhone'unuzda çalıştırmak için `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig` ile Apple Developer ekip kimliğinizi (`DEVELOPMENT_TEAM`) yazın.
 
 ### Mac olmadan: tarayıcıda simülatör
 
@@ -116,8 +115,6 @@ CI her push'ta uygulamanın simülatör paketini üretir ve uygulamayı simülat
 2. [appetize.io](https://appetize.io)'da hesap açıp bu zip'i yükleyin (iOS). Uygulama tarayıcıda bir iPhone simülatöründe açılır.
 3. Konum: Appetize'ın ayarlarından konumu değiştirebilirsiniz; demo modu bakılan bölgeye örnek işaretler koyar.
 
-Google Maps anahtarı yoksa harita zemini boş görünür, akış yine denenebilir. Anahtarı depo ayarlarında
-**Secrets → Actions → `GOOGLE_MAPS_API_KEY`** olarak tanımlayınca sonraki derlemelere girer.
 Açılış ekran görüntüsü aynı çalışmada `simulator-screenshot` artifact'ındadır.
 
 ### 2. Yerel Firebase emülatörleriyle
@@ -149,15 +146,18 @@ Xcode'da *Edit Scheme → Run → Arguments* altında `-useEmulator`'ı işaretl
 ```bash
 cd firebase && npm test                          # 43 test: kurallar, temizlik fonksiyonu, geohash referansları
 cd ios/Packages/AnimalKit && swift test          # durum makinesi, geohash, sözleşme, biçimlendirme
+# Xcode'da PatiHarita şeması → Cmd+U                # arayüz testi (PatiHaritaUITests): demo akışı simülatörde
 ```
 
 `shared/` altındaki dosyalar iki tarafı birbirine bağlar: iOS ile Firestore kuralları aynı süreleri ve kuralları kullanmazsa testler başarısız olur.
 GitHub Actions her push'ta Firebase testlerini, AnimalKit testlerini ve iOS uygulamasının derlemesini çalıştırır (`.github/workflows/ci.yml`).
+Ardından uygulamayı simülatörde açar ve arayüz testiyle ana akışı gerçek dokunuşlarla dener: işaret koyma, işarete dokunma,
+"İlgileniyorum", uzun basma. Her adımın ekran görüntüsü çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü).
 
 ## Sonraki adımlar
 
 - **Yakındakilere bildirim**: acil/yaralı işaretlerde, kaba konumuna (geohash-5) abone olan kullanıcılara FCM ile bildirim.
-- **Kümeleme**: yoğun bölgelerde işaretleri Google Maps Utils ile gruplamak.
+- **Kümeleme**: yoğun bölgelerde işaretleri MapKit'in yerleşik kümelemesiyle (`MKClusterAnnotation`) gruplamak.
 - **Kötüye kullanıma karşı**: App Check'i zorunlu kılmak, kullanıcı başına hız sınırı, "yanlış işaret" bildirimi.
 - Gizlilik politikasını ([taslak](docs/gizlilik-politikasi.md)) tamamlayıp herkese açık bir adreste yayımlamak (App Store ister).
 - Tek ekranlık ilk açılış, karanlık harita stili, VoiceOver ince ayarları. (Simgenin kaynağı: [docs/app-icon.svg](docs/app-icon.svg))

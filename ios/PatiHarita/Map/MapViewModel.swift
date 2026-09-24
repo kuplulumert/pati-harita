@@ -152,6 +152,8 @@ final class MapViewModel {
             subscription = nil
             subscribedArea = nil
             reports = []
+            // İşaretler kalkınca kart da kapanır; yeniden yakınlaşınca kendiliğinden açılmasın.
+            selectedReportID = nil
             return
         }
         if let subscribed = subscribedArea,
@@ -240,7 +242,8 @@ final class MapViewModel {
 
     func directionsURL(for report: Report) -> URL? {
         let destination = "\(report.coordinate.latitude),\(report.coordinate.longitude)"
-        return URL(string: "https://www.google.com/maps/dir/?api=1&destination=\(destination)&travelmode=walking")
+        // Apple Haritalar'da yürüyerek yol tarifi.
+        return URL(string: "https://maps.apple.com/?daddr=\(destination)&dirflg=w")
     }
 
     private static func confirmation(for action: ReportAction) -> String {
