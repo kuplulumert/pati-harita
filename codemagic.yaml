@@ -1,0 +1,95 @@
+workflows:
+  ios-testflight:
+    name: iOS TestFlight
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    integrations:
+      # Codemagic → Teams → Integrations → Developer Portal'daki App Store Connect API anahtarı
+      # (Chess ile aynı). Admin yetkisi gerekir: ilk derlemede dağıtım sertifikası/profili oluşturulur.
+      app_store_connect: codemagic-admin
+    environment:
+      groups:
+        # CERTIFICATE_PRIVATE_KEY (gizli): dağıtım sertifikasının özel anahtarı. Bu uygulamanın
+        # Environment variables ayarında "ios_signing" grubuna eklenir.
+        # İsteğe bağlı GOOGLE_SERVICE_INFO_PLIST (gizli, base64): varsa uygulama gerçek Firebase'e
+        # bağlanır; yoksa TestFlight derlemesi demo modunda açılır.
+        - ios_signing
+      vars:
+        XCODE_PROJECT: "ios/PatiHarita.xcodeproj"
+        XCODE_SCHEME: "PatiHarita"
+        BUNDLE_ID: app.patiharita.ios
+        # App Store Connect'teki sayısal Apple ID (appstoreconnect.apple.com/apps/<bu>/...).
+        # get-latest-build-number paket kimliğini değil bunu ister.
+        APP_STORE_CONNECT_APP_ID: "APP_ID_HENUZ_YOK"
+      xcode: latest
+    # Her push'ta değil: TestFlight'a gönderim bilinçli olsun ve Codemagic dakikaları (ayda 500) harcanmasın.
+    # Göndermek için: git tag v0.1.0 && git push origin v0.1.0  (ya da Codemagic'te "Start new build").
+    triggering:
+      events:
+        - tag
+      tag_patterns:
+        - pattern: "v*"
+          include: true
+    scripts:
+      - name: Ayarları denetle
+        script: |
+          if [ "$APP_STORE_CONNECT_APP_ID" = "APP_ID_HENUZ_YOK" ]; then
+            echo "codemagic.yaml: APP_STORE_CONNECT_APP_ID doldurulmadı (App Store Connect'te uygulamayı oluşturun)."
+            exit 1
+          fi
+          if [ -z "${CERTIFICATE_PRIVATE_KEY:-}" ]; then
+            echo "CERTIFICATE_PRIVATE_KEY yok: Codemagic'te bu uygulamaya ios_signing grubunu ekleyin."
+            exit 1
+          fi
+      - name: Firebase yapılandırması (isteğe bağlı)
+        script: |
+          # Codemagic adımları ilk hatada durmaz; bozuk bir plist uygulamayı açılışta çökertirdi.
+          set -euo pipefail
+          if [ -n "${GOOGLE_SERVICE_INFO_PLIST:-}" ]; then
+            echo "$GOOGLE_SERVICE_INFO_PLIST" | base64 --decode > ios/PatiHarita/GoogleService-Info.plist
+            plutil -lint ios/PatiHarita/GoogleService-Info.plist
+            echo "Gerçek Firebase projesine bağlanacak."
+          else
+            echo "GOOGLE_SERVICE_INFO_PLIST yok: uygulama demo modunda açılacak."
+          fi
+      - name: Derleme numarası (TestFlight'taki en yüksek + 1)
+        script: |
+          set -euo pipefail
+          # Hiç derleme yoksa komut boş döner (hata değil); gerçek hatalarda (yanlış ID, yetki) durur.
+          LATEST=$(app-store-connect get-latest-build-number "$APP_STORE_CONNECT_APP_ID" --platform IOS --all-versions)
+          NEXT=$(( ${LATEST:-0} + 1 ))
+          echo "Önceki derleme: ${LATEST:-yok} → bu derleme: $NEXT"
+          # Xcode projesi project.yml'den üretildiği için numara oraya yazılır.
+          sed -i '' "s/CURRENT_PROJECT_VERSION: \"[0-9]*\"/CURRENT_PROJECT_VERSION: \"$NEXT\"/" ios/project.yml
+          grep -q "CURRENT_PROJECT_VERSION: \"$NEXT\"" ios/project.yml
+      - name: Xcode projesini üret
+        script: |
+          brew install xcodegen
+          cd ios && xcodegen
+      - name: iOS imzalama
+        script: |
+          # İmza dosyaları alınamazsa burada dursun (yoksa build-ipa'da ilgisiz görünen bir hatayla düşer).
+          set -euo pipefail
+          keychain initialize
+          # İlk derlemede bu paket kimliği için App Store profili (ve gerekirse sertifika) oluşturulur;
+          # sonrakilerde var olanlar kullanılır. Sabit CERTIFICATE_PRIVATE_KEY her derlemede aynı
+          # sertifikayı kullandırır (Apple en fazla 3 dağıtım sertifikasına izin verir).
+          app-store-connect fetch-signing-files "$BUNDLE_ID" --platform IOS --type IOS_APP_STORE --certificate-key=@env:CERTIFICATE_PRIVATE_KEY --create
+          keychain add-certificates
+          xcode-project use-profiles --project "$XCODE_PROJECT"
+      - name: .ipa derle
+        script: |
+          xcode-project build-ipa \
+            --project "$XCODE_PROJECT" \
+            --scheme "$XCODE_SCHEME" \
+            --archive-flags="-destination 'generic/platform=iOS' -skipPackagePluginValidation"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - /tmp/xcodebuild_logs/*.log
+    publishing:
+      app_store_connect:
+        auth: integration
+        # Yükleme yeterli: dahili test kullanıcıları (App Store Connect ekibi) işlenince TestFlight'tan kurar.
+        # Dış test kullanıcılarına açmak için true (Apple beta incelemesi gerekir).
+        submit_to_testflight: false
+        submit_to_app_store: false
