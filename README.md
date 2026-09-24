@@ -117,6 +117,20 @@ CI her push'ta uygulamanın simülatör paketini üretir ve uygulamayı simülat
 
 Açılış ekran görüntüsü aynı çalışmada `simulator-screenshot` artifact'ındadır.
 
+### TestFlight (gerçek iPhone)
+
+Codemagic, `codemagic.yaml`'daki **iOS TestFlight** iş akışıyla derler, imzalar ve App Store Connect'e yükler
+(uygulama: *Pati Harita*, Apple ID 6815833939). Yeni sürüm göndermek için `project.yml`'de `MARKETING_VERSION`'ı
+gerekirse artırıp bir etiket gönderin; derleme numarası otomatik artar:
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+Derleme işlenince TestFlight'taki **Ekip** grubuna otomatik dağıtılır. Codemagic'te `ios_signing` grubuna
+`GOOGLE_SERVICE_INFO_PLIST` (base64) eklenirse uygulama gerçek Firebase'e bağlanır; yoksa demo modunda açılır.
+
 ### 2. Yerel Firebase emülatörleriyle
 
 ```bash

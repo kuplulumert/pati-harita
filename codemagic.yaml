@@ -23,7 +23,7 @@ workflows:
         APP_STORE_CONNECT_APP_ID: "6815833939"
       xcode: latest
     # Her push'ta değil: TestFlight'a gönderim bilinçli olsun ve Codemagic dakikaları (ayda 500) harcanmasın.
-    # Göndermek için: git tag v0.1.0 && git push origin v0.1.0  (ya da Codemagic'te "Start new build").
+    # Göndermek için: git tag v1.0.1 && git push origin v1.0.1  (ya da Codemagic'te "Start new build" → etiket).
     triggering:
       events:
         - tag
