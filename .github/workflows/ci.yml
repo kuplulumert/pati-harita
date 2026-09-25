@@ -102,7 +102,10 @@ jobs:
           xcrun simctl io "$UDID" screenshot smoke/acilis.png
           xcrun simctl spawn "$UDID" log show --last 3m --style compact \
             --predicate 'process == "PatiHarita"' > smoke/log.txt || true
-          if ! xcrun simctl spawn "$UDID" launchctl list | grep -q app.patiharita.ios; then
+          # Çıktı önce değişkene alınır: `launchctl list | grep -q` ilk eşleşmede kapanınca launchctl
+          # SIGPIPE alıyor ve pipefail yüzünden çalışan uygulama "çöktü" sayılıyordu.
+          RUNNING=$(xcrun simctl spawn "$UDID" launchctl list)
+          if ! grep -q app.patiharita.ios <<< "$RUNNING"; then
             echo "::error::Uygulama açıldıktan sonra kapandı (çökme). Ayrıntı: smoke/log.txt"
             tail -50 smoke/log.txt
             exit 1
