@@ -6,7 +6,10 @@ struct MapScreen: View {
     @State private var viewModel: MapViewModel
     @State private var bottomPanelHeight: CGFloat = 0
     @State private var showsLegend = false
+    /// Ekranda olan takip sorusunun kimliği (bkz. `followUpBinding`).
+    @State private var presentedFollowUpID: String?
     @Environment(\.openURL) private var openURL
+    @Environment(\.scenePhase) private var scenePhase
 
     init(environment: AppEnvironment) {
         _viewModel = State(initialValue: MapViewModel(environment: environment))
@@ -38,6 +41,15 @@ struct MapScreen: View {
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
             }
+            // Açıklama sayfasıyla aynı görünüme bağlanmasın diye burada (iki `.sheet` bir arada sorun çıkarabiliyor).
+            .sheet(item: followUpBinding) { followUp in
+                FollowUpSheet(followUp: followUp, now: viewModel.now) { answer in
+                    viewModel.answerFollowUp(answer)
+                }
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+                .onAppear { presentedFollowUpID = followUp.id }
+            }
         }
         .animation(.snappy(duration: 0.3), value: viewModel.mode)
         .animation(.snappy(duration: 0.3), value: viewModel.selectedReportID)
@@ -45,10 +57,29 @@ struct MapScreen: View {
         .animation(.snappy(duration: 0.3), value: viewModel.toast)
         .sensoryFeedback(.success, trigger: viewModel.reportsCreated)
         .sheet(isPresented: $showsLegend) {
-            LegendSheet()
+            LegendSheet(userID: viewModel.userID)
                 .presentationDetents([.medium, .large])
         }
+        // "Hâlâ yardım gerekiyor" onayı. `presenting`: düğme, soru açıldığı andaki işaretle çalışır.
+        .confirmationDialog(
+            MapViewModel.disputeQuestion,
+            isPresented: Binding(
+                get: { viewModel.disputeCandidate != nil },
+                set: { if !$0 { viewModel.cancelDispute() } }
+            ),
+            titleVisibility: .visible,
+            presenting: viewModel.disputeCandidate
+        ) { report in
+            Button(MapViewModel.disputeConfirmTitle) { viewModel.confirmDispute(report) }
+            Button(MapViewModel.disputeCancelTitle, role: .cancel) { viewModel.cancelDispute() }
+        }
         .task { await viewModel.run() }
+        // Öne gelince takip edilen işaretler (en fazla 10 dk'da bir) yeniden okunur.
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active {
+                viewModel.appBecameActive()
+            }
+        }
         // `initial`: konum ekran ilk çizilmeden gelmişse de (izin önceden verilmişken olur) kullanıcının
         // çevresine gidilsin; yoksa harita varsayılan şehir merkezinde kalıyor ve oraya abone oluyordu.
         .onChange(of: viewModel.location.coordinate, initial: true) {
@@ -56,11 +87,25 @@ struct MapScreen: View {
         }
     }
 
+    /// Takip sorusu sayfası. Kullanıcı sayfayı kaydırıp kapatınca "Bilmiyorum" sayılır. Yanıt verilince
+    /// sıradaki soru hemen gelebilir; o sırada gelen `nil`, henüz gösterilmemiş sıradakini yanıtlamasın.
+    private var followUpBinding: Binding<MapViewModel.FollowUp?> {
+        Binding(
+            get: { viewModel.followUp },
+            set: { newValue in
+                guard newValue == nil, let shown = presentedFollowUpID, viewModel.followUp?.id == shown else { return }
+                viewModel.dismissFollowUp()
+            }
+        )
+    }
+
     // MARK: Harita
 
     private func map(safeArea: EdgeInsets) -> some View {
         ReportMapView(
             reports: viewModel.visibleReports,
+            streetDots: viewModel.streetDotReports,
+            closingLooks: viewModel.closingLooks,
             selectedID: viewModel.selectedReportID,
             userID: viewModel.userID,
             now: viewModel.now,
@@ -140,9 +185,12 @@ struct MapScreen: View {
             ReportPanel(
                 mode: viewModel.mode,
                 duplicate: viewModel.duplicateCandidate,
+                duplicatePrompt: viewModel.duplicatePrompt,
+                allowanceText: viewModel.createAllowanceText,
                 onSpecies: { viewModel.choose($0) },
                 onNeed: { viewModel.choose($0) },
                 onDuplicate: { viewModel.confirmDuplicate($0) },
+                onDismissDuplicate: { viewModel.dismissDuplicate() },
                 onBack: { viewModel.backToSpecies() },
                 onCancel: { viewModel.cancelPlacing() }
             )
@@ -154,8 +202,10 @@ struct MapScreen: View {
                     userID: viewModel.userID,
                     now: viewModel.now,
                     distance: viewModel.distance(to: report),
+                    look: viewModel.look(for: report),
+                    closingMode: viewModel.closingMode,
                     busyAction: viewModel.busyAction,
-                    onAction: { action in Task { await viewModel.perform(action, on: report) } },
+                    onAction: { action in viewModel.handle(action, on: report) },
                     onDirections: {
                         if let url = viewModel.directionsURL(for: report) { openURL(url) }
                     },
@@ -224,7 +274,8 @@ struct StatusChip: View {
     }
 }
 
-/// "İşaretlendi · Geri al" gibi kısa bildirimler.
+/// "İşaretlendi · Geri al" gibi kısa bildirimler. "Geri al" az önce konan işareti siler ya da az önceki
+/// "Çözüldü" / "Artık yok" önerisini geri alır (bkz. `MapViewModel.Toast.Undo`).
 struct ToastView: View {
     let toast: MapViewModel.Toast
     let onUndo: () -> Void
@@ -233,10 +284,13 @@ struct ToastView: View {
         HStack(spacing: 12) {
             Text(toast.message)
                 .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityIdentifier("toast-message")
             if toast.undoReportID != nil {
                 Button("Geri al", action: onUndo)
                     .font(.subheadline.weight(.semibold))
+                    .accessibilityIdentifier("toast-undo")
             }
         }
         .padding(.horizontal, 16)

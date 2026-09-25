@@ -7,9 +7,17 @@ struct ReportPanel: View {
     let mode: MapViewModel.Mode
     /// İğnenin yakınındaki aynı türden işaret; varsa ihtiyaçların üstünde "Ben de gördüm" önerilir.
     let duplicate: Report?
+    /// Öneri bir "… dendi" işaretiyse sorulacak soru ("Burada 2 sa önce bir kedi için 'Çözüldü' dendi. …");
+    /// bekleyen işarette `nil`.
+    let duplicatePrompt: String?
+    /// "Bugün 3 işaret hakkın kaldı" / "Yeni işaret hakkın saat 14.20'de açılır"; hak boldaysa `nil`.
+    let allowanceText: String?
     let onSpecies: (Species) -> Void
     let onNeed: (Need) -> Void
+    /// Öneriye dokunuldu: bekleyen işarette "Hâlâ orada", "… dendi" işaretinde itiraz.
     let onDuplicate: (Report) -> Void
+    /// "Hayır, başka bir hayvan"
+    let onDismissDuplicate: () -> Void
     let onBack: () -> Void
     let onCancel: () -> Void
 
@@ -19,7 +27,11 @@ struct ReportPanel: View {
             switch mode {
             case .choosingNeed:
                 if let duplicate {
-                    duplicateSuggestion(duplicate)
+                    if let duplicatePrompt {
+                        closingDuplicatePrompt(duplicate, prompt: duplicatePrompt)
+                    } else {
+                        duplicateSuggestion(duplicate)
+                    }
                 }
                 needGrid
             case .choosingSpecies, .browsing:
@@ -42,6 +54,13 @@ struct ReportPanel: View {
                 Text("İğneyi ayarlamak için haritayı kaydır")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
+                if let allowanceText {
+                    // Hak az kaldığında: son işaretten sonra sınır bildirimi sürpriz olmasın.
+                    Label(allowanceText, systemImage: "hourglass")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("create-allowance")
+                }
             }
             Spacer(minLength: 0)
             CircleButton(systemImage: "xmark", accessibilityLabel: "Vazgeç", action: onCancel)
@@ -116,6 +135,48 @@ struct ReportPanel: View {
         let detail = "Aynı hayvan mı? Yakında \(report.need.title)"
         guard let seen = Formatting.seenCount(report.seenCount) else { return detail }
         return "\(detail) · \(seen)"
+    }
+
+    /// Yakında "Çözüldü dendi" bir işaret var (haritadan kalkmış olabilir): kişi hayvanın başında, aynı
+    /// hayvansa tek dokunuşla itiraz eder. Değilse öneri kapanır ve ihtiyaç seçimiyle yeni işaret konur.
+    private func closingDuplicatePrompt(_ report: Report, prompt: String) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 10) {
+                NeedBadge(need: report.need, size: 32)
+                Text(prompt)
+                    .font(.subheadline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .accessibilityIdentifier("duplicate-closing-prompt")
+            }
+            HStack(spacing: 8) {
+                promptButton(MapViewModel.duplicateDisputeTitle, tint: report.need.color) {
+                    onDuplicate(report)
+                }
+                .accessibilityIdentifier("duplicate-dispute")
+                promptButton(MapViewModel.duplicateDismissTitle, tint: nil, action: onDismissDuplicate)
+                    .accessibilityIdentifier("duplicate-dismiss")
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+    }
+
+    /// `tint` verilirse dolu (öne çıkan) düğme, yoksa sade.
+    private func promptButton(_ title: String, tint: Color?, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.footnote.weight(.semibold))
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(tint == nil ? Color.primary : Color.white)
+                .padding(.horizontal, 8)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 44)
+                .background(tint ?? Color(.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(PressableStyle())
     }
 
     /// "Acil yardım" en üstte ve tam genişlikte; diğerleri iki sütunda.
@@ -200,9 +261,12 @@ struct CircleButton: View {
     ReportPanel(
         mode: .choosingSpecies,
         duplicate: nil,
+        duplicatePrompt: nil,
+        allowanceText: "Bugün 3 işaret hakkın kaldı",
         onSpecies: { _ in },
         onNeed: { _ in },
         onDuplicate: { _ in },
+        onDismissDuplicate: {},
         onBack: {},
         onCancel: {}
     )
@@ -213,9 +277,12 @@ struct CircleButton: View {
     ReportPanel(
         mode: .choosingNeed(.cat),
         duplicate: nil,
+        duplicatePrompt: nil,
+        allowanceText: nil,
         onSpecies: { _ in },
         onNeed: { _ in },
         onDuplicate: { _ in },
+        onDismissDuplicate: {},
         onBack: {},
         onCancel: {}
     )
@@ -235,9 +302,39 @@ struct CircleButton: View {
     return ReportPanel(
         mode: .choosingNeed(.cat),
         duplicate: seen,
+        duplicatePrompt: nil,
+        allowanceText: nil,
         onSpecies: { _ in },
         onNeed: { _ in },
         onDuplicate: { _ in },
+        onDismissDuplicate: {},
+        onBack: {},
+        onCancel: {}
+    )
+    .padding()
+}
+
+#Preview("Burada 'Çözüldü' dendi") {
+    let now = Date()
+    let nearby = ReportLifecycle.makeReport(
+        id: "preview-closing",
+        species: .cat,
+        need: .injured,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "someone",
+        now: now.addingTimeInterval(-3 * 3600)
+    )
+    let seen = (try? ReportLifecycle.apply(.confirmStillThere, to: nearby, by: "passer-by", at: now.addingTimeInterval(-150 * 60))) ?? nearby
+    let closing = (try? ReportLifecycle.apply(.resolve, to: seen, by: "another", at: now.addingTimeInterval(-2 * 3600))) ?? seen
+    return ReportPanel(
+        mode: .choosingNeed(.cat),
+        duplicate: closing,
+        duplicatePrompt: Messages.duplicateClosingPrompt(closing, now: now),
+        allowanceText: nil,
+        onSpecies: { _ in },
+        onNeed: { _ in },
+        onDuplicate: { _ in },
+        onDismissDuplicate: {},
         onBack: {},
         onCancel: {}
     )

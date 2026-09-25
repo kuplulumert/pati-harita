@@ -23,6 +23,7 @@ extension ReportPhase {
         case .waiting: "Yardım bekliyor"
         case .helpedByMe: "Sen ilgileniyorsun"
         case .helpedByOther: "Biri ilgileniyor"
+        case .closing(let reason, _, _, _): Messages.saidLabel(reason)
         case .closed(.resolved): "Çözüldü"
         case .closed(.gone): "Artık orada değil"
         case .closed(.expired): "Süresi doldu"
@@ -34,14 +35,9 @@ extension ReportPhase {
         case .waiting: .orange
         case .helpedByMe: .green
         case .helpedByOther: .blue
+        // Hüküm değil, olgu: "… dendi" ne yeşil (çözüldü) ne turuncu (bekliyor).
+        case .closing: .gray
         case .closed: .secondary
-        }
-    }
-
-    var isBeingHelped: Bool {
-        switch self {
-        case .helpedByMe, .helpedByOther: true
-        case .waiting, .closed: false
         }
     }
 }

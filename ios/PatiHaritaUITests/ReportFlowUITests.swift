@@ -3,7 +3,8 @@ import XCTest
 
 /// Ana akışı demo modunda gerçek dokunuşlarla dener:
 /// harita → "Hayvan gördüm" → tür → ihtiyaç → işarete dokun → "İlgileniyorum" →
-/// "Hâlâ orada" ile gören sayısı artar → "Aynı hayvan mı?" önerisi → uzun basma.
+/// "Hâlâ orada" ile gören sayısı artar → "Aynı hayvan mı?" önerisi → uzun basma →
+/// yoldan geçen "Çözüldü" der → "Çözüldü dendi" kartı → "Hâlâ yardım gerekiyor" itirazı.
 /// Her adımın ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
 final class ReportFlowUITests: XCTestCase {
     override func setUpWithError() throws {
@@ -120,6 +121,60 @@ final class ReportFlowUITests: XCTestCase {
         sleep(1)
         screenshots.take("09-uzun-basma")
         app.buttons["Vazgeç"].tap()
+
+        // Yoldan geçen "Çözüldü" der (İlgileniyorum demeden). Demo hesabı 3 günlük ve bütçesi var: öneri
+        // kanıtlıdır, kart kapanır ve işaret onun haritasından hemen kalkar. Bildirim saate göre değişir
+        // ("yaklaşık 2 saat sonra" / gece "saat 08.00 civarında"); yalnızca ortak kısmı aranır.
+        // Uzun basılan noktadan kullanıcının üstüne dönülür (yakınlık 16: gri noktalar çizilmez).
+        let recenter = app.buttons["Konumuma git"]
+        XCTAssertTrue(recenter.waitForExistence(timeout: 5), "Konumuma git düğmesi yok")
+        recenter.tap()
+        sleep(2)
+        XCTAssertTrue(injuredCat.waitForExistence(timeout: 10), "Örnek yaralı kedi işareti haritada bulunamadı")
+        injuredCat.tap()
+        let resolve = app.buttons["action-resolve"]
+        XCTAssertTrue(resolve.waitForExistence(timeout: 5), "Yoldan geçen için Çözüldü düğmesi yok")
+        resolve.tap()
+        let recorded = app.staticTexts.element(labelContaining: "Yardımın kaydedildi")
+        XCTAssertTrue(recorded.waitForExistence(timeout: 5), "Çözüldü bildirimi görünmedi")
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Çözüldü deyince kart kapanmadı")
+        let gone = expectation(for: NSPredicate(format: "exists == false"), evaluatedWith: injuredCat)
+        wait(for: [gone], timeout: 5)
+        sleep(1)
+        screenshots.take("10-cozuldu-dendi")
+
+        // Demo verisindeki "Çözüldü dendi" örneği: yoldan geçen biri bütçesiz dedi, bu yüzden demo
+        // kullanıcısına "?" rozetiyle "doğrulanmadı" görünür. Kullanıcının ~260 m güneyinde.
+        let closingDog = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label == %@", "report-marker", "Yaralı / hasta, Köpek"))
+            .firstMatch
+        XCTAssertTrue(closingDog.waitForExistence(timeout: 10), "Örnek 'Çözüldü dendi' işareti haritada bulunamadı")
+        let spoken = (closingDog.value as? String) ?? ""
+        XCTAssertTrue(spoken.contains("doğrulanmadı"), "İşaretin sesli değeri 'doğrulanmadı' demiyor: \(spoken)")
+        closingDog.tap()
+        let closingStatus = app.staticTexts
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "report-status", "Çözüldü dendi"))
+            .firstMatch
+        XCTAssertTrue(closingStatus.waitForExistence(timeout: 5), "Kartta 'Çözüldü dendi' görünmedi")
+        sleep(1)
+        screenshots.take("11-cozuldu-dendi-karti")
+
+        // "Hâlâ yardım gerekiyor": önce onay sorulur (yalnızca hayvanı şimdi gördüysen), sonra işaret
+        // yeniden yardım bekler.
+        let dispute = app.buttons["action-dispute"]
+        XCTAssertTrue(dispute.waitForExistence(timeout: 5), "Hâlâ yardım gerekiyor düğmesi yok")
+        dispute.tap()
+        let confirmDispute = app.buttons["Evet, hâlâ yardım gerekiyor"]
+        XCTAssertTrue(confirmDispute.waitForExistence(timeout: 5), "İtiraz onayı sorulmadı")
+        confirmDispute.tap()
+        let reopened = app.staticTexts.element(labelContaining: "yeniden yardım bekliyor")
+        XCTAssertTrue(reopened.waitForExistence(timeout: 5), "İtiraz bildirimi görünmedi")
+        let waiting = app.staticTexts
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "report-status", "Yardım bekliyor"))
+            .firstMatch
+        XCTAssertTrue(waiting.waitForExistence(timeout: 5), "İtirazdan sonra kart 'Yardım bekliyor' demiyor")
+        sleep(1)
+        screenshots.take("12-itiraz")
     }
 
     // MARK: Yardımcılar

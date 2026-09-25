@@ -1,26 +1,38 @@
 import SwiftUI
 import UIKit
 
-/// `MarkerPin` görünümünü harita işareti (`MKAnnotationView`) için bitmap'e çevirir. Olası görünüm sayısı az
-/// (7 ihtiyaç × 4 tür × durum × gören sayısı rozeti) olduğundan her biri bir kez çizilip önbellekte tutulur.
+/// `MarkerPin` ve `StreetDot` görünümlerini harita işareti (`MKAnnotationView`) için bitmap'e çevirir. Olası
+/// görünüm sayısı az (7 ihtiyaç × 4 tür × durum rozeti × gören sayısı rozeti, artı iki nokta) olduğundan her
+/// biri bir kez çizilip önbellekte tutulur.
 final class MarkerIconRenderer {
-    private var cache: [MarkerStyle: UIImage] = [:]
+    private var cache: [MarkerIcon: UIImage] = [:]
     private var cacheScale: CGFloat = 0
 
     @MainActor
-    func image(for style: MarkerStyle, scale: CGFloat) -> UIImage {
+    func image(for icon: MarkerIcon, scale: CGFloat) -> UIImage {
         let scale = scale > 0 ? scale : 3
         if scale != cacheScale {
             cache.removeAll()
             cacheScale = scale
         }
-        if let cached = cache[style] {
+        if let cached = cache[icon] {
             return cached
         }
-        let renderer = ImageRenderer(content: MarkerPin(style: style))
-        renderer.scale = scale
-        let image = renderer.uiImage ?? UIImage()
-        cache[style] = image
+        let image: UIImage
+        switch icon {
+        case .pin(let style):
+            image = render(MarkerPin(style: style), scale: scale)
+        case .streetDot(let isSelected):
+            image = render(StreetDot(isSelected: isSelected), scale: scale)
+        }
+        cache[icon] = image
         return image
+    }
+
+    @MainActor
+    private func render<Content: View>(_ content: Content, scale: CGFloat) -> UIImage {
+        let renderer = ImageRenderer(content: content)
+        renderer.scale = scale
+        return renderer.uiImage ?? UIImage()
     }
 }
