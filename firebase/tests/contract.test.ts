@@ -44,5 +44,22 @@ describe("paylaşılan sözleşme", () => {
     expect(rules).toContain(`duration.value(${contract.maxBackdateHours}, 'h')`);
     expect(rules).toContain(`duration.value(${contract.clockSkewMinutes}, 'm')`);
     expect(rules).toContain(`after.goneReports.size() >= ${contract.goneThreshold}`);
+    expect(rules).toContain(`function maxSeenBy() { return ${contract.maxSeenBy}; }`);
+  });
+
+  // Kurallar konsola prototype/firebase-kurulum.html'deki "Kuralları kopyala" ile yapıştırılıyor;
+  // oradaki kopya eskirse yeni istemcinin yazmaları reddedilir.
+  it("kurulum sayfasındaki kural kopyası firestore.rules ile aynı", () => {
+    const rules = readFileSync(resolve(ROOT, "firebase", "firestore.rules"), "utf8");
+    const page = readFileSync(resolve(ROOT, "prototype", "firebase-kurulum.html"), "utf8");
+    const escaped = page.match(/<pre id="rules">([\s\S]*?)<\/pre>/)?.[1];
+    expect(escaped, "<pre id=\"rules\"> bulunamadı").toBeDefined();
+    const embedded = escaped!
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, "\"")
+      .replace(/&#x27;/g, "'")
+      .replace(/&amp;/g, "&");
+    expect(embedded.replace(/\r\n/g, "\n")).toBe(rules.replace(/\r\n/g, "\n"));
   });
 });

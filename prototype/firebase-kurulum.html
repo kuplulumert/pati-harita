@@ -130,6 +130,8 @@ service cloud.firestore {
     function skew() { return duration.value(15, &#x27;m&#x27;); }
     // İstemcinin tarih + süre hesabındaki yuvarlama farkları için pay.
     function rounding() { return duration.value(1, &#x27;m&#x27;); }
+    // &quot;Kaç kişi bildirdi&quot; listesinde (seenBy) tutulan en fazla kullanıcı sayısı.
+    function maxSeenBy() { return 100; }
 
     // &quot;Şimdi&quot; anlamına gelmesi gereken, istemcinin yazdığı bir zaman damgası.
     function isNow(t) {
@@ -141,7 +143,7 @@ service cloud.firestore {
     function reportKeys() {
       return [&#x27;species&#x27;, &#x27;need&#x27;, &#x27;lat&#x27;, &#x27;lng&#x27;, &#x27;geohash&#x27;, &#x27;status&#x27;, &#x27;closedReason&#x27;,
               &#x27;reporterId&#x27;, &#x27;createdAt&#x27;, &#x27;lastSeenAt&#x27;, &#x27;expiresAt&#x27;, &#x27;claimedBy&#x27;,
-              &#x27;claimedAt&#x27;, &#x27;claimExpiresAt&#x27;, &#x27;goneReports&#x27;, &#x27;closedAt&#x27;, &#x27;purgeAt&#x27;];
+              &#x27;claimedAt&#x27;, &#x27;claimExpiresAt&#x27;, &#x27;goneReports&#x27;, &#x27;seenBy&#x27;, &#x27;closedAt&#x27;, &#x27;purgeAt&#x27;];
     }
 
     function validShape(d) {
@@ -157,6 +159,8 @@ service cloud.firestore {
         &amp;&amp; d.lastSeenAt is timestamp
         &amp;&amp; d.expiresAt is timestamp
         &amp;&amp; d.goneReports is list &amp;&amp; d.goneReports.size() &lt;= 20
+        // Hayvanı gören farklı kullanıcılar: önce bildiren, sonra &quot;Hâlâ orada&quot; diyenler.
+        &amp;&amp; d.seenBy is list &amp;&amp; d.seenBy.size() &gt;= 1 &amp;&amp; d.seenBy.size() &lt;= maxSeenBy()
         &amp;&amp; ((d.claimedBy == null &amp;&amp; d.claimedAt == null &amp;&amp; d.claimExpiresAt == null)
             || (d.claimedBy is string &amp;&amp; d.claimedAt is timestamp &amp;&amp; d.claimExpiresAt is timestamp))
         &amp;&amp; (d.status != &#x27;claimed&#x27; || d.claimedBy != null)
@@ -204,6 +208,7 @@ service cloud.firestore {
         &amp;&amp; d.status == &#x27;open&#x27;
         &amp;&amp; d.claimedBy == null
         &amp;&amp; d.goneReports.size() == 0
+        &amp;&amp; d.seenBy == [me()]
         // Çevrimdışı işaretlenip sonradan senkronlanan kayıtlara izin ver.
         &amp;&amp; d.createdAt &lt; request.time + skew()
         &amp;&amp; d.createdAt &gt; request.time - maxBackdate()
@@ -247,15 +252,21 @@ service cloud.firestore {
     }
 
     // &quot;Hâlâ orada&quot;: herkes işaretin ömrünü ihtiyaca göre uzatabilir (asla kısaltamaz).
+    // Aynı eylem &quot;kaç kişi bildirdi&quot; sayısını da artırır: kişi kendini (yalnızca kendini,
+    // bir kez) seenBy&#x27;ın sonuna ekler. Zaten listedeyse ya da liste doluysa seenBy aynı kalır.
     function isConfirm() {
       let before = resource.data;
       let after = request.resource.data;
-      return changedKeys().hasOnly([&#x27;lastSeenAt&#x27;, &#x27;expiresAt&#x27;])
+      return changedKeys().hasOnly([&#x27;lastSeenAt&#x27;, &#x27;expiresAt&#x27;, &#x27;seenBy&#x27;])
         &amp;&amp; isNow(after.lastSeenAt)
         &amp;&amp; after.lastSeenAt &gt; before.lastSeenAt
         &amp;&amp; (after.expiresAt == before.expiresAt
             || (after.expiresAt &gt; before.expiresAt
-                &amp;&amp; after.expiresAt &lt;= after.lastSeenAt + lifetime(before.need) + rounding()));
+                &amp;&amp; after.expiresAt &lt;= after.lastSeenAt + lifetime(before.need) + rounding()))
+        &amp;&amp; (after.seenBy == before.seenBy
+            || (!(me() in before.seenBy)
+                &amp;&amp; before.seenBy.size() &lt; maxSeenBy()
+                &amp;&amp; after.seenBy == before.seenBy.concat([me()])));
     }
 
     // &quot;Artık yok&quot;: her kullanıcı bir kez bildirebilir. 2 farklı kişi, ya da

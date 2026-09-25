@@ -27,4 +27,21 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(Formatting.distance(meters: 1_240), "1,2 km")
         XCTAssertEqual(Formatting.distance(meters: 15_600), "16 km")
     }
+
+    func testSeenCountBadge() {
+        // Yalnızca işareti koyan bildirdiyse rozet yok.
+        XCTAssertNil(Formatting.seenCountBadge(0))
+        XCTAssertNil(Formatting.seenCountBadge(1))
+        XCTAssertEqual(Formatting.seenCountBadge(2), "2")
+        XCTAssertEqual(Formatting.seenCountBadge(10), "10")
+        XCTAssertEqual(Formatting.seenCountBadge(99), "99")
+        XCTAssertEqual(Formatting.seenCountBadge(100), "99+")
+        XCTAssertEqual(Formatting.seenCountBadge(250), "99+")
+    }
+
+    func testSeenCount() {
+        XCTAssertNil(Formatting.seenCount(1))
+        XCTAssertEqual(Formatting.seenCount(2), "2 kişi bildirdi")
+        XCTAssertEqual(Formatting.seenCount(100), "100 kişi bildirdi")
+    }
 }

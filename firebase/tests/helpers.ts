@@ -13,6 +13,7 @@ export const contract = JSON.parse(
   needs: Record<string, { lifetimeHours: number }>;
   claimHours: number;
   goneThreshold: number;
+  maxSeenBy: number;
   retentionDays: number;
   clockSkewMinutes: number;
   maxBackdateHours: number;
@@ -48,6 +49,7 @@ export function openReport(overrides: Record<string, unknown> = {}) {
     claimedAt: null,
     claimExpiresAt: null,
     goneReports: [],
+    seenBy: [ALICE],
     closedAt: null,
     purgeAt: null,
     ...overrides,

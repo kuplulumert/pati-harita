@@ -41,6 +41,7 @@ struct MapScreen: View {
         }
         .animation(.snappy(duration: 0.3), value: viewModel.mode)
         .animation(.snappy(duration: 0.3), value: viewModel.selectedReportID)
+        .animation(.snappy(duration: 0.3), value: viewModel.duplicateCandidateID)
         .animation(.snappy(duration: 0.3), value: viewModel.toast)
         .sensoryFeedback(.success, trigger: viewModel.reportsCreated)
         .sheet(isPresented: $showsLegend) {
@@ -136,8 +137,10 @@ struct MapScreen: View {
         case .choosingSpecies, .choosingNeed:
             ReportPanel(
                 mode: viewModel.mode,
+                duplicate: viewModel.duplicateCandidate,
                 onSpecies: { viewModel.choose($0) },
                 onNeed: { viewModel.choose($0) },
+                onDuplicate: { viewModel.confirmDuplicate($0) },
                 onBack: { viewModel.backToSpecies() },
                 onCancel: { viewModel.cancelPlacing() }
             )

@@ -51,6 +51,7 @@ Tek koleksiyon: `reports/{reportId}`. Kurallar alanların **hepsinin** bulunmas�
 | `expiresAt` | timestamp | Bu andan sonra haritada gösterilmez |
 | `claimedBy`, `claimedAt`, `claimExpiresAt` | string?, timestamp? | "İlgileniyorum" |
 | `goneReports` | string[] | "Artık yok" diyenler |
+| `seenBy` | string[] | Hayvanı bildiren farklı kişiler; oluşturan + Hâlâ orada diyenler, en fazla 100 (`maxSeenBy`). Haritadaki "N kişi bildirdi" sayısı bunun uzunluğudur |
 | `closedAt`, `purgeAt` | timestamp? | Kapanış ve TTL ile silinme zamanı |
 
 Fotoğraf, açıklama, kullanıcı profili **bilerek yok**: hem akışı uzatır hem de depolama/moderasyon yükü getirir.
@@ -69,11 +70,11 @@ Fotoğraf, açıklama, kullanıcı profili **bilerek yok**: hem akışı uzatır
 
 | Eylem | Kim | Etki |
 | --- | --- | --- |
-| Oluştur | Herkes | `expiresAt = createdAt + ihtiyacın ömrü` |
+| Oluştur | Herkes | `expiresAt = createdAt + ihtiyacın ömrü`; `seenBy = [koyan]` |
 | İlgileniyorum | Aktif sahibi yoksa herkes | 3 sa sahiplik; `expiresAt` en az sahiplik bitişine uzar |
 | Vazgeç | İlgilenen | Tekrar `open` |
 | Çözüldü | İlgilenen ya da koyan | `closed(resolved)` |
-| Hâlâ orada | Herkes | `expiresAt = şimdi + ömür` (asla kısalmaz) |
+| Hâlâ orada | Herkes | `expiresAt = şimdi + ömür` (asla kısalmaz); kişi `seenBy`'da yoksa ve liste 100'den kısaysa sonuna bir kez eklenir |
 | Artık yok | Herkes, bir kez | 2. bildirimde (ya da koyan/ilgilenen ise hemen) `closed(gone)` |
 
 İstemci: `ios/Packages/AnimalKit/Sources/AnimalKit/ReportLifecycle.swift`
@@ -124,6 +125,8 @@ Gerekli bileşik indeks: `status ASC, geohash ASC` (`firestore.indexes.json`).
   `reporterId`/`claimedBy` rastgele anonim kimliklerdir.
 - Kurallar alan listesini sabitler (fazla alan, uzun metin yazılamaz), kimlik alanlarının (tür, ihtiyaç, konum, koyan)
   sonradan değiştirilmesini engeller.
+- `seenBy` yalnızca "Hâlâ orada" ile ve yalnızca yazanın kendi kimliği sona eklenerek büyür; başkasının kimliğini
+  eklemek, kimlik silmek ya da sırayı değiştirmek kurallarca reddedilir. Böylece bir kullanıcı sayıyı yalnızca bir kez artırabilir.
 - Bilinen sınır: kurallar `geohash`'in `lat/lng` ile tutarlılığını doğrulayamaz. Tutarsız bir kayıt yalnızca yanlış
   bölgede listelenir; ileride bir Cloud Function tetikleyicisiyle düzeltilebilir.
 

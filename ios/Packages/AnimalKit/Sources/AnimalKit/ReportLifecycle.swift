@@ -8,7 +8,7 @@ public enum ReportAction: String, CaseIterable, Identifiable, Sendable {
     case release
     /// "Çözüldü": yardım edildi, işaret haritadan kalkar.
     case resolve
-    /// "Hâlâ orada": işaretin ömrünü uzatır.
+    /// "Hâlâ orada": işaretin ömrünü uzatır; kişi "kaç kişi bildirdi" sayısına eklenir.
     case confirmStillThere
     /// "Artık yok": hayvan orada değil.
     case reportGone
@@ -68,6 +68,8 @@ public enum ReportLifecycle {
     /// Kapanan işaret ne kadar sonra veritabanından silinir.
     public static let retention: TimeInterval = 30 * 24 * 3600
     public static let geohashPrecision = 10
+    /// "Kaç kişi bildirdi" listesinde (`Report.seenBy`) tutulan en fazla kullanıcı sayısı.
+    public static let maxSeenBy = 100
 
     /// Yeni işaret. Tek gereken tür, ihtiyaç ve konum.
     public static func makeReport(
@@ -92,6 +94,7 @@ public enum ReportLifecycle {
             expiresAt: now.addingTimeInterval(need.lifetime),
             claim: nil,
             goneReports: [],
+            seenBy: [reporterID],
             closedAt: nil,
             purgeAt: nil
         )
@@ -152,6 +155,10 @@ public enum ReportLifecycle {
         case .confirmStillThere:
             updated.lastSeenAt = now
             updated.expiresAt = max(report.expiresAt, now.addingTimeInterval(report.need.lifetime))
+            // Gören kişi bir kez sayılır; başkasını ekleyemez, kimseyi çıkaramaz.
+            if confirmAddsSeen(to: report, by: userID) {
+                updated.seenBy.append(userID)
+            }
 
         case .reportGone:
             guard !report.goneReports.contains(userID) else { throw ReportError.alreadyReportedGone }
@@ -161,6 +168,12 @@ public enum ReportLifecycle {
             }
         }
         return updated
+    }
+
+    /// Bu kullanıcının "Hâlâ orada" demesi "kaç kişi bildirdi" sayısını artırır mı?
+    /// Listede değilse ve liste dolmadıysa artırır.
+    public static func confirmAddsSeen(to report: Report, by userID: String) -> Bool {
+        !report.seenBy.contains(userID) && report.seenBy.count < maxSeenBy
     }
 
     /// "Geri al": kimse dokunmadıysa işareti koyan kişi silebilir.

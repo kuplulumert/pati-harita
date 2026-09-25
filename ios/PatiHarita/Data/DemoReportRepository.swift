@@ -69,18 +69,19 @@ final class DemoReportRepository: ReportRepository {
     private func seed(around center: Coordinate) {
         seedCount += 1
         let now = Date()
-        let samples: [(Species, Need, Double, Double, TimeInterval, String?)] = [
-            // tür, ihtiyaç, kuzey (m), doğu (m), kaç dakika önce, ilgilenen
-            (.cat, .injured, 120, -80, 12, nil),
-            (.dog, .food, -200, 150, 95, nil),
-            (.cat, .babies, 260, 240, 300, "komsu"),
-            (.dog, .emergency, -90, -260, 4, nil),
-            (.bird, .vet, 380, -30, 40, nil),
-            (.cat, .shelter, -330, -120, 900, nil),
-            (.other, .other, 60, 380, 600, nil),
+        let samples: [(Species, Need, Double, Double, TimeInterval, String?, Int)] = [
+            // tür, ihtiyaç, kuzey (m), doğu (m), kaç dakika önce, ilgilenen, kaç kişi bildirdi
+            // Arayüz testi yaralı kedinin 3 kişiyle başladığını (demo kullanıcısı hariç) varsayar.
+            (.cat, .injured, 120, -80, 12, nil, 3),
+            (.dog, .food, -200, 150, 95, nil, 2),
+            (.cat, .babies, 260, 240, 300, "komsu", 1),
+            (.dog, .emergency, -90, -260, 4, nil, 6),
+            (.bird, .vet, 380, -30, 40, nil, 1),
+            (.cat, .shelter, -330, -120, 900, nil, 1),
+            (.other, .other, 60, 380, 600, nil, 1),
         ]
         for (index, sample) in samples.enumerated() {
-            let (species, need, north, east, minutesAgo, helper) = sample
+            let (species, need, north, east, minutesAgo, helper, seers) = sample
             let coordinate = Coordinate(
                 latitude: center.latitude + north / 111_320,
                 longitude: center.longitude + east / (111_320 * cos(center.latitude * .pi / 180))
@@ -94,6 +95,13 @@ final class DemoReportRepository: ReportRepository {
                 reporterID: "someone-else",
                 now: createdAt
             )
+            // İşareti koyandan sonra başkaları da "Hâlâ orada" demiş (aradaki zamana yayılır).
+            for passerBy in 1..<max(seers, 1) {
+                let seenAt = createdAt.addingTimeInterval(minutesAgo * 60 * Double(passerBy) / Double(seers))
+                if let seen = try? ReportLifecycle.apply(.confirmStillThere, to: report, by: "passer-by-\(passerBy)", at: seenAt) {
+                    report = seen
+                }
+            }
             if let helper, let claimed = try? ReportLifecycle.apply(.claim, to: report, by: helper, at: now.addingTimeInterval(-20 * 60)) {
                 report = claimed
             }

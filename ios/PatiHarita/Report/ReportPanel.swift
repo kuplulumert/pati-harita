@@ -5,8 +5,11 @@ import SwiftUI
 /// İhtiyaca dokunulduğu an işaret kaydedilir (toplam 3 dokunuş).
 struct ReportPanel: View {
     let mode: MapViewModel.Mode
+    /// İğnenin yakınındaki aynı türden işaret; varsa ihtiyaçların üstünde "Ben de gördüm" önerilir.
+    let duplicate: Report?
     let onSpecies: (Species) -> Void
     let onNeed: (Need) -> Void
+    let onDuplicate: (Report) -> Void
     let onBack: () -> Void
     let onCancel: () -> Void
 
@@ -15,6 +18,9 @@ struct ReportPanel: View {
             header
             switch mode {
             case .choosingNeed:
+                if let duplicate {
+                    duplicateSuggestion(duplicate)
+                }
                 needGrid
             case .choosingSpecies, .browsing:
                 speciesRow
@@ -70,6 +76,46 @@ struct ReportPanel: View {
                 .accessibilityIdentifier("species-\(species.rawValue)")
             }
         }
+    }
+
+    /// Aynı hayvan zaten işaretliyse yeni işaret yerine tek dokunuşla ona "Hâlâ orada" denir.
+    /// İhtiyaç düğmeleri yine yeni işaret koyar; öneri yalnızca bir kısayoldur.
+    private func duplicateSuggestion(_ report: Report) -> some View {
+        Button {
+            onDuplicate(report)
+        } label: {
+            HStack(spacing: 10) {
+                NeedBadge(need: report.need, size: 32)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Ben de gördüm")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.primary)
+                    Text(duplicateDetail(report))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.bold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityLabel("Ben de gördüm. \(duplicateDetail(report))")
+        .accessibilityIdentifier("duplicate-suggestion")
+    }
+
+    /// "Aynı hayvan mı? Yakında Yaralı / hasta · 3 kişi bildirdi"
+    private func duplicateDetail(_ report: Report) -> String {
+        let detail = "Aynı hayvan mı? Yakında \(report.need.title)"
+        guard let seen = Formatting.seenCount(report.seenCount) else { return detail }
+        return "\(detail) · \(seen)"
     }
 
     /// "Acil yardım" en üstte ve tam genişlikte; diğerleri iki sütunda.
@@ -151,11 +197,49 @@ struct CircleButton: View {
 }
 
 #Preview("Tür seçimi") {
-    ReportPanel(mode: .choosingSpecies, onSpecies: { _ in }, onNeed: { _ in }, onBack: {}, onCancel: {})
-        .padding()
+    ReportPanel(
+        mode: .choosingSpecies,
+        duplicate: nil,
+        onSpecies: { _ in },
+        onNeed: { _ in },
+        onDuplicate: { _ in },
+        onBack: {},
+        onCancel: {}
+    )
+    .padding()
 }
 
 #Preview("İhtiyaç seçimi") {
-    ReportPanel(mode: .choosingNeed(.cat), onSpecies: { _ in }, onNeed: { _ in }, onBack: {}, onCancel: {})
-        .padding()
+    ReportPanel(
+        mode: .choosingNeed(.cat),
+        duplicate: nil,
+        onSpecies: { _ in },
+        onNeed: { _ in },
+        onDuplicate: { _ in },
+        onBack: {},
+        onCancel: {}
+    )
+    .padding()
+}
+
+#Preview("Aynı hayvan mı?") {
+    let nearby = ReportLifecycle.makeReport(
+        id: "preview",
+        species: .cat,
+        need: .injured,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "someone",
+        now: Date().addingTimeInterval(-30 * 60)
+    )
+    let seen = (try? ReportLifecycle.apply(.confirmStillThere, to: nearby, by: "passer-by", at: Date())) ?? nearby
+    return ReportPanel(
+        mode: .choosingNeed(.cat),
+        duplicate: seen,
+        onSpecies: { _ in },
+        onNeed: { _ in },
+        onDuplicate: { _ in },
+        onBack: {},
+        onCancel: {}
+    )
+    .padding()
 }

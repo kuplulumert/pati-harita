@@ -98,6 +98,16 @@ describe("işaret oluşturma", () => {
     await assertFails(setDoc(ref(ALICE), openReport({ goneReports: [BOB] })));
   });
 
+  it("\"kaç kişi bildirdi\" listesi yalnızca bildiren kişiyle başlar", async () => {
+    const { seenBy: _omit, ...missing } = openReport();
+    await assertFails(setDoc(ref(ALICE), missing));
+    await assertFails(setDoc(ref(ALICE), openReport({ seenBy: [] })));
+    await assertFails(setDoc(ref(ALICE), openReport({ seenBy: ALICE })));
+    await assertFails(setDoc(ref(ALICE), openReport({ seenBy: [BOB] })));
+    await assertFails(setDoc(ref(ALICE), openReport({ seenBy: [ALICE, BOB] })));
+    await assertSucceeds(setDoc(ref(ALICE), openReport({ seenBy: [ALICE] })));
+  });
+
   it("sözleşmedeki her tür kabul edilir", async () => {
     for (const species of contract.species) {
       await assertSucceeds(setDoc(ref(ALICE, `s-${species}`), openReport({ species })));
@@ -225,6 +235,99 @@ describe("Hâlâ orada (confirm)", () => {
     const now = Date.now();
     await assertFails(updateDoc(ref(CARA), { lastSeenAt: ts(now), expiresAt: ts(now + 48 * HOUR) }));
     await assertFails(updateDoc(ref(CARA), { lastSeenAt: ts(now), expiresAt: ts(now + HOUR) }));
+  });
+});
+
+describe("Kaç kişi bildirdi (seenBy)", () => {
+  // 20 saat önce görülmüş, "Hâlâ orada" ile yenilenmeye hazır işaret.
+  function seedSeen(seenBy: string[]) {
+    const created = Date.now() - 20 * HOUR;
+    return seed(openReport({ createdAt: ts(created), lastSeenAt: ts(created), expiresAt: ts(created + 24 * HOUR), seenBy }));
+  }
+
+  // "Hâlâ orada" yazımı; seenBy verilirse o da yazılır.
+  function confirm(seenBy?: string[]) {
+    const now = Date.now();
+    return { lastSeenAt: ts(now), expiresAt: ts(now + 24 * HOUR), ...(seenBy ? { seenBy } : {}) };
+  }
+
+  it("\"Hâlâ orada\" diyen kişi kendini sona ekleyebilir", async () => {
+    await seedSeen([ALICE]);
+    await assertSucceeds(updateDoc(ref(CARA), confirm([ALICE, CARA])));
+    await seedSeen([ALICE, BOB]);
+    await assertSucceeds(updateDoc(ref(CARA), confirm([ALICE, BOB, CARA])));
+  });
+
+  it("seenBy değişmeden de yenilenebilir (zaten listede olan dahil)", async () => {
+    await seedSeen([ALICE]);
+    await assertSucceeds(updateDoc(ref(CARA), confirm()));
+    await seedSeen([ALICE, CARA]);
+    await assertSucceeds(updateDoc(ref(CARA), confirm([ALICE, CARA])));
+    await seedSeen([ALICE, CARA]);
+    await assertSucceeds(updateDoc(ref(ALICE), confirm()));
+  });
+
+  it("başkası eklenemez", async () => {
+    await seedSeen([ALICE]);
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE, BOB])));
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE, CARA, BOB])));
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE, BOB, CARA])));
+  });
+
+  it("aynı kişi iki kez eklenemez", async () => {
+    await seedSeen([ALICE, CARA]);
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE, CARA, CARA])));
+    await assertFails(updateDoc(ref(ALICE), confirm([ALICE, CARA, ALICE])));
+  });
+
+  it("kimse silinemez, sıra değiştirilemez", async () => {
+    await seedSeen([ALICE, BOB]);
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE])));
+    await assertFails(updateDoc(ref(CARA), confirm([])));
+    await assertFails(updateDoc(ref(CARA), confirm([CARA])));
+    await assertFails(updateDoc(ref(CARA), confirm([BOB, ALICE])));
+    await assertFails(updateDoc(ref(CARA), confirm([BOB, ALICE, CARA])));
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE, CARA])));
+  });
+
+  it("ömür yenilenmeden tek başına seenBy yazılamaz", async () => {
+    await seedSeen([ALICE]);
+    await assertFails(updateDoc(ref(CARA), { seenBy: [ALICE, CARA] }));
+  });
+
+  it(`en fazla ${contract.maxSeenBy} kişi tutulur; liste doluyken yenilemek yine serbest`, async () => {
+    const full = [ALICE, ...Array.from({ length: contract.maxSeenBy - 1 }, (_, i) => `u${i}`)];
+    await seedSeen(full);
+    await assertFails(updateDoc(ref(CARA), confirm([...full, CARA])));
+    await assertSucceeds(updateDoc(ref(CARA), confirm()));
+    // Bir eksikken son kişi eklenebilir.
+    const almost = full.slice(0, -1);
+    await seedSeen(almost);
+    await assertSucceeds(updateDoc(ref(CARA), confirm([...almost, CARA])));
+  });
+
+  // Her eylem önce seenBy ile reddedilir, ardından seenBy'sız aynı yazım kabul edilir.
+  it("İlgileniyorum, Vazgeç, Çözüldü ve Artık yok seenBy'a dokunamaz", async () => {
+    await seed(openReport());
+    await assertFails(updateDoc(ref(BOB), { ...claimFields(BOB), seenBy: [ALICE, BOB] }));
+    await assertSucceeds(updateDoc(ref(BOB), claimFields(BOB)));
+
+    const release = { status: "open", claimedBy: null, claimedAt: null, claimExpiresAt: null };
+    await seed(claimedReport(BOB));
+    await assertFails(updateDoc(ref(BOB), { ...release, seenBy: [ALICE, BOB] }));
+    await assertSucceeds(updateDoc(ref(BOB), release));
+
+    await seed(claimedReport(BOB, { seenBy: [ALICE, BOB] }));
+    await assertFails(updateDoc(ref(BOB), { ...closeFields("resolved"), seenBy: [ALICE] }));
+    await assertSucceeds(updateDoc(ref(BOB), closeFields("resolved")));
+
+    await seed(openReport());
+    await assertFails(updateDoc(ref(CARA), { goneReports: [CARA], seenBy: [ALICE, CARA] }));
+    await assertSucceeds(updateDoc(ref(CARA), { goneReports: [CARA] }));
+
+    await seed(claimedReport(BOB));
+    await assertFails(updateDoc(ref(BOB), { goneReports: [BOB], ...closeFields("gone"), seenBy: [ALICE, BOB] }));
+    await assertSucceeds(updateDoc(ref(BOB), { goneReports: [BOB], ...closeFields("gone") }));
   });
 });
 

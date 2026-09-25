@@ -53,6 +53,9 @@ public struct Report: Identifiable, Hashable, Sendable {
     public internal(set) var claim: Claim?
     /// "Artık yok" diyen kullanıcılar.
     public internal(set) var goneReports: [String]
+    /// Hayvanı gören farklı kullanıcılar: önce işareti koyan, sonra "Hâlâ orada" diyenler
+    /// (en fazla `ReportLifecycle.maxSeenBy`).
+    public internal(set) var seenBy: [String]
     public internal(set) var closedAt: Date?
     /// Kapanan işaretin veritabanından silineceği an (Firestore TTL).
     public internal(set) var purgeAt: Date?
@@ -71,6 +74,7 @@ public struct Report: Identifiable, Hashable, Sendable {
         expiresAt: Date,
         claim: Claim?,
         goneReports: [String],
+        seenBy: [String],
         closedAt: Date?,
         purgeAt: Date?
     ) {
@@ -87,6 +91,7 @@ public struct Report: Identifiable, Hashable, Sendable {
         self.expiresAt = expiresAt
         self.claim = claim
         self.goneReports = goneReports
+        self.seenBy = seenBy
         self.closedAt = closedAt
         self.purgeAt = purgeAt
     }
@@ -106,6 +111,7 @@ public enum ReportField: String, CaseIterable, Sendable {
     case claimedAt
     case claimExpiresAt
     case goneReports
+    case seenBy
     case closedAt
     case purgeAt
 }
@@ -128,6 +134,9 @@ extension Report {
     public func isActive(at now: Date) -> Bool {
         status != .closed && expiresAt > now
     }
+
+    /// Hayvanı kaç farklı kişinin bildirdiği ("3 kişi bildirdi"). İşareti koyan da sayılır.
+    public var seenCount: Int { seenBy.count }
 
     /// Süresi dolmamış sahiplik; `status == .claimed` olsa bile süre dolduysa `nil`.
     public func activeClaim(at now: Date) -> Claim? {
@@ -153,6 +162,7 @@ extension Report {
         if claim?.claimedAt != old.claim?.claimedAt { fields.insert(.claimedAt) }
         if claim?.expiresAt != old.claim?.expiresAt { fields.insert(.claimExpiresAt) }
         if goneReports != old.goneReports { fields.insert(.goneReports) }
+        if seenBy != old.seenBy { fields.insert(.seenBy) }
         if closedAt != old.closedAt { fields.insert(.closedAt) }
         if purgeAt != old.purgeAt { fields.insert(.purgeAt) }
         return fields

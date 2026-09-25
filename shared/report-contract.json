@@ -13,6 +13,7 @@
   },
   "claimHours": 3,
   "goneThreshold": 2,
+  "maxSeenBy": 100,
   "retentionDays": 30,
   "clockSkewMinutes": 15,
   "maxBackdateHours": 24,

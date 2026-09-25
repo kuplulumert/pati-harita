@@ -32,6 +32,7 @@
   .badge-species { position: absolute; top: -8px; right: -9px; width: 20px; height: 20px; border-radius: 50%; background: #fff; display: grid; place-items: center; font-size: 12px; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
   .badge-help { position: absolute; top: -8px; left: -9px; width: 20px; height: 20px; border-radius: 50%; background: #2f6fe4; border: 1.5px solid #fff; display: grid; place-items: center; }
   .badge-help svg { width: 12px; height: 12px; }
+  .badge-seen { position: absolute; bottom: -5px; right: -10px; min-width: 18px; height: 16px; padding: 0 4px; border-radius: 999px; background: #fff; font-size: 10px; font-weight: 700; line-height: 16px; text-align: center; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
 
   .me { width: 18px; height: 18px; border-radius: 50%; background: #2f6fe4; border: 3px solid #fff; box-shadow: 0 0 0 10px rgba(47,111,228,.18); }
   .overlay, #pin, #pinshadow, #legendSlot { z-index: 1000; }
@@ -69,14 +70,23 @@
   .need .dot svg { width: 58%; height: 58%; }
   .need.emergency { grid-column: 1 / -1; color: #fff; font-size: 16px; font-weight: 600; padding: 0 16px; }
   .need.emergency small { margin-left: auto; font-weight: 500; opacity: .85; font-size: 12px; }
+  .dup { width: 100%; min-height: 56px; margin-bottom: 10px; border: 0; border-radius: 16px; background: var(--fill); display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 10px; text-align: left; cursor: pointer; color: var(--ink); }
+  .dup:active { transform: scale(.96); }
+  .dup .dot { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+  .dup .dot svg { width: 58%; height: 58%; }
+  .dup b { display: block; font-size: 15px; font-weight: 600; }
+  .dup small { display: block; font-size: 12px; color: var(--muted); }
+  .dup em { margin-left: auto; font-style: normal; font-size: 17px; }
 
   .card-head { display: flex; gap: 12px; align-items: flex-start; }
   .card-head .dot { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; flex: none; }
   .card-head .dot svg { width: 55%; height: 55%; }
   .card-head h2 { margin: 0; font-size: 19px; }
   .card-head p { margin: 3px 0 0; font-size: 14px; color: var(--muted); }
-  .status { display: inline-flex; align-items: center; gap: 8px; margin: 14px 0; padding: 8px 12px; border-radius: 999px; font-size: 14px; font-weight: 500; }
+  .status-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 14px 0; }
+  .status { display: inline-flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 999px; font-size: 14px; font-weight: 500; }
   .status i { width: 8px; height: 8px; border-radius: 50%; }
+  .seen { font-size: 14px; font-weight: 500; color: var(--muted); }
   .primary { width: 100%; height: 54px; border: 0; border-radius: 16px; color: #fff; font-size: 17px; font-weight: 600; margin-bottom: 10px; cursor: pointer; }
   .acts { display: flex; gap: 8px; }
   .act { flex: 1; height: 58px; border: 0; border-radius: 14px; background: var(--fill2); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; font-size: 12px; font-weight: 500; cursor: pointer; color: var(--ink); }
@@ -151,7 +161,7 @@
 <script>
 // ---- Sözleşme (shared/report-contract.json ile aynı) -------------------------
 const HOUR = 3600e3, MIN = 60e3;
-const CLAIM = 3 * HOUR, GONE_THRESHOLD = 2;
+const CLAIM = 3 * HOUR, GONE_THRESHOLD = 2, MAX_SEEN = 100, DUPLICATE_RADIUS = 40;
 const SPECIES = { cat: ["Kedi", "🐈"], dog: ["Köpek", "🐕"], bird: ["Kuş", "🐦"], other: ["Diğer", "🐾"] };
 const ICON = {
   emergency: '<svg viewBox="0 0 24 24"><rect x="10" y="3" width="4" height="12" rx="2" fill="#fff"/><circle cx="12" cy="19.5" r="2.3" fill="#fff"/></svg>',
@@ -213,7 +223,9 @@ function apply(action, r, user, t) {
       if (!isClaimer && !rep) throw "Bunu yalnızca işareti koyan ya da ilgilenen kişi yapabilir.";
       close("resolved"); break;
     case "confirm":
-      r.lastSeenAt = t; r.expiresAt = Math.max(r.expiresAt, t + NEEDS[r.need].hours * HOUR); break;
+      r.lastSeenAt = t; r.expiresAt = Math.max(r.expiresAt, t + NEEDS[r.need].hours * HOUR);
+      if (joinsSeen(r, user)) r.seen.push(user); // her kişi bir kez sayılır
+      break;
     case "gone":
       if (r.gone.includes(user)) throw "Bunu zaten bildirdin.";
       r.gone.push(user);
@@ -222,8 +234,11 @@ function apply(action, r, user, t) {
 }
 function makeReport(species, need, lat, lng, reporter, t) {
   return { id: Math.random().toString(36).slice(2), species, need, lat, lng, reporter, createdAt: t, lastSeenAt: t,
-    expiresAt: t + NEEDS[need].hours * HOUR, status: "open", claim: null, gone: [] };
+    expiresAt: t + NEEDS[need].hours * HOUR, status: "open", claim: null, gone: [], seen: [reporter] };
 }
+// "Kaç kişi bildirdi": işareti koyan + "Hâlâ orada" diyen farklı kişiler (en fazla MAX_SEEN).
+const joinsSeen = (r, user) => !r.seen.includes(user) && r.seen.length < MAX_SEEN;
+const seenBadge = (n) => (n < 2 ? null : n >= 100 ? "99+" : String(n));
 const freshness = (r, t) => Math.max(0, Math.min(1, (r.expiresAt - t) / (r.expiresAt - r.lastSeenAt || 1)));
 function ago(ms) {
   const s = Math.max(0, ms / 1000);
@@ -247,19 +262,22 @@ const offsetLatLng = (c, north, east) => [c[0] + north / 111320, c[1] + east / (
 // ---- Uygulama durumu ---------------------------------------------------------
 let me = [40.9903, 29.0290]; // Kadıköy; konum izni verilirse gerçek konum
 let user = "ben", reports = [], mode = "browse", chosenSpecies = null, selected = null, toast = null, toastTimer = null;
+let duplicateID = null, recentering = false; // "Aynı hayvan mı?" önerisi (yalnızca ihtiyaç adımında)
 const $ = (id) => document.getElementById(id);
 
 function seed(center) {
   const t = now();
   reports = [];
+  // [tür, ihtiyaç, kuzey m, doğu m, kaç dk önce, ilgilenen, kaç kişi bildirdi]
   const s = [
-    ["cat", "injured", 110, -90, 12, null], ["dog", "food", -190, 160, 95, null], ["cat", "babies", 250, 230, 300, "komsu"],
-    ["dog", "emergency", -80, -250, 4, null], ["bird", "vet", 360, -40, 40, null], ["cat", "shelter", -320, -120, 900, null],
-    ["other", "other", 70, 360, 600, null], ["cat", "food", -40, 60, 30, "yabanci"],
+    ["cat", "injured", 110, -90, 12, null, 3], ["dog", "food", -190, 160, 95, null, 2], ["cat", "babies", 250, 230, 300, "komsu", 1],
+    ["dog", "emergency", -80, -250, 4, null, 6], ["bird", "vet", 360, -40, 40, null, 1], ["cat", "shelter", -320, -120, 900, null, 1],
+    ["other", "other", 70, 360, 600, null, 1], ["cat", "food", -40, 60, 30, "yabanci", 1],
   ];
-  for (const [sp, need, n, e, minAgo, helper] of s) {
+  for (const [sp, need, n, e, minAgo, helper, seenCount] of s) {
     const [lat, lng] = offsetLatLng(center, n, e);
     const r = makeReport(sp, need, lat, lng, "yabanci", t - minAgo * MIN);
+    for (let i = 1; i < seenCount; i++) r.seen.push(`anonim-${i}`); // geliştirici panelindeki kişiler değil
     if (helper) apply("claim", r, helper, t - 20 * MIN);
     reports.push(r);
   }
@@ -279,12 +297,13 @@ const meMarker = L.marker(me, { icon: L.divIcon({ className: "pin-icon", html: '
 const markerLayer = L.layerGroup().addTo(map);
 
 function markerHTML(r, t) {
-  const n = NEEDS[r.need], p = phase(r, user, t), sel = selected === r.id;
+  const n = NEEDS[r.need], p = phase(r, user, t), sel = selected === r.id, badge = seenBadge(r.seen.length);
   return `<div class="marker ${r.need === "emergency" ? "urgent" : ""} ${sel ? "selected" : ""}"
       style="--c:${n.color};opacity:${(0.5 + 0.5 * freshness(r, t)).toFixed(2)}">
     <div class="head" style="background:${n.color}">${ICON[r.need]}
       <div class="badge-species">${SPECIES[r.species][1]}</div>
       ${p === "mine" || p === "other" ? HELP_BADGE : ""}
+      ${badge ? `<div class="badge-seen" style="color:${n.color}">${badge}</div>` : ""}
     </div><div class="tail"></div></div>`;
 }
 function drawMarkers(visible, t) {
@@ -323,6 +342,16 @@ function placePin() {
   $("pinshadow").style.top = c.y + "px";
   $("pinface").textContent = mode === "need" ? SPECIES[chosenSpecies][1] : "🐾";
 }
+// "Aynı hayvan mı?": iğneye DUPLICATE_RADIUS içindeki, aynı türden en yakın aktif işaret.
+function findDuplicate(target, t) {
+  let best = null, bestDistance = Infinity;
+  for (const r of reports) {
+    if (r.species !== chosenSpecies || !isActive(r, t)) continue;
+    const d = map.distance(target, [r.lat, r.lng]);
+    if (d <= DUPLICATE_RADIUS && d < bestDistance) { best = r; bestDistance = d; }
+  }
+  return best ? best.id : null;
+}
 
 // ---- Arayüz ------------------------------------------------------------------
 function render() {
@@ -335,9 +364,10 @@ function render() {
   $("chip").innerHTML = `🐾 ${waiting ? `${waiting} hayvan yardım bekliyor` : "Yakında yardım bekleyen yok"}`;
 
   const target = mode !== "browse" ? pinTarget() : null;
+  duplicateID = mode === "need" ? findDuplicate(target, t) : null;
   $("bottom").innerHTML = mode === "species" ? speciesPanel() : mode === "need" ? needPanel()
     : selected ? card(visible.find((r) => r.id === selected), t) : controls();
-  if (target) centerOn(target, false);
+  if (target) { recentering = true; centerOn(target, false); recentering = false; }
   placePin();
   const ph = $("phone").getBoundingClientRect(), b = $("bottom").getBoundingClientRect();
   $("phone").style.setProperty("--attr-bottom", (ph.bottom - b.top + 4) + "px");
@@ -359,10 +389,21 @@ function needPanel() {
   return `<div class="sheet"><div class="sheet-head"><button class="x" data-back>‹</button>
     <div class="grow"><h2>${SPECIES[chosenSpecies][1]} Neye ihtiyacı var?</h2><p>İğneyi ayarlamak için haritayı kaydır</p></div>
     <button class="x" data-cancel>✕</button></div>
+    ${duplicatePanel()}
     <div class="needs"><button class="need emergency" data-need="emergency" style="background:${NEEDS.emergency.color}">
       <span style="width:18px">${ICON.emergency}</span> Acil yardım <small>Hayati tehlike</small></button>
     ${order.map((k) => `<button class="need" data-need="${k}" style="background:${NEEDS[k].color}24">
       <span class="dot" style="background:${NEEDS[k].color}">${ICON[k]}</span>${NEEDS[k].title}</button>`).join("")}</div></div>`;
+}
+// Yakında aynı türden bir işaret varsa yeni işaret yerine ona "Hâlâ orada" demeyi öner.
+function duplicatePanel() {
+  const r = reports.find((x) => x.id === duplicateID);
+  if (!r) return "";
+  const n = NEEDS[r.need], count = r.seen.length;
+  return `<button class="dup" id="duplicate-suggestion" data-dup="${r.id}">
+    <span class="dot" style="background:${n.color}">${ICON[r.need]}</span>
+    <span><b>Ben de gördüm</b><small>Aynı hayvan mı? Yakında ${n.title}${count >= 2 ? ` · ${count} kişi bildirdi` : ""}</small></span>
+    <em>👁</em></button>`;
 }
 function card(r, t) {
   const n = NEEDS[r.need], p = phase(r, user, t);
@@ -378,7 +419,8 @@ function card(r, t) {
     <div class="card-head"><div class="dot" style="background:${n.color}">${ICON[r.need]}</div>
       <div class="grow"><h2>${n.title}</h2><p>${SPECIES[r.species][1]} ${SPECIES[r.species][0]} · ${ago(t - r.createdAt)} işaretlendi · ${distance(r)}</p></div>
       <button class="x" data-close>✕</button></div>
-    <div class="status" style="background:${st[1]}1f"><i style="background:${st[1]}"></i>${st[0]}</div>
+    <div class="status-row"><div class="status" style="background:${st[1]}1f"><i style="background:${st[1]}"></i>${st[0]}</div>
+      ${r.seen.length >= 2 ? `<span class="seen">👁 ${r.seen.length} kişi bildirdi</span>` : ""}</div>
     ${primary ? `<button class="primary" data-act="${primary}" style="background:${primary === "resolve" ? "#2b9a4a" : n.color}">${ACTIONS[primary][1]} ${ACTIONS[primary][0]}</button>` : ""}
     <div class="acts">${rest.map((a) => `<button class="act" data-act="${a}"><em>${ACTIONS[a][1]}</em>${ACTIONS[a][0]}</button>`).join("")}
       <a class="act" style="text-decoration:none" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${r.lat},${r.lng}&travelmode=walking"><em>🚶</em>Yol tarifi</a></div></div>`;
@@ -393,12 +435,25 @@ function legend() {
     <h3>Durum</h3>
     <div class="row">🚶 Mavi rozet: biri ilgileniyor. 3 saat içinde çözülmezse işaret yeniden yardım bekler.</div>
     <div class="row">◐ Soluk işaretler bir süredir kimse tarafından doğrulanmadı.</div>
+    <div class="row"><span class="badge-seen" style="position:static;flex:none;color:${NEEDS.injured.color}">3</span>
+      <div>Kaç kişinin bildirdiği<small>Hâlâ orada ya da Ben de gördüm diyen herkes eklenir</small></div></div>
     <div class="row">🐾 Köşedeki emoji hayvanın türünü gösterir.</div></div></div>`;
 }
 function showToast(msg, undo) {
   toast = { msg, undo };
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => { toast = null; render(); }, 5000);
+}
+function perform(action, r, t) {
+  // Sayı eylemden önceki hâlden hesaplanır: listede yoksa ve liste dolmadıysa bir artar.
+  const joins = action === "confirm" && joinsSeen(r, user), count = r.seen.length + 1;
+  try {
+    apply(action, r, user, t);
+    showToast(joins ? `Teşekkürler! Bu hayvanı artık ${count} kişi bildirdi.` : {
+      claim: "Teşekkürler! İşaret 3 saat boyunca sende.", release: "İşaret yeniden yardım bekliyor.",
+      resolve: "Harika! İşaret haritadan kaldırıldı.", confirm: "Teşekkürler, işaret güncellendi.", gone: "Bildirdiğin için teşekkürler." }[action]);
+  } catch (msg) { showToast(msg); }
+  render();
 }
 
 // ---- Etkileşimler ------------------------------------------------------------
@@ -429,23 +484,25 @@ document.addEventListener("click", (e) => {
     else showToast("Geri alınamadı: biri bu işaretle ilgilenmeye başladı.");
     render();
   }
-  else if (d.close !== undefined) { selected = null; render(); }
-  else if (d.act) {
-    const r = reports.find((x) => x.id === selected);
-    try {
-      apply(d.act, r, user, t);
-      showToast({ claim: "Teşekkürler! İşaret 3 saat boyunca sende.", release: "İşaret yeniden yardım bekliyor.",
-        resolve: "Harika! İşaret haritadan kaldırıldı.", confirm: "Teşekkürler, işaret güncellendi.", gone: "Bildirdiğin için teşekkürler." }[d.act]);
-    } catch (msg) { showToast(msg); }
-    render();
+  else if (d.dup) {
+    // "Ben de gördüm": yeni işaret koymadan mevcut işareti aç ve "Hâlâ orada" de.
+    const r = reports.find((x) => x.id === d.dup);
+    mode = "browse"; selected = r ? r.id : null;
+    if (r) perform("confirm", r, t); else render();
   }
+  else if (d.close !== undefined) { selected = null; render(); }
+  else if (d.act) perform(d.act, reports.find((x) => x.id === selected), t);
   else if (el.id === "info") { $("legendSlot").innerHTML = legend(); }
   else if (d.legendClose !== undefined && (e.target === el || el.tagName === "BUTTON")) { $("legendSlot").innerHTML = ""; }
 });
 map.on("click", () => { if (mode === "browse" && selected) { selected = null; render(); } });
 map.on("contextmenu", (e) => startPlacing(e.latlng)); // uzun basma (dokunmatik) ya da sağ tık
 map.on("movestart", () => $("pin").classList.add("lift"));
-map.on("moveend", () => $("pin").classList.remove("lift"));
+map.on("moveend", () => {
+  $("pin").classList.remove("lift");
+  // Harita durunca öneriyi yenile; yalnızca değiştiyse çiz. render'ın kendi ortalaması sayılmaz.
+  if (!recentering && mode === "need" && findDuplicate(pinTarget(), now()) !== duplicateID) render();
+});
 
 // Geliştirici paneli
 $("users").addEventListener("click", (e) => {

@@ -54,6 +54,17 @@ struct ReportCard: View {
                 Text(subtitle)
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
+                if let seen = Formatting.seenCount(report.seenCount) {
+                    // "Hâlâ orada" diyen herkes sayılır; tek başına işareti koyan bildirdiyse gösterilmez.
+                    HStack(spacing: 4) {
+                        Image(systemName: "eye.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(report.need.color)
+                            .accessibilityHidden(true)
+                        Text(seen)
+                            .font(.subheadline.weight(.medium))
+                    }
+                }
             }
             Spacer(minLength: 0)
             CircleButton(systemImage: "xmark", accessibilityLabel: "Kapat", action: onClose)
@@ -167,7 +178,7 @@ private struct SecondaryButton: View {
 }
 
 #Preview {
-    let report = ReportLifecycle.makeReport(
+    var report = ReportLifecycle.makeReport(
         id: "preview",
         species: .cat,
         need: .injured,
@@ -175,6 +186,10 @@ private struct SecondaryButton: View {
         reporterID: "someone",
         now: Date().addingTimeInterval(-12 * 60)
     )
+    // İki kişi daha "Hâlâ orada" dedi: kartta "3 kişi bildirdi".
+    for passerBy in ["passer-by", "neighbour"] {
+        report = (try? ReportLifecycle.apply(.confirmStillThere, to: report, by: passerBy, at: Date())) ?? report
+    }
     return ReportCard(
         report: report,
         userID: "me",

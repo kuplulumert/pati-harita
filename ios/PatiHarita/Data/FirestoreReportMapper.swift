@@ -23,6 +23,7 @@ enum FirestoreReportMapper {
         static let claimedAt = "claimedAt"
         static let claimExpiresAt = "claimExpiresAt"
         static let goneReports = "goneReports"
+        static let seenBy = "seenBy"
         static let closedAt = "closedAt"
         static let purgeAt = "purgeAt"
     }
@@ -44,6 +45,7 @@ enum FirestoreReportMapper {
             Field.claimedAt: nullable(report.claim.map { Timestamp(date: $0.claimedAt) }),
             Field.claimExpiresAt: nullable(report.claim.map { Timestamp(date: $0.expiresAt) }),
             Field.goneReports: report.goneReports,
+            Field.seenBy: report.seenBy,
             Field.closedAt: nullable(report.closedAt.map { Timestamp(date: $0) }),
             Field.purgeAt: nullable(report.purgeAt.map { Timestamp(date: $0) }),
         ]
@@ -92,6 +94,8 @@ enum FirestoreReportMapper {
             expiresAt: expiresAt,
             claim: claim,
             goneReports: data[Field.goneReports] as? [String] ?? [],
+            // "Kaç kişi bildirdi" öncesinden kalan dokümanda alan yok: yalnızca işareti koyan bildirmiş sayılır.
+            seenBy: data[Field.seenBy] as? [String] ?? [reporterID],
             closedAt: date(data[Field.closedAt]),
             purgeAt: date(data[Field.purgeAt])
         )

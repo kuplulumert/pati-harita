@@ -44,6 +44,8 @@ service cloud.firestore {
     function skew() { return duration.value(15, 'm'); }
     // İstemcinin tarih + süre hesabındaki yuvarlama farkları için pay.
     function rounding() { return duration.value(1, 'm'); }
+    // "Kaç kişi bildirdi" listesinde (seenBy) tutulan en fazla kullanıcı sayısı.
+    function maxSeenBy() { return 100; }
 
     // "Şimdi" anlamına gelmesi gereken, istemcinin yazdığı bir zaman damgası.
     function isNow(t) {
@@ -55,7 +57,7 @@ service cloud.firestore {
     function reportKeys() {
       return ['species', 'need', 'lat', 'lng', 'geohash', 'status', 'closedReason',
               'reporterId', 'createdAt', 'lastSeenAt', 'expiresAt', 'claimedBy',
-              'claimedAt', 'claimExpiresAt', 'goneReports', 'closedAt', 'purgeAt'];
+              'claimedAt', 'claimExpiresAt', 'goneReports', 'seenBy', 'closedAt', 'purgeAt'];
     }
 
     function validShape(d) {
@@ -71,6 +73,8 @@ service cloud.firestore {
         && d.lastSeenAt is timestamp
         && d.expiresAt is timestamp
         && d.goneReports is list && d.goneReports.size() <= 20
+        // Hayvanı gören farklı kullanıcılar: önce bildiren, sonra "Hâlâ orada" diyenler.
+        && d.seenBy is list && d.seenBy.size() >= 1 && d.seenBy.size() <= maxSeenBy()
         && ((d.claimedBy == null && d.claimedAt == null && d.claimExpiresAt == null)
             || (d.claimedBy is string && d.claimedAt is timestamp && d.claimExpiresAt is timestamp))
         && (d.status != 'claimed' || d.claimedBy != null)
@@ -118,6 +122,7 @@ service cloud.firestore {
         && d.status == 'open'
         && d.claimedBy == null
         && d.goneReports.size() == 0
+        && d.seenBy == [me()]
         // Çevrimdışı işaretlenip sonradan senkronlanan kayıtlara izin ver.
         && d.createdAt < request.time + skew()
         && d.createdAt > request.time - maxBackdate()
@@ -161,15 +166,21 @@ service cloud.firestore {
     }
 
     // "Hâlâ orada": herkes işaretin ömrünü ihtiyaca göre uzatabilir (asla kısaltamaz).
+    // Aynı eylem "kaç kişi bildirdi" sayısını da artırır: kişi kendini (yalnızca kendini,
+    // bir kez) seenBy'ın sonuna ekler. Zaten listedeyse ya da liste doluysa seenBy aynı kalır.
     function isConfirm() {
       let before = resource.data;
       let after = request.resource.data;
-      return changedKeys().hasOnly(['lastSeenAt', 'expiresAt'])
+      return changedKeys().hasOnly(['lastSeenAt', 'expiresAt', 'seenBy'])
         && isNow(after.lastSeenAt)
         && after.lastSeenAt > before.lastSeenAt
         && (after.expiresAt == before.expiresAt
             || (after.expiresAt > before.expiresAt
-                && after.expiresAt <= after.lastSeenAt + lifetime(before.need) + rounding()));
+                && after.expiresAt <= after.lastSeenAt + lifetime(before.need) + rounding()))
+        && (after.seenBy == before.seenBy
+            || (!(me() in before.seenBy)
+                && before.seenBy.size() < maxSeenBy()
+                && after.seenBy == before.seenBy.concat([me()])));
     }
 
     // "Artık yok": her kullanıcı bir kez bildirebilir. 2 farklı kişi, ya da

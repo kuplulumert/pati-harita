@@ -28,6 +28,12 @@ final class ReportLifecycleTests: XCTestCase {
         XCTAssertEqual(report.phase(for: alice, at: hours(12)), .closed(.expired))
     }
 
+    func testNewReportIsSeenByReporterOnly() {
+        let report = makeReport()
+        XCTAssertEqual(report.seenBy, [alice])
+        XCTAssertEqual(report.seenCount, 1)
+    }
+
     func testFreshnessFadesTowardsExpiry() {
         let report = makeReport(need: .injured) // 24 sa
         XCTAssertEqual(report.freshness(at: t0), 1)
@@ -110,6 +116,64 @@ final class ReportLifecycleTests: XCTestCase {
         XCTAssertEqual(confirmed.expiresAt, hours(44))
     }
 
+    func testConfirmByOthersAddsThemToSeenBy() throws {
+        let report = makeReport()
+        XCTAssertTrue(ReportLifecycle.confirmAddsSeen(to: report, by: cara))
+        let byCara = try ReportLifecycle.apply(.confirmStillThere, to: report, by: cara, at: hours(1))
+        XCTAssertEqual(byCara.seenBy, [alice, cara])
+        XCTAssertEqual(byCara.seenCount, 2)
+        XCTAssertEqual(byCara.changedFields(from: report), [.lastSeenAt, .expiresAt, .seenBy])
+
+        let byBob = try ReportLifecycle.apply(.confirmStillThere, to: byCara, by: bob, at: hours(2))
+        XCTAssertEqual(byBob.seenBy, [alice, cara, bob])
+    }
+
+    func testConfirmBySameUserCountsOnce() throws {
+        let report = makeReport()
+        // İşareti koyan zaten sayılı: ömür uzar, sayı değişmez.
+        XCTAssertFalse(ReportLifecycle.confirmAddsSeen(to: report, by: alice))
+        let byReporter = try ReportLifecycle.apply(.confirmStillThere, to: report, by: alice, at: hours(1))
+        XCTAssertEqual(byReporter.seenBy, [alice])
+        XCTAssertEqual(byReporter.changedFields(from: report), [.lastSeenAt, .expiresAt])
+
+        let once = try ReportLifecycle.apply(.confirmStillThere, to: report, by: cara, at: hours(1))
+        XCTAssertFalse(ReportLifecycle.confirmAddsSeen(to: once, by: cara))
+        let twice = try ReportLifecycle.apply(.confirmStillThere, to: once, by: cara, at: hours(2))
+        XCTAssertEqual(twice.seenBy, [alice, cara])
+        XCTAssertEqual(twice.lastSeenAt, hours(2))
+        XCTAssertEqual(twice.changedFields(from: once), [.lastSeenAt, .expiresAt])
+    }
+
+    func testSeenByStopsGrowingAtCap() throws {
+        var report = makeReport()
+        for index in 1..<ReportLifecycle.maxSeenBy {
+            report = try ReportLifecycle.apply(.confirmStillThere, to: report, by: "user-\(index)", at: minutes(Double(index)))
+        }
+        XCTAssertEqual(report.seenCount, ReportLifecycle.maxSeenBy)
+        XCTAssertEqual(Set(report.seenBy).count, ReportLifecycle.maxSeenBy)
+
+        // Liste dolu: yeni gelen yine "Hâlâ orada" diyebilir ama eklenmez.
+        XCTAssertFalse(ReportLifecycle.confirmAddsSeen(to: report, by: "late"))
+        let late = try ReportLifecycle.apply(.confirmStillThere, to: report, by: "late", at: hours(3))
+        XCTAssertEqual(late.seenBy, report.seenBy)
+        XCTAssertEqual(late.lastSeenAt, hours(3))
+        XCTAssertFalse(late.changedFields(from: report).contains(.seenBy))
+    }
+
+    func testOtherActionsLeaveSeenByUnchanged() throws {
+        let seen = try ReportLifecycle.apply(.confirmStillThere, to: makeReport(), by: cara, at: minutes(1))
+        let claimed = try ReportLifecycle.apply(.claim, to: seen, by: bob, at: minutes(2))
+        let released = try ReportLifecycle.apply(.release, to: claimed, by: bob, at: minutes(3))
+        let resolved = try ReportLifecycle.apply(.resolve, to: claimed, by: bob, at: minutes(4))
+        let goneOnce = try ReportLifecycle.apply(.reportGone, to: seen, by: "dan", at: minutes(5))
+        let goneTwice = try ReportLifecycle.apply(.reportGone, to: goneOnce, by: bob, at: minutes(6))
+        for report in [claimed, released, resolved, goneOnce, goneTwice] {
+            XCTAssertEqual(report.seenBy, [alice, cara])
+        }
+        // "Artık yok" diyen kişi "bildirdi" sayılmaz.
+        XCTAssertFalse(goneTwice.seenBy.contains(bob))
+    }
+
     // MARK: Artık yok
 
     func testSingleGoneReportFromPasserByOnlyCounts() throws {
@@ -179,7 +243,7 @@ final class ReportLifecycleTests: XCTestCase {
             .claim: [[.status, .claimedBy, .claimedAt, .claimExpiresAt, .expiresAt]],
             .release: [[.status, .claimedBy, .claimedAt, .claimExpiresAt]],
             .resolve: [closing],
-            .confirmStillThere: [[.lastSeenAt, .expiresAt]],
+            .confirmStillThere: [[.lastSeenAt, .expiresAt, .seenBy]],
             .reportGone: [[.goneReports], closing.union([.goneReports])],
         ]
         let claimed = try ReportLifecycle.apply(.claim, to: makeReport(need: .food), by: bob, at: hours(10))

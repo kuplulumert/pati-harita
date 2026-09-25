@@ -24,6 +24,8 @@ final class MapViewModel {
     static let minQueryRadius: Double = 1_500
     static let placementZoom: Float = 17.5
     static let browsingZoom: Float = 16
+    /// İhtiyaç seçilirken iğnenin bu kadar yakınındaki aynı türden işaret için "Aynı hayvan mı?" sorulur.
+    static let duplicateRadius: Double = 40
 
     private(set) var reports: [Report] = []
     private(set) var now = Date()
@@ -36,6 +38,9 @@ final class MapViewModel {
     private(set) var busyAction: ReportAction? = nil
     /// Her yeni işarette artar; dokunsal geri bildirimi tetikler.
     private(set) var reportsCreated = 0
+    /// İhtiyaç seçilirken iğnenin yakınındaki aynı türden işaret ("Ben de gördüm" önerisi).
+    /// Kamera hedefi gözlenmediği için sonuç burada tutulur.
+    private(set) var duplicateCandidateID: String? = nil
 
     let environment: AppEnvironment
     private var repository: ReportRepository { environment.repository }
@@ -65,6 +70,12 @@ final class MapViewModel {
     var selectedReport: Report? {
         guard let selectedReportID else { return nil }
         return visibleReports.first { $0.id == selectedReportID }
+    }
+
+    /// Bu arada kapanan ya da süresi dolan işaret önerilmez.
+    var duplicateCandidate: Report? {
+        guard let duplicateCandidateID else { return nil }
+        return visibleReports.first { $0.id == duplicateCandidateID }
     }
 
     var waitingCount: Int {
@@ -122,6 +133,8 @@ final class MapViewModel {
         cameraTarget = center
         visibleArea = (center, visibleRadius)
         refreshSubscription()
+        // İğne kaydırıldı: yakındaki aynı hayvan yeniden aranır.
+        updateDuplicateCandidate()
     }
 
     func markerTapped(_ reportID: String) {
@@ -175,6 +188,7 @@ final class MapViewModel {
         selectedReportID = nil
         toast = nil
         mode = .choosingSpecies
+        updateDuplicateCandidate()
         if let target = coordinate ?? location.coordinate {
             cameraRequest = CameraRequest(target: target, zoom: Self.placementZoom)
         }
@@ -182,14 +196,47 @@ final class MapViewModel {
 
     func choose(_ species: Species) {
         mode = .choosingNeed(species)
+        updateDuplicateCandidate()
     }
 
     func backToSpecies() {
         mode = .choosingSpecies
+        updateDuplicateCandidate()
     }
 
     func cancelPlacing() {
         mode = .browsing
+        updateDuplicateCandidate()
+    }
+
+    /// "Ben de gördüm": yeni işaret yerine iğnenin yakınındaki aynı hayvana "Hâlâ orada" denir
+    /// ve kartı açılır. Böylece aynı kedi için haritada ikinci bir işaret çıkmaz, sayısı artar.
+    func confirmDuplicate(_ report: Report) {
+        mode = .browsing
+        updateDuplicateCandidate()
+        selectedReportID = report.id
+        Task { [weak self] in
+            await self?.perform(.confirmStillThere, on: report)
+        }
+    }
+
+    /// İhtiyaç seçilirken: iğneye (kamera hedefine) `duplicateRadius` içindeki en yakın, aynı türden
+    /// aktif işaret. Başka her durumda öneri yoktur.
+    private func updateDuplicateCandidate() {
+        var candidateID: String?
+        if case .choosingNeed(let species) = mode, let target = cameraTarget {
+            let radius = Self.duplicateRadius
+            let nearest = visibleReports
+                .filter { $0.species == species }
+                .map { (id: $0.id, distance: $0.coordinate.distance(to: target)) }
+                .filter { $0.distance <= radius }
+                .min { $0.distance < $1.distance }
+            candidateID = nearest?.id
+        }
+        // Aynı değeri yeniden yazmak paneli boşuna yeniden çizdirirdi.
+        if candidateID != duplicateCandidateID {
+            duplicateCandidateID = candidateID
+        }
     }
 
     /// Son dokunuş: işaret iğnenin olduğu yere (kamera hedefine) hemen kaydedilir.
@@ -212,6 +259,7 @@ final class MapViewModel {
             self?.show(Toast(message: "İşaret kaydedilemedi. Lütfen tekrar dene."))
         }
         mode = .browsing
+        updateDuplicateCandidate()
         reportsCreated += 1
         show(Toast(message: "\(species.title) · \(need.title) işaretlendi", undoReportID: report.id))
     }
@@ -230,9 +278,14 @@ final class MapViewModel {
         guard let userID = session.userID, busyAction == nil else { return }
         busyAction = action
         defer { busyAction = nil }
+        // "Hâlâ orada" diyen kişi sayıya eklenecek mi? Eylemden önceki hâle bakılır.
+        let addsSeen = action == .confirmStillThere && ReportLifecycle.confirmAddsSeen(to: report, by: userID)
         do {
             try await repository.perform(action, onReportID: report.id, by: userID)
-            show(Toast(message: Self.confirmation(for: action)))
+            let message = addsSeen
+                ? "Teşekkürler! Bu hayvanı artık \(report.seenCount + 1) kişi bildirdi."
+                : Self.confirmation(for: action)
+            show(Toast(message: message))
         } catch let error as ReportError {
             show(Toast(message: error.errorDescription ?? "İşlem tamamlanamadı."))
         } catch {

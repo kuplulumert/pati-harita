@@ -195,7 +195,8 @@ struct ReportMapView: UIViewRepresentable {
                     need: report.need,
                     species: report.species,
                     isBeingHelped: report.phase(for: parent.userID, at: parent.now).isBeingHelped,
-                    isSelected: isSelected
+                    isSelected: isSelected,
+                    seenBadge: Formatting.seenCountBadge(report.seenCount)
                 )
 
                 let annotation: ReportAnnotation
@@ -214,6 +215,8 @@ struct ReportMapView: UIViewRepresentable {
                     annotation.style = style
                     annotation.title = "\(report.need.title), \(report.species.title)"
                 }
+                // Rozet 99'da durur; sesli okunan değer gerçek sayıdır.
+                annotation.seenValue = Formatting.seenCount(report.seenCount)
                 // Eski işaretler soluklaşır: hâlâ geçerli mi bilinmiyor.
                 annotation.alpha = CGFloat(0.5 + 0.5 * report.freshness(at: parent.now))
                 // Üst üste binen işaretlerde acil (ve seçili) olan üstte çizilir.
@@ -242,11 +245,13 @@ struct ReportMapView: UIViewRepresentable {
             view.centerOffset = CGPoint(x: 0, y: -(annotation.image?.size.height ?? 0) / 2)
             view.alpha = annotation.alpha
             view.zPriority = annotation.zPriority
-            // VoiceOver ve arayüz testi işareti "Mama / su, Kedi" gibi okur.
+            // VoiceOver ve arayüz testi işareti "Mama / su, Kedi" gibi okur; birden çok kişi bildirdiyse
+            // ardından değer olarak "3 kişi bildirdi" gelir (etiket değişmez, test onu birebir arar).
             view.isAccessibilityElement = true
             view.accessibilityTraits = .button
             view.accessibilityIdentifier = "report-marker"
             view.accessibilityLabel = annotation.title
+            view.accessibilityValue = annotation.seenValue
         }
 
         // MARK: Hareketler
@@ -394,6 +399,8 @@ final class ReportAnnotation: NSObject, MKAnnotation {
     let coordinate: CLLocationCoordinate2D
     /// Erişilebilirlik etiketi ("Mama / su, Kedi"); `canShowCallout` kapalı olduğu için ekranda görünmez.
     var title: String?
+    /// Erişilebilirlik değeri ("3 kişi bildirdi"); yalnızca işareti koyan bildirdiyse `nil`.
+    var seenValue: String?
     var style: MarkerStyle?
     var image: UIImage?
     var alpha: CGFloat = 1

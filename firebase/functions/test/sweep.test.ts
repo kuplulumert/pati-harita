@@ -28,6 +28,7 @@ function report(overrides: Record<string, unknown> = {}) {
     claimedAt: null,
     claimExpiresAt: null,
     goneReports: [],
+    seenBy: ["alice"],
     closedAt: null,
     purgeAt: null,
     ...overrides,

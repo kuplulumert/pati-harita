@@ -19,6 +19,11 @@ Sosyal medya ya da ilan uygulaması değil; tek ekranı olan, birkaç saniyede k
 İhtiyaca dokunduğun an işaret kaydedilir. Onay ekranı, form, fotoğraf, açıklama yok. Yanlışlık olursa 5 saniye boyunca **Geri al** görünür.
 Bağlantı zayıfsa işaret yine anında haritada görünür ve bağlantı gelince gönderilir.
 
+İğnenin 40 m yakınında aynı türden aktif bir işaret varsa ihtiyaç listesinin üstünde **Ben de gördüm**
+("Aynı hayvan mı? Yakında Yaralı / hasta · 3 kişi bildirdi") önerisi çıkar. Dokununca yeni işaret açılmaz; mevcut işaret
+açılır ve ona **Hâlâ orada** denir, yani aynı hayvan ikinci kez işaretlenmek yerine bildirenlerin sayısı artar.
+İhtiyaç düğmeleri yine her zamanki gibi yeni işaret koyar.
+
 ### Haritada işaretleri okumak
 
 | Görsel | Anlamı |
@@ -26,6 +31,7 @@ Bağlantı zayıfsa işaret yine anında haritada görünür ve bağlantı gelin
 | Renk + simge | İhtiyaç (kırmızı ünlem = acil, turuncu bandaj = yaralı, yeşil çatal-bıçak = mama/su, mavi steteskop = veteriner, mor ev = barınak, pembe ayıcık = yavrular, gri = diğer) |
 | Köşedeki emoji | Tür (🐈 🐕 🐦 🐾) |
 | Mavi "yürüyen kişi" rozeti | Biri ilgileniyor |
+| Sağ alttaki beyaz sayı | Hayvanı kaç farklı kişinin bildirdiği (işareti koyan + "Hâlâ orada" ya da "Ben de gördüm" diyenler; 2 kişiden itibaren görünür, 100 ve üstü "99+") |
 | Büyük ve haleli işaret | Acil |
 | Soluklaşan işaret | Bir süredir kimse doğrulamadı |
 
@@ -34,6 +40,7 @@ Bağlantı zayıfsa işaret yine anında haritada görünür ve bağlantı gelin
 ### İşarete dokununca
 
 Yalnızca temel bilgiler: **ihtiyaç, tür, ne zaman işaretlendiği, uzaklık ve mevcut durum** ("Yardım bekliyor", "Biri ilgileniyor · 12 dk önce", "Sen ilgileniyorsun · 2 sa 40 dk kaldı").
+Hayvanı birden fazla kişi bildirdiyse **"N kişi bildirdi"** de yazar.
 Altında duruma göre değişen düğmeler:
 
 | Kim | Görülen eylemler |
@@ -42,12 +49,14 @@ Altında duruma göre değişen düğmeler:
 | İlgilenen kişi | **Çözüldü** · Vazgeç · Artık yok · Yol tarifi |
 | İşareti koyan | **İlgileniyorum** · Çözüldü · Hâlâ orada · Artık yok · Yol tarifi |
 
-**Çözüldü** denince işaret aktif haritadan kalkar.
+**Çözüldü** denince işaret aktif haritadan kalkar. **Hâlâ orada** diyen kişi bildirenlerin sayısına da eklenir
+("Teşekkürler! Bu hayvanı artık 4 kişi bildirdi.").
 
 ### Eski işaretler haritada kalmaz
 
 - Her ihtiyacın bir ömrü var (acil ve mama/su 12 sa, yaralı ve diğer 24 sa, veteriner 48 sa, barınak ve yavrular 72 sa). Süre dolunca işaret haritadan kalkar.
 - Hayvanı yine gören herkes **Hâlâ orada** diyerek süreyi yeniden başlatır. İşaret yaşlandıkça soluklaşır.
+  Bu, seni hayvanı bildirenlerin sayısına da ekler ("N kişi bildirdi"): her kişi bir kez sayılır, tekrar demek sayıyı artırmaz; en fazla 100 kişi tutulur.
 - **Artık yok**: iki farklı kişi (ya da işareti koyan / ilgilenen kişi tek başına) derse işaret kapanır.
 - **İlgileniyorum** 3 saat geçerlidir; çözülmezse işaret kendiliğinden yeniden "yardım bekliyor" olur.
 - Sunucuda her 10 dakikada bir temizlik çalışır; kapanan işaretler 30 gün sonra veritabanından silinir.

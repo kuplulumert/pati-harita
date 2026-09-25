@@ -7,10 +7,14 @@ struct MarkerStyle: Hashable {
     let species: Species
     let isBeingHelped: Bool
     let isSelected: Bool
+    /// Sağ alttaki "kaç kişi bildirdi" rozeti (`Formatting.seenCountBadge`); tek kişi bildirdiyse `nil`.
+    /// Ham sayı yerine metin tutulur: 99'dan sonrası aynı ikonu paylaşır.
+    let seenBadge: String?
 }
 
 /// Harita işareti: renk + simge ihtiyacı, köşedeki emoji türü, sol üstteki rozet
-/// birinin ilgilendiğini gösterir. Acil işaretler daha büyük ve haleli çizilir.
+/// birinin ilgilendiğini, sağ alttaki sayı hayvanı kaç kişinin bildirdiğini gösterir.
+/// Acil işaretler daha büyük ve haleli çizilir.
 ///
 /// Görünümün alt-orta noktası iğnenin ucudur (`ReportMapView` işareti bu noktadan konumlar).
 struct MarkerPin: View {
@@ -20,12 +24,26 @@ struct MarkerPin: View {
         (style.need.isUrgent ? 46 : 40) * (style.isSelected ? 1.2 : 1)
     }
 
+    /// Acil işaretin halesinin daireden her yana taşan kısmı.
+    private var haloInset: CGFloat {
+        style.need.isUrgent ? 6 : 0
+    }
+
     var body: some View {
         VStack(spacing: -2) {
             head
             PinTail()
                 .fill(style.need.color)
                 .frame(width: 14, height: 9)
+        }
+        // Kuyruğun da üstünde çizilsin diye tüm iğneye eklenir. Kaplama yerleşimi (boyut, uç noktası)
+        // değiştirmez; rozet dairenin sağ alt köşesinden biraz taşar ama kenar boşluğunun içinde kalır.
+        .overlay(alignment: .top) {
+            if let badge = style.seenBadge {
+                seenBadge(badge)
+                    .frame(width: diameter, height: diameter, alignment: .bottomTrailing)
+                    .offset(x: 5, y: haloInset + 4)
+            }
         }
         .padding([.top, .horizontal], 8)
     }
@@ -35,7 +53,7 @@ struct MarkerPin: View {
             if style.need.isUrgent {
                 Circle()
                     .fill(style.need.color.opacity(0.28))
-                    .frame(width: diameter + 12, height: diameter + 12)
+                    .frame(width: diameter + 2 * haloInset, height: diameter + 2 * haloInset)
             }
             Circle()
                 .fill(style.need.color)
@@ -65,6 +83,17 @@ struct MarkerPin: View {
                     .offset(x: -4, y: -4)
             }
         }
+    }
+
+    private func seenBadge(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(style.need.color)
+            .fixedSize()
+            .padding(.horizontal, 4)
+            .frame(minWidth: 16, minHeight: 16)
+            .background(Capsule().fill(.white))
+            .shadow(color: .black.opacity(0.2), radius: 1)
     }
 }
 
@@ -114,12 +143,13 @@ struct PlacementPin: View {
     VStack(spacing: 24) {
         HStack(alignment: .bottom) {
             ForEach(Need.allCases) { need in
-                MarkerPin(style: MarkerStyle(need: need, species: .cat, isBeingHelped: false, isSelected: false))
+                MarkerPin(style: MarkerStyle(need: need, species: .cat, isBeingHelped: false, isSelected: false, seenBadge: nil))
             }
         }
         HStack(alignment: .bottom) {
-            MarkerPin(style: MarkerStyle(need: .injured, species: .dog, isBeingHelped: true, isSelected: false))
-            MarkerPin(style: MarkerStyle(need: .food, species: .bird, isBeingHelped: false, isSelected: true))
+            MarkerPin(style: MarkerStyle(need: .injured, species: .dog, isBeingHelped: true, isSelected: false, seenBadge: "3"))
+            MarkerPin(style: MarkerStyle(need: .food, species: .bird, isBeingHelped: false, isSelected: true, seenBadge: "12"))
+            MarkerPin(style: MarkerStyle(need: .emergency, species: .dog, isBeingHelped: false, isSelected: false, seenBadge: "99+"))
             PlacementPin(species: nil, isLifted: false)
             PlacementPin(species: .cat, isLifted: true)
         }

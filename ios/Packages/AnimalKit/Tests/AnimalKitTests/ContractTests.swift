@@ -23,6 +23,7 @@ final class ContractTests: XCTestCase {
     func testLifecycleConstantsMatchContract() {
         XCTAssertEqual(ReportLifecycle.claimDuration, TimeInterval(contract.claimHours) * 3600)
         XCTAssertEqual(ReportLifecycle.goneThreshold, contract.goneThreshold)
+        XCTAssertEqual(ReportLifecycle.maxSeenBy, contract.maxSeenBy)
         XCTAssertEqual(ReportLifecycle.retention, TimeInterval(contract.retentionDays) * 24 * 3600)
         XCTAssertEqual(ReportLifecycle.geohashPrecision, contract.geohashPrecision)
     }

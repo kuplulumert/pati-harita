@@ -2,7 +2,8 @@ import CoreLocation
 import XCTest
 
 /// Ana akışı demo modunda gerçek dokunuşlarla dener:
-/// harita → "Hayvan gördüm" → tür → ihtiyaç → işarete dokun → "İlgileniyorum" → uzun basma.
+/// harita → "Hayvan gördüm" → tür → ihtiyaç → işarete dokun → "İlgileniyorum" →
+/// "Hâlâ orada" ile gören sayısı artar → "Aynı hayvan mı?" önerisi → uzun basma.
 /// Her adımın ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
 final class ReportFlowUITests: XCTestCase {
     override func setUpWithError() throws {
@@ -69,6 +70,46 @@ final class ReportFlowUITests: XCTestCase {
         close.tap()
         XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Kart kapanınca ana ekrana dönülmedi")
 
+        // Kaç kişi bildirdi: demo verisindeki yaralı kediyi 3 kişi bildirmiş (demo kullanıcısı değil).
+        // Kamera kullanıcının üstünde; bu işaret ~120 m kuzeyde, 80 m batıda, yani ekranın sol üstünde.
+        let injuredCat = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label == %@", "report-marker", "Yaralı / hasta, Kedi"))
+            .firstMatch
+        XCTAssertTrue(injuredCat.waitForExistence(timeout: 10), "Örnek yaralı kedi işareti haritada bulunamadı")
+        // Kart kapanınca harita yeniden ortalanıyor; işaret yerine otursun, yoksa dokunuş ıskalar.
+        sleep(1)
+        injuredCat.tap()
+        let seenByThree = app.staticTexts.element(labelContaining: "3 kişi bildirdi")
+        XCTAssertTrue(seenByThree.waitForExistence(timeout: 5), "Kartta gören sayısı (3) görünmedi")
+
+        let stillThere = app.buttons.element(labelContaining: "Hâlâ orada")
+        XCTAssertTrue(stillThere.waitForExistence(timeout: 5), "Hâlâ orada düğmesi yok")
+        stillThere.tap()
+        // "Hâlâ orada" diyen demo kullanıcısı da sayılır: kart (ve bildirim) 4 der.
+        let seenByFour = app.staticTexts.element(labelContaining: "4 kişi bildirdi")
+        XCTAssertTrue(seenByFour.waitForExistence(timeout: 5), "Hâlâ orada deyince gören sayısı artmadı")
+        sleep(1)
+        screenshots.take("07-goren-sayisi")
+
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "Kartın kapat düğmesi yok")
+        close.tap()
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Kart kapanınca ana ekrana dönülmedi")
+
+        // Aynı hayvan mı: az önce koyulan kedi işareti iğnenin dibinde. Aynı tür seçilince yeni işaret
+        // yerine "Ben de gördüm" önerilir; dokununca o işaretin kartı açılır.
+        reportButton.tap()
+        XCTAssertTrue(cat.waitForExistence(timeout: 5), "Tür seçimi açılmadı")
+        cat.tap()
+        let duplicate = app.descendants(matching: .any).matching(identifier: "duplicate-suggestion").firstMatch
+        XCTAssertTrue(duplicate.waitForExistence(timeout: 10), "Aynı hayvan mı önerisi görünmedi")
+        sleep(1)
+        screenshots.take("08-ayni-hayvan-mi")
+
+        duplicate.tap()
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "Ben de gördüm deyince işaretin kartı açılmadı")
+        close.tap()
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Kart kapanınca ana ekrana dönülmedi")
+
         // Haritada boş bir noktaya uzun basınca işaretleme o noktadan başlar.
         let map = app.maps.firstMatch
         XCTAssertTrue(map.exists, "Harita bulunamadı")
@@ -77,7 +118,7 @@ final class ReportFlowUITests: XCTestCase {
         let speciesTitle = app.staticTexts.element(labelContaining: "Hangi hayvan?")
         XCTAssertTrue(speciesTitle.waitForExistence(timeout: 5), "Uzun basınca işaretleme başlamadı")
         sleep(1)
-        screenshots.take("07-uzun-basma")
+        screenshots.take("09-uzun-basma")
         app.buttons["Vazgeç"].tap()
     }
 

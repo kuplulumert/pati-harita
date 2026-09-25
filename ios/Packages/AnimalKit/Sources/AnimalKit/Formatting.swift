@@ -32,4 +32,19 @@ public enum Formatting {
         }
         return "\(Int(kilometers.rounded())) km"
     }
+
+    /// Haritadaki işaretin köşesindeki "kaç kişi bildirdi" rozeti: "2" … "99", sonra "99+".
+    /// Yalnızca işareti koyan bildirdiyse (1) rozet yoktur.
+    public static func seenCountBadge(_ count: Int) -> String? {
+        switch count {
+        case ..<2: return nil
+        case ..<100: return "\(count)"
+        default: return "99+"
+        }
+    }
+
+    /// Kartta ve öneride gösterilen "3 kişi bildirdi"; tek kişi bildirdiyse `nil`.
+    public static func seenCount(_ count: Int) -> String? {
+        count < 2 ? nil : "\(count) kişi bildirdi"
+    }
 }

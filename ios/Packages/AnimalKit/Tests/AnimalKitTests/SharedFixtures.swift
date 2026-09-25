@@ -26,6 +26,7 @@ struct ReportContract: Decodable {
     let needs: [String: NeedContract]
     let claimHours: Int
     let goneThreshold: Int
+    let maxSeenBy: Int
     let retentionDays: Int
     let geohashPrecision: Int
 }
