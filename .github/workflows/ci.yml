@@ -1,7 +1,9 @@
 name: CI
 
 on:
+  # Yalnızca dallar: v* etiketleri TestFlight içindir (Codemagic), aynı commit burada zaten test edildi.
   push:
+    branches: ["**"]
   pull_request:
 
 jobs:
