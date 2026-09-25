@@ -1,10 +1,13 @@
 import Foundation
 
-public enum ReportStatus: String, Sendable {
+public enum ReportStatus: String, CaseIterable, Sendable {
     /// Yardım bekliyor.
     case open
     /// Biri "İlgileniyorum" dedi.
     case claimed
+    /// Biri "Çözüldü" ya da "Artık yok" dedi ("… dendi"). Haritada kalır, ömrü kısalmaz;
+    /// ikinci bir kişi onaylayana, itiraz edilene, geri alınana ya da süresi dolana kadar (bkz. `Closing`).
+    case closing
     /// Haritadan kalktı (bkz. `ClosedReason`).
     case closed
 }
@@ -31,6 +34,27 @@ public struct Claim: Hashable, Sendable {
     }
 }
 
+/// "Çözüldü dendi" / "Artık yok dendi": henüz doğrulanmamış kapatma önerisi.
+///
+/// İşaret kapanınca (`closed`) geçmiş olarak kalır; itiraz ya da "Geri al" ile silinir.
+public struct Closing: Hashable, Sendable {
+    /// `.resolved` ya da `.gone`.
+    public var reason: ClosedReason
+    /// Öneriyi yapan kullanıcı.
+    public var userID: String
+    /// Firestore'a sunucu saati (`serverTimestamp()`) yazılır; kurallar `== request.time` ister.
+    public var at: Date
+    /// Kapatanın günlük bütçesiyle desteklendi mi (bkz. `Budget`, `ClosingDisplay`).
+    public var credible: Bool
+
+    public init(reason: ClosedReason, userID: String, at: Date, credible: Bool) {
+        self.reason = reason
+        self.userID = userID
+        self.at = at
+        self.credible = credible
+    }
+}
+
 /// Haritadaki bir yardım işareti.
 ///
 /// Değişiklikler yalnızca `ReportLifecycle` üzerinden yapılır; aynı kurallar
@@ -50,6 +74,7 @@ public struct Report: Identifiable, Hashable, Sendable {
     public internal(set) var lastSeenAt: Date
     /// Bu andan sonra işaret haritada gösterilmez.
     public internal(set) var expiresAt: Date
+    /// `closing` sırasında da dokümanda kalır (kartta zaman çizelgesi için); canlı sayılmaz.
     public internal(set) var claim: Claim?
     /// "Artık yok" diyen kullanıcılar.
     public internal(set) var goneReports: [String]
@@ -59,6 +84,12 @@ public struct Report: Identifiable, Hashable, Sendable {
     public internal(set) var closedAt: Date?
     /// Kapanan işaretin veritabanından silineceği an (Firestore TTL).
     public internal(set) var purgeAt: Date?
+    /// `status == .closing` iken dolu; `closed` olunca geçmiş olarak kalabilir.
+    public internal(set) var closing: Closing?
+    /// "Hâlâ yardım gerekiyor" diyen, işareti koyan dışındaki kullanıcılar (her biri bir kez).
+    public internal(set) var objectors: [String]
+    /// Kapatma önerisine itiraz edilen kullanıcılar: bu işareti bir daha üstüne alamaz, kapatamazlar.
+    public internal(set) var disputed: [String]
 
     public init(
         id: String,
@@ -76,7 +107,10 @@ public struct Report: Identifiable, Hashable, Sendable {
         goneReports: [String],
         seenBy: [String],
         closedAt: Date?,
-        purgeAt: Date?
+        purgeAt: Date?,
+        closing: Closing? = nil,
+        objectors: [String] = [],
+        disputed: [String] = []
     ) {
         self.id = id
         self.species = species
@@ -94,6 +128,9 @@ public struct Report: Identifiable, Hashable, Sendable {
         self.seenBy = seenBy
         self.closedAt = closedAt
         self.purgeAt = purgeAt
+        self.closing = closing
+        self.objectors = objectors
+        self.disputed = disputed
     }
 }
 
@@ -114,6 +151,12 @@ public enum ReportField: String, CaseIterable, Sendable {
     case seenBy
     case closedAt
     case purgeAt
+    case closingReason
+    case closingBy
+    case closingAt
+    case closingCredible
+    case objectors
+    case disputed
 }
 
 /// Kullanıcıya gösterilen durum.
@@ -124,15 +167,22 @@ public enum ReportPhase: Hashable, Sendable {
     case helpedByMe(until: Date)
     /// "Biri ilgileniyor"
     case helpedByOther(since: Date)
+    /// "Çözüldü dendi" / "Artık yok dendi": haritada kalır. `byMe`: öneriyi bu kullanıcı yaptı.
+    case closing(reason: ClosedReason, since: Date, byMe: Bool, credible: Bool)
     /// Haritada gösterilmez.
     case closed(ClosedReason)
 }
 
 extension Report {
     /// Haritada gösterilmeli mi? Sunucu temizliği birkaç dakika gecikse de
-    /// istemci süresi dolan işareti kendisi gizler.
+    /// istemci süresi dolan işareti kendisi gizler. "Çözüldü dendi" işaretleri de aktiftir.
     public func isActive(at now: Date) -> Bool {
         status != .closed && expiresAt > now
+    }
+
+    /// Açık ya da üstüne alınmış ve süresi dolmamış: "İlgileniyorum", "Hâlâ orada" gibi eylemlere açık.
+    public func isWaiting(at now: Date) -> Bool {
+        (status == .open || status == .claimed) && expiresAt > now
     }
 
     /// Hayvanı kaç farklı kişinin bildirdiği ("3 kişi bildirdi"). İşareti koyan da sayılır.
@@ -144,9 +194,28 @@ extension Report {
         return claim
     }
 
+    /// Canlı sahiplik `ReportLifecycle.claimStale` süresini doldurdu mu? O zaman başkaları da
+    /// "Çözüldü" diyebilir, işareti koyan sahipliği kaldırabilir ve işaret yeniden yardım bekleyen sayılır.
+    public func isClaimStale(at now: Date) -> Bool {
+        guard let claim = activeClaim(at: now) else { return false }
+        return now >= claim.claimedAt.addingTimeInterval(ReportLifecycle.claimStale)
+    }
+
     public func phase(for userID: String?, at now: Date) -> ReportPhase {
         if status == .closed { return .closed(closedReason ?? .resolved) }
-        if expiresAt <= now { return .closed(.expired) }
+        if expiresAt <= now {
+            // Süresi dolan öneri, önerildiği nedenle kapanır (kurallardaki isExpire gibi).
+            let reason: ClosedReason = status == .closing ? (closing?.reason ?? .expired) : .expired
+            return .closed(reason)
+        }
+        if status == .closing, let closing {
+            return .closing(
+                reason: closing.reason,
+                since: closing.at,
+                byMe: closing.userID == userID,
+                credible: closing.credible
+            )
+        }
         guard let claim = activeClaim(at: now) else { return .waiting }
         return claim.userID == userID ? .helpedByMe(until: claim.expiresAt) : .helpedByOther(since: claim.claimedAt)
     }
@@ -165,6 +234,12 @@ extension Report {
         if seenBy != old.seenBy { fields.insert(.seenBy) }
         if closedAt != old.closedAt { fields.insert(.closedAt) }
         if purgeAt != old.purgeAt { fields.insert(.purgeAt) }
+        if closing?.reason != old.closing?.reason { fields.insert(.closingReason) }
+        if closing?.userID != old.closing?.userID { fields.insert(.closingBy) }
+        if closing?.at != old.closing?.at { fields.insert(.closingAt) }
+        if closing?.credible != old.closing?.credible { fields.insert(.closingCredible) }
+        if objectors != old.objectors { fields.insert(.objectors) }
+        if disputed != old.disputed { fields.insert(.disputed) }
         return fields
     }
 

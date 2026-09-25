@@ -1,20 +1,7 @@
 import XCTest
 @testable import AnimalKit
 
-final class ReportLifecycleTests: XCTestCase {
-    private let alice = "alice" // işareti koyan
-    private let bob = "bob" // yardım eden
-    private let cara = "cara" // yoldan geçen
-    private let t0 = Date(timeIntervalSince1970: 1_790_000_000)
-    private let kadikoy = Coordinate(latitude: 40.9903, longitude: 29.029)
-
-    private func makeReport(need: Need = .injured) -> Report {
-        ReportLifecycle.makeReport(id: "r1", species: .cat, need: need, at: kadikoy, reporterID: alice, now: t0)
-    }
-
-    private func minutes(_ value: Double) -> Date { t0.addingTimeInterval(value * 60) }
-    private func hours(_ value: Double) -> Date { t0.addingTimeInterval(value * 3600) }
-
+final class ReportLifecycleTests: ReportTestCase {
     // MARK: Oluşturma
 
     func testNewReportIsOpenAndExpiresAfterNeedLifetime() {
@@ -32,6 +19,9 @@ final class ReportLifecycleTests: XCTestCase {
         let report = makeReport()
         XCTAssertEqual(report.seenBy, [alice])
         XCTAssertEqual(report.seenCount, 1)
+        XCTAssertNil(report.closing)
+        XCTAssertEqual(report.objectors, [])
+        XCTAssertEqual(report.disputed, [])
     }
 
     func testFreshnessFadesTowardsExpiry() {
@@ -71,32 +61,131 @@ final class ReportLifecycleTests: XCTestCase {
         XCTAssertEqual(reclaimed.claim?.userID, cara)
     }
 
-    func testOnlyClaimerCanRelease() throws {
+    func testClaimerReleasesAnytimeReporterOnlyStaleClaims() throws {
         let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
-        XCTAssertThrowsError(try ReportLifecycle.apply(.release, to: claimed, by: alice, at: minutes(10)))
-        let released = try ReportLifecycle.apply(.release, to: claimed, by: bob, at: minutes(10))
-        XCTAssertEqual(released.status, .open)
-        XCTAssertNil(released.claim)
+        XCTAssertThrowsError(try ReportLifecycle.apply(.release, to: claimed, by: alice, at: minutes(44))) {
+            XCTAssertEqual($0 as? ReportError, .notClaimedByYou)
+        }
+        XCTAssertThrowsError(try ReportLifecycle.apply(.release, to: claimed, by: cara, at: minutes(50))) {
+            XCTAssertEqual($0 as? ReportError, .notClaimedByYou)
+        }
+
+        // "İlgilenen gelmedi": 45 dk'dır haber yok.
+        let byReporter = try ReportLifecycle.apply(.release, to: claimed, by: alice, at: minutes(45))
+        XCTAssertEqual(byReporter.status, .open)
+        XCTAssertNil(byReporter.claim)
+
+        let byClaimer = try ReportLifecycle.apply(.release, to: claimed, by: bob, at: minutes(10))
+        XCTAssertEqual(byClaimer.status, .open)
+        XCTAssertNil(byClaimer.claim)
+    }
+
+    func testClaimBecomesStaleAfter45Minutes() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
+        XCTAssertFalse(claimed.isClaimStale(at: minutes(44)))
+        XCTAssertTrue(claimed.isClaimStale(at: minutes(45)))
+        // Süresi dolan sahiplik artık canlı değil, bayat da sayılmaz.
+        XCTAssertFalse(claimed.isClaimStale(at: hours(3)))
+        XCTAssertEqual(claimed.phase(for: cara, at: minutes(50)), .helpedByOther(since: t0))
     }
 
     // MARK: Çözüldü
 
-    func testClaimerResolvesAndReportLeavesMap() throws {
-        let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
-        let resolved = try ReportLifecycle.apply(.resolve, to: claimed, by: bob, at: minutes(40))
+    func testReporterAloneClosesInstantly() throws {
+        let resolved = try ReportLifecycle.apply(.resolve, to: makeReport(), by: alice, at: minutes(1))
         XCTAssertEqual(resolved.status, .closed)
         XCTAssertEqual(resolved.closedReason, .resolved)
-        XCTAssertEqual(resolved.closedAt, minutes(40))
-        XCTAssertEqual(resolved.purgeAt, minutes(40).addingTimeInterval(30 * 24 * 3600))
-        XCTAssertFalse(resolved.isActive(at: minutes(41)))
+        XCTAssertEqual(resolved.closedAt, minutes(1))
+        XCTAssertEqual(resolved.purgeAt, minutes(1).addingTimeInterval(30 * 24 * 3600))
+        XCTAssertNil(resolved.closing)
+        XCTAssertFalse(resolved.isActive(at: minutes(2)))
+
+        // Başkasının sahipliği de engellemez; kimse hayvanı ondan başka görmedi.
+        let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
+        XCTAssertEqual(try ReportLifecycle.apply(.resolve, to: claimed, by: alice, at: minutes(5)).status, .closed)
     }
 
-    func testReporterCanResolveButPasserByCannot() throws {
-        XCTAssertThrowsError(try ReportLifecycle.apply(.resolve, to: makeReport(), by: cara, at: minutes(1))) {
+    func testReporterAfterOthersSawOnlyProposes() throws {
+        let seen = try seenReport()
+        let proposed = try ReportLifecycle.apply(.resolve, to: seen, by: alice, at: minutes(10))
+        XCTAssertEqual(proposed.status, .closing)
+        XCTAssertEqual(proposed.closing, Closing(reason: .resolved, userID: alice, at: minutes(10), credible: false))
+        XCTAssertNil(proposed.closedReason)
+        XCTAssertEqual(proposed.expiresAt, seen.expiresAt)
+        XCTAssertTrue(proposed.isActive(at: minutes(11)))
+    }
+
+    func testClaimerResolveOnlyProposes() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
+        let proposed = try ReportLifecycle.apply(.resolve, to: claimed, by: bob, at: minutes(40))
+        XCTAssertEqual(proposed.status, .closing)
+        XCTAssertEqual(proposed.closing, Closing(reason: .resolved, userID: bob, at: minutes(40), credible: false))
+        // Ömür kısalmaz; sahiplik kartta zaman çizelgesi için kalır ama canlı sayılmaz.
+        XCTAssertEqual(proposed.expiresAt, claimed.expiresAt)
+        XCTAssertEqual(proposed.claim, claimed.claim)
+        XCTAssertNil(proposed.activeClaim(at: minutes(41)))
+        XCTAssertTrue(proposed.isActive(at: minutes(41)))
+        XCTAssertFalse(proposed.isWaiting(at: minutes(41)))
+        XCTAssertEqual(
+            proposed.phase(for: bob, at: minutes(41)),
+            .closing(reason: .resolved, since: minutes(40), byMe: true, credible: false)
+        )
+        XCTAssertEqual(
+            proposed.phase(for: cara, at: minutes(41)),
+            .closing(reason: .resolved, since: minutes(40), byMe: false, credible: false)
+        )
+        XCTAssertEqual(
+            proposed.changedFields(from: claimed),
+            [.status, .closingReason, .closingBy, .closingAt, .closingCredible]
+        )
+    }
+
+    func testPasserByCanProposeOnOpenReport() throws {
+        let proposed = try ReportLifecycle.apply(.resolve, to: makeReport(), by: cara, at: minutes(1))
+        XCTAssertEqual(proposed.status, .closing)
+        XCTAssertEqual(proposed.closing?.userID, cara)
+    }
+
+    func testFreshClaimBlocksOthersResolveFor45Minutes() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: seenReport(), by: bob, at: minutes(2))
+        XCTAssertThrowsError(try ReportLifecycle.apply(.resolve, to: claimed, by: dan, at: minutes(46))) {
+            XCTAssertEqual($0 as? ReportError, .claimTooFresh)
+        }
+        XCTAssertFalse(ReportLifecycle.mayPropose(claimed, by: dan, at: minutes(46)))
+        XCTAssertTrue(ReportLifecycle.mayPropose(claimed, by: dan, at: minutes(47)))
+        let byDan = try ReportLifecycle.apply(.resolve, to: claimed, by: dan, at: minutes(47))
+        XCTAssertEqual(byDan.closing?.userID, dan)
+
+        // İşareti koyan taze sahipliği beklemez.
+        XCTAssertEqual(try ReportLifecycle.apply(.resolve, to: claimed, by: alice, at: minutes(3)).closing?.userID, alice)
+    }
+
+    func testCredibleProposalIsRecorded() throws {
+        let proposed = try ReportLifecycle.apply(.resolve, to: makeReport(), by: cara, at: minutes(1), credible: true)
+        XCTAssertEqual(proposed.closing?.credible, true)
+        XCTAssertEqual(
+            proposed.phase(for: dan, at: minutes(2)),
+            .closing(reason: .resolved, since: minutes(1), byMe: false, credible: true)
+        )
+
+        // Tek tanık işareti koyan hemen kapatır; öneri olmadığı için `credible` yok sayılır.
+        let closed = try ReportLifecycle.apply(.resolve, to: makeReport(), by: alice, at: minutes(1), credible: true)
+        XCTAssertEqual(closed.status, .closed)
+        XCTAssertNil(closed.closing)
+    }
+
+    func testCredibleProposalNeedsAtMostOneDispute() throws {
+        let once = try disputedReport(by: [bob])
+        XCTAssertEqual(
+            try ReportLifecycle.apply(.resolve, to: once, by: cara, at: hours(1), credible: true).closing?.credible,
+            true
+        )
+
+        let twice = try disputedReport(by: [bob, dan])
+        XCTAssertThrowsError(try ReportLifecycle.apply(.resolve, to: twice, by: cara, at: hours(1), credible: true)) {
             XCTAssertEqual($0 as? ReportError, .notAllowed)
         }
-        let resolved = try ReportLifecycle.apply(.resolve, to: makeReport(), by: alice, at: minutes(1))
-        XCTAssertEqual(resolved.closedReason, .resolved)
+        XCTAssertEqual(try ReportLifecycle.apply(.resolve, to: twice, by: cara, at: hours(1)).closing?.credible, false)
     }
 
     func testClosedReportRejectsEveryAction() throws {
@@ -164,14 +253,63 @@ final class ReportLifecycleTests: XCTestCase {
         let seen = try ReportLifecycle.apply(.confirmStillThere, to: makeReport(), by: cara, at: minutes(1))
         let claimed = try ReportLifecycle.apply(.claim, to: seen, by: bob, at: minutes(2))
         let released = try ReportLifecycle.apply(.release, to: claimed, by: bob, at: minutes(3))
-        let resolved = try ReportLifecycle.apply(.resolve, to: claimed, by: bob, at: minutes(4))
-        let goneOnce = try ReportLifecycle.apply(.reportGone, to: seen, by: "dan", at: minutes(5))
+        let proposed = try ReportLifecycle.apply(.resolve, to: claimed, by: bob, at: minutes(4))
+        let goneOnce = try ReportLifecycle.apply(.reportGone, to: seen, by: dan, at: minutes(5))
         let goneTwice = try ReportLifecycle.apply(.reportGone, to: goneOnce, by: bob, at: minutes(6))
-        for report in [claimed, released, resolved, goneOnce, goneTwice] {
+        for report in [claimed, released, proposed, goneOnce, goneTwice] {
             XCTAssertEqual(report.seenBy, [alice, cara])
         }
         // "Artık yok" diyen kişi "bildirdi" sayılmaz.
         XCTAssertFalse(goneTwice.seenBy.contains(bob))
+    }
+
+    func testConfirmResetsGoneVotes() throws {
+        let once = try ReportLifecycle.apply(.reportGone, to: makeReport(), by: cara, at: minutes(5))
+        let voted = try ReportLifecycle.apply(.reportGone, to: once, by: dan, at: minutes(6))
+        let confirmed = try ReportLifecycle.apply(.confirmStillThere, to: voted, by: eve, at: minutes(10))
+        XCTAssertEqual(confirmed.goneReports, [])
+        XCTAssertEqual(confirmed.changedFields(from: voted), [.lastSeenAt, .expiresAt, .seenBy, .goneReports])
+        // Günler arayla verilen oylar toplanmaz: aynı kişi yeniden oy verebilir.
+        XCTAssertEqual(try ReportLifecycle.apply(.reportGone, to: confirmed, by: cara, at: minutes(11)).goneReports, [cara])
+    }
+
+    func testConfirmCannotExtendPastMaxAge() throws {
+        var report = makeReport() // yaralı, 24 sa
+        for hour in stride(from: 20.0, through: 160.0, by: 20.0) {
+            report = try ReportLifecycle.apply(.confirmStillThere, to: report, by: cara, at: hours(hour))
+        }
+        XCTAssertEqual(ReportLifecycle.lifeCap(report), hours(168))
+        XCTAssertEqual(report.expiresAt, hours(168)) // 160 + 24 değil, 7 gün
+
+        let late = try ReportLifecycle.apply(.confirmStillThere, to: report, by: dan, at: hours(167))
+        XCTAssertEqual(late.expiresAt, hours(168))
+        XCTAssertFalse(late.changedFields(from: report).contains(.expiresAt))
+        XCTAssertEqual(late.phase(for: dan, at: hours(168)), .closed(.expired))
+    }
+
+    func testClaimCannotExtendPastMaxAge() throws {
+        // Eski sürümün kurucusu (yeni alanlar varsayılan) da derlenmeli.
+        let old = Report(
+            id: "r2",
+            species: .cat,
+            need: .food,
+            coordinate: kadikoy,
+            geohash: "sxk9hw43b9",
+            reporterID: alice,
+            createdAt: t0,
+            status: .open,
+            closedReason: nil,
+            lastSeenAt: hours(155),
+            expiresAt: hours(167),
+            claim: nil,
+            goneReports: [],
+            seenBy: [alice, cara],
+            closedAt: nil,
+            purgeAt: nil
+        )
+        let claimed = try ReportLifecycle.apply(.claim, to: old, by: bob, at: hours(166))
+        XCTAssertEqual(claimed.claim?.expiresAt, hours(169))
+        XCTAssertEqual(claimed.expiresAt, hours(168))
     }
 
     // MARK: Artık yok
@@ -185,20 +323,60 @@ final class ReportLifecycleTests: XCTestCase {
         }
     }
 
-    func testSecondGoneReportClosesReport() throws {
+    func testTwoGoneVotesKeepReportOpenThirdOnlyProposes() throws {
         let once = try ReportLifecycle.apply(.reportGone, to: makeReport(), by: cara, at: minutes(5))
-        let twice = try ReportLifecycle.apply(.reportGone, to: once, by: bob, at: minutes(7))
-        XCTAssertEqual(twice.status, .closed)
-        XCTAssertEqual(twice.closedReason, .gone)
+        let twice = try ReportLifecycle.apply(.reportGone, to: once, by: dan, at: minutes(6))
+        XCTAssertEqual(twice.status, .open)
+        XCTAssertEqual(twice.goneReports, [cara, dan])
+
+        let thrice = try ReportLifecycle.apply(.reportGone, to: twice, by: eve, at: minutes(7))
+        XCTAssertEqual(thrice.status, .closing)
+        XCTAssertEqual(thrice.closing, Closing(reason: .gone, userID: eve, at: minutes(7), credible: false))
+        XCTAssertNil(thrice.closedReason)
+        XCTAssertEqual(thrice.expiresAt, twice.expiresAt)
+        XCTAssertEqual(thrice.phase(for: cara, at: minutes(8)), .closing(reason: .gone, since: minutes(7), byMe: false, credible: false))
     }
 
-    func testReporterOrClaimerAloneCanCloseAsGone() throws {
+    func testGoneVotesCannotStartClosingOverLiveClaim() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
+        var report = claimed
+        // Sahiplik 45 dk'yı geçse de canlı olduğu sürece oylar yalnızca sayılır.
+        for (index, user) in [cara, dan, eve].enumerated() {
+            report = try ReportLifecycle.apply(.reportGone, to: report, by: user, at: minutes(50 + Double(index)))
+        }
+        XCTAssertEqual(report.status, .claimed)
+        XCTAssertEqual(report.goneReports, [cara, dan, eve])
+        XCTAssertEqual(report.claim, claimed.claim)
+    }
+
+    func testReporterAloneClosesAsGoneOthersOnlyPropose() throws {
         let byReporter = try ReportLifecycle.apply(.reportGone, to: makeReport(), by: alice, at: minutes(5))
+        XCTAssertEqual(byReporter.status, .closed)
         XCTAssertEqual(byReporter.closedReason, .gone)
+        XCTAssertEqual(byReporter.goneReports, [alice])
 
         let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
         let byClaimer = try ReportLifecycle.apply(.reportGone, to: claimed, by: bob, at: minutes(20))
-        XCTAssertEqual(byClaimer.closedReason, .gone)
+        XCTAssertEqual(byClaimer.status, .closing)
+        XCTAssertEqual(byClaimer.closing, Closing(reason: .gone, userID: bob, at: minutes(20), credible: false))
+
+        let byReporterAfterOthers = try ReportLifecycle.apply(.reportGone, to: seenReport(), by: alice, at: minutes(5))
+        XCTAssertEqual(byReporterAfterOthers.status, .closing)
+        XCTAssertEqual(byReporterAfterOthers.closing?.reason, .gone)
+        XCTAssertEqual(byReporterAfterOthers.closing?.userID, alice)
+    }
+
+    func testGoneListIsBounded() throws {
+        // Canlı sahiplik varken oylar birikir; liste kurallardaki sınırda durur.
+        var report = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
+        for index in 1...ReportLifecycle.maxGoneReports {
+            report = try ReportLifecycle.apply(.reportGone, to: report, by: "voter-\(index)", at: minutes(Double(index)))
+        }
+        XCTAssertEqual(report.goneReports.count, ReportLifecycle.maxGoneReports)
+        XCTAssertThrowsError(try ReportLifecycle.apply(.reportGone, to: report, by: "late", at: minutes(30))) {
+            XCTAssertEqual($0 as? ReportError, .notAllowed)
+        }
+        XCTAssertFalse(ReportLifecycle.availableActions(for: report, userID: "late", at: minutes(30)).contains(.reportGone))
     }
 
     // MARK: Görünen eylemler
@@ -206,13 +384,19 @@ final class ReportLifecycleTests: XCTestCase {
     func testActionsForPasserByOnWaitingReport() {
         XCTAssertEqual(
             ReportLifecycle.availableActions(for: makeReport(), userID: cara, at: minutes(1)),
-            [.claim, .confirmStillThere, .reportGone]
+            [.claim, .confirmStillThere, .resolve, .reportGone]
         )
     }
 
-    func testActionsForReporter() {
+    func testActionsForReporter() throws {
         XCTAssertEqual(
             ReportLifecycle.availableActions(for: makeReport(), userID: alice, at: minutes(1)),
+            [.claim, .resolve, .confirmStillThere, .reportGone]
+        )
+        // Başkası da gördükten sonra "Çözüldü" yalnızca öneridir ama düğme aynı yerde kalır.
+        let seen = try seenReport()
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: seen, userID: alice, at: minutes(2)),
             [.claim, .resolve, .confirmStillThere, .reportGone]
         )
     }
@@ -224,48 +408,109 @@ final class ReportLifecycleTests: XCTestCase {
         XCTAssertEqual(ReportLifecycle.availableActions(for: claimed, userID: alice, at: minutes(1)), [.resolve, .confirmStillThere, .reportGone])
     }
 
-    func testEveryOfferedActionSucceeds() throws {
+    func testActionsOnStaleClaim() throws {
         let claimed = try ReportLifecycle.apply(.claim, to: makeReport(), by: bob, at: t0)
-        for report in [makeReport(), claimed] {
-            for user in [alice, bob, cara] {
-                for action in ReportLifecycle.availableActions(for: report, userID: user, at: minutes(1)) {
-                    XCTAssertNoThrow(try ReportLifecycle.apply(action, to: report, by: user, at: minutes(1)), "\(user) \(action)")
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: cara, at: minutes(50)),
+            [.confirmStillThere, .resolve, .reportGone]
+        )
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: alice, at: minutes(50)),
+            [.resolve, .confirmStillThere, .release, .reportGone]
+        )
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: bob, at: minutes(50)),
+            [.resolve, .release, .reportGone]
+        )
+    }
+
+    func testNoActionsOnExpiredReport() {
+        XCTAssertEqual(ReportLifecycle.availableActions(for: makeReport(), userID: cara, at: hours(25)), [])
+    }
+
+    func testEveryOfferedActionSucceeds() throws {
+        var offered = Set<ReportAction>()
+        for (name, report, now) in try phaseCatalogue() {
+            for user in [alice, bob, cara, dan, eve] {
+                for action in ReportLifecycle.availableActions(for: report, userID: user, at: now) {
+                    offered.insert(action)
+                    XCTAssertNoThrow(
+                        try ReportLifecycle.apply(action, to: report, by: user, at: now),
+                        "\(name): \(user) \(action)"
+                    )
+                    // Öneri başlatan eylem, bütçe harcanmışsa kanıtlı olarak da geçmeli.
+                    if ReportLifecycle.wouldStartClosing(action, on: report, by: user, at: now) {
+                        XCTAssertTrue(action == .resolve || action == .reportGone, "\(name): \(user) \(action)")
+                        if report.disputed.count <= Budget.credibleMaxDisputed {
+                            XCTAssertEqual(
+                                try ReportLifecycle.apply(action, to: report, by: user, at: now, credible: true).closing?.credible,
+                                true,
+                                "\(name): \(user) \(action)"
+                            )
+                        }
+                    }
                 }
             }
         }
+        // Gösterilmeyen tek eylem süre dolumudur.
+        XCTAssertEqual(offered, Set(ReportAction.allCases).subtracting([.expire]))
     }
 
     /// Her eylem yalnızca firestore.rules'un o eylem için izin verdiği alanları değiştirmeli
-    /// (kurallardaki `changedKeys().hasOnly([...])` listeleri).
+    /// (kurallardaki `changedKeys().hasOnly([...])` listeleri) ve `validShape`i korumalı.
     func testEveryActionChangesOnlyFieldsAllowedByRules() throws {
-        let closing: Set<ReportField> = [.status, .closedReason, .closedAt, .purgeAt]
+        let closed: Set<ReportField> = [.status, .closedReason, .closedAt, .purgeAt]
+        let proposes: Set<ReportField> = [.status, .closingReason, .closingBy, .closingAt, .closingCredible]
         let allowed: [ReportAction: [Set<ReportField>]] = [
             .claim: [[.status, .claimedBy, .claimedAt, .claimExpiresAt, .expiresAt]],
             .release: [[.status, .claimedBy, .claimedAt, .claimExpiresAt]],
-            .resolve: [closing],
-            .confirmStillThere: [[.lastSeenAt, .expiresAt, .seenBy]],
-            .reportGone: [[.goneReports], closing.union([.goneReports])],
+            .resolve: [closed, proposes],
+            .confirmStillThere: [[.lastSeenAt, .expiresAt, .seenBy, .goneReports]],
+            .reportGone: [
+                [.goneReports],
+                [.goneReports, .status, .closedReason, .closedAt, .purgeAt],
+                [.goneReports, .status, .closingReason, .closingBy, .closingAt, .closingCredible],
+            ],
+            .dispute: [[
+                .status, .closingReason, .closingBy, .closingAt, .closingCredible,
+                .claimedBy, .claimedAt, .claimExpiresAt, .goneReports, .objectors, .disputed,
+                .lastSeenAt, .expiresAt, .seenBy,
+            ]],
+            .confirmClosing: [closed],
+            .undoClosing: [[
+                .status, .closingReason, .closingBy, .closingAt, .closingCredible,
+                .claimedBy, .claimedAt, .claimExpiresAt,
+            ]],
+            .expire: [closed],
         ]
-        let claimed = try ReportLifecycle.apply(.claim, to: makeReport(need: .food), by: bob, at: hours(10))
-        let reportedOnce = try ReportLifecycle.apply(.reportGone, to: makeReport(), by: cara, at: minutes(1))
 
         var checked = 0
-        for report in [makeReport(), makeReport(need: .food), claimed, reportedOnce] {
-            for user in [alice, bob, cara, "dan"] {
-                let now = report.claim == nil ? minutes(30) : hours(10.5)
+        for (name, report, now) in try phaseCatalogue() {
+            var attempts: [(user: String, action: ReportAction, at: Date)] = []
+            for user in [alice, bob, cara, dan, eve] {
                 for action in ReportLifecycle.availableActions(for: report, userID: user, at: now) {
-                    let updated = try ReportLifecycle.apply(action, to: report, by: user, at: now)
-                    let changed = updated.changedFields(from: report)
-                    XCTAssertFalse(changed.isEmpty, "\(user) \(action)")
-                    XCTAssertTrue(
-                        allowed[action, default: []].contains { changed.isSubset(of: $0) },
-                        "\(user) \(action) değiştirdi: \(changed.map(\.rawValue).sorted())"
-                    )
-                    checked += 1
+                    attempts.append((user: user, action: action, at: now))
                 }
             }
+            // Süre dolumu hiç gösterilmez; her evrede ayrıca denenir.
+            attempts.append((user: eve, action: .expire, at: report.expiresAt))
+
+            for attempt in attempts {
+                let label = "\(name): \(attempt.user) \(attempt.action)"
+                let updated = try ReportLifecycle.apply(attempt.action, to: report, by: attempt.user, at: attempt.at)
+                let changed = updated.changedFields(from: report)
+                XCTAssertFalse(changed.isEmpty, label)
+                XCTAssertTrue(
+                    allowed[attempt.action, default: []].contains { changed.isSubset(of: $0) },
+                    "\(label) değiştirdi: \(changed.map(\.rawValue).sorted())"
+                )
+                // Hiçbir eylem ömrü kısaltmaz.
+                XCTAssertGreaterThanOrEqual(updated.expiresAt, report.expiresAt, label)
+                assertValidShape(updated, label)
+                checked += 1
+            }
         }
-        XCTAssertGreaterThan(checked, 20)
+        XCTAssertGreaterThan(checked, 80)
     }
 
     func testChangedFieldsIgnoresUntouchedValues() throws {
@@ -276,17 +521,24 @@ final class ReportLifecycleTests: XCTestCase {
         XCTAssertEqual(report.changedFields(from: report), [])
     }
 
-    func testNoActionsOnExpiredReport() {
-        XCTAssertEqual(ReportLifecycle.availableActions(for: makeReport(), userID: cara, at: hours(25)), [])
-    }
-
-    // MARK: Geri al
+    // MARK: Geri al (silme)
 
     func testRetractOnlyWhileUntouched() throws {
         let report = makeReport()
         XCTAssertTrue(ReportLifecycle.canRetract(report, by: alice))
         XCTAssertFalse(ReportLifecycle.canRetract(report, by: bob))
+
         let claimed = try ReportLifecycle.apply(.claim, to: report, by: bob, at: t0)
         XCTAssertFalse(ReportLifecycle.canRetract(claimed, by: alice))
+        let voted = try ReportLifecycle.apply(.reportGone, to: report, by: cara, at: minutes(1))
+        XCTAssertFalse(ReportLifecycle.canRetract(voted, by: alice))
+        // Başkası da gördükten sonra işareti koyan silemez.
+        let seen = try seenReport()
+        XCTAssertFalse(ReportLifecycle.canRetract(seen, by: alice))
+        // İtiraz geçmişi olan işaret de silinemez (seenBy [alice] kalsa bile).
+        let disputed = try disputedReport(by: [bob])
+        XCTAssertEqual(disputed.seenBy, [alice])
+        XCTAssertEqual(disputed.status, .open)
+        XCTAssertFalse(ReportLifecycle.canRetract(disputed, by: alice))
     }
 }

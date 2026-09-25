@@ -3,7 +3,8 @@ import Foundation
 /// Hayvanın neye ihtiyacı olduğu. Haritadaki işaretin rengi ve simgesi buradan gelir.
 ///
 /// `lifetimeHours`: kimse "Hâlâ orada" demezse işaretin haritada kalacağı süre.
-/// Değerler shared/report-contract.json ve firestore.rules ile aynı olmalıdır.
+/// `lifetimeHours` ve `closeCost` shared/report-contract.json ve firestore.rules ile,
+/// `demoteMinutes` sözleşmeyle aynı olmalıdır.
 public enum Need: String, CaseIterable, Identifiable, Sendable {
     case food
     case injured
@@ -68,4 +69,20 @@ public enum Need: String, CaseIterable, Identifiable, Sendable {
     }
 
     public var isUrgent: Bool { self == .emergency }
+
+    /// Ağır ihtiyaçlar: "Çözüldü dendi" iken solmaz, kapatma bütçesinden 2 puan düşer
+    /// ve başkalarının haritasından daha geç kalkar. Mama ve "Diğer" hafiftir.
+    public var isSerious: Bool {
+        switch self {
+        case .emergency, .injured, .babies, .vet, .shelter: true
+        case .food, .other: false
+        }
+    }
+
+    /// Kanıtlı "Çözüldü"nün günlük kapatma bütçesinden düşen puanı (kurallardaki `closeCost()`).
+    public var closeCost: Int { isSerious ? 2 : 1 }
+
+    /// Kanıtlı "Çözüldü"den sonra işaretin başkalarının haritasında kalacağı gündüz dakikası
+    /// (bkz. `ClosingDisplay.demoteAt`).
+    public var demoteMinutes: Int { isSerious ? 120 : 60 }
 }
