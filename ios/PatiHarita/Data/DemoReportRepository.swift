@@ -6,6 +6,9 @@ import Foundation
 @MainActor
 final class DemoReportRepository: ReportRepository {
     static let demoUserID = "demo-user"
+    /// Bakılan yerin bu kadar yakınında hiç işaret yoksa oraya örnekler konur. Sorgu yarıçapından
+    /// bağımsızdır: geniş bir görünümün yarıçapı birkaç km olabilir ve uzaktaki örnekleri "yakında" sayardı.
+    static let seedSpacing: Double = 1_000
 
     private var reports: [String: Report] = [:]
     private var observers: [UUID: @MainActor ([Report]) -> Void] = [:]
@@ -16,8 +19,8 @@ final class DemoReportRepository: ReportRepository {
         radiusMeters: Double,
         onChange: @escaping @MainActor ([Report]) -> Void
     ) -> ReportSubscription {
-        // Demo: bakılan bölgede hiç işaret yoksa oraya örnekler koy.
-        if !reports.values.contains(where: { $0.coordinate.distance(to: center) < radiusMeters }) {
+        // Demo: bakılan yerin yakınında hiç işaret yoksa oraya örnekler koy.
+        if !reports.values.contains(where: { $0.coordinate.distance(to: center) < Self.seedSpacing }) {
             seed(around: center)
         }
         let id = UUID()

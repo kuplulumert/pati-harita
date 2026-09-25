@@ -329,18 +329,27 @@ struct ReportMapView: UIViewRepresentable {
                 // (aksi hâlde sınırın hemen ötesinde kart açılıp kapanarak döngüye girebiliyordu).
                 // `centerCoordinate` değil: MapKit onu da `layoutMargins`'e göre hesaplar.
                 let bounds = mapView.bounds
-                let boundsCenter = MKMapPoint(
-                    mapView.convert(CGPoint(x: bounds.midX, y: bounds.midY), toCoordinateFrom: mapView)
-                )
-                let corners = [
-                    CGPoint(x: bounds.minX, y: bounds.minY),
-                    CGPoint(x: bounds.maxX, y: bounds.minY),
-                    CGPoint(x: bounds.minX, y: bounds.maxY),
-                    CGPoint(x: bounds.maxX, y: bounds.maxY),
-                ]
-                let radius = corners
-                    .map { MKMapPoint(mapView.convert($0, toCoordinateFrom: mapView)).distance(to: boundsCenter) }
-                    .max() ?? 0
+                let radius: Double
+                if let inFlight = cameraInFlight {
+                    // Kamera hâlâ hedefe gidiyor (yarıda kesilen animasyonun bildirimi). Ara görüntü çok geniş
+                    // olabilir (şehir ölçeğinden sokağa uçarken); onun yarıçapıyla abone olunursa o geniş alan
+                    // dinlenir ve hedefe varınca da daraltılmaz. Gidilen yakınlıktaki yarıçap bildirilir.
+                    let metersPerPoint = MKMetersPerMapPointAtLatitude(inFlight.target.latitude) * pow(2, 20 - inFlight.zoom)
+                    radius = hypot(Double(bounds.width), Double(bounds.height)) / 2 * metersPerPoint
+                } else {
+                    let boundsCenter = MKMapPoint(
+                        mapView.convert(CGPoint(x: bounds.midX, y: bounds.midY), toCoordinateFrom: mapView)
+                    )
+                    let corners = [
+                        CGPoint(x: bounds.minX, y: bounds.minY),
+                        CGPoint(x: bounds.maxX, y: bounds.minY),
+                        CGPoint(x: bounds.minX, y: bounds.maxY),
+                        CGPoint(x: bounds.maxX, y: bounds.maxY),
+                    ]
+                    radius = corners
+                        .map { MKMapPoint(mapView.convert($0, toCoordinateFrom: mapView)).distance(to: boundsCenter) }
+                        .max() ?? 0
+                }
                 parent.onCameraIdle(Coordinate(center), radius)
             }
         }
