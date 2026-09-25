@@ -63,10 +63,13 @@ public enum ClosingDisplay {
         }
     }
 
-    /// İşareti koyan ya da hayvanı gördüğünü söyleyen (kapatan hariç): öneriyi doğrulayabilecek kişi.
+    /// İşareti koyan ya da hayvanı gördüğünü söyleyen (kapatan hariç) ve öneriye hâlâ yanıt verebilen kişi
+    /// (`ReportLifecycle.canAnswerClosing`). Yanıt veremeyen (ör. bu işarete daha önce itiraz etmiş) kişiye
+    /// soru sorulmaz; işaret onun haritasından da başkalarınınkiyle birlikte kalkar.
     public static func isStakeholder(_ report: Report, viewer: String?) -> Bool {
         guard let viewer, report.closing?.userID != viewer else { return false }
-        return report.reporterID == viewer || report.seenBy.contains(viewer)
+        guard report.reporterID == viewer || report.seenBy.contains(viewer) else { return false }
+        return ReportLifecycle.canAnswerClosing(report, by: viewer)
     }
 
     /// `viewer` için "… dendi" görünüşü; işaret `closing` değilse `nil`.

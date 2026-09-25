@@ -18,7 +18,7 @@ public enum ReportAction: String, CaseIterable, Identifiable, Sendable {
     case dispute
     /// "Evet, çözüldü" (gone için arayüz "Evet, artık yok" der): ikinci kişi öneriyi onaylar.
     case confirmClosing
-    /// "Geri al": öneriyi yapan kişi 10 dk içinde geri alır.
+    /// "Geri al": öneriyi yapan kişi 10 dk içinde geri alır. Geçerli sahiplik kalır.
     case undoClosing
     /// Süresi dolan işareti kapatır (Spark'ta temizlik fonksiyonu yerine). Kullanıcıya gösterilmez.
     case expire
@@ -101,7 +101,8 @@ public enum ReportError: Error, Equatable, LocalizedError {
 ///     open ──İlgileniyorum──▶ claimed ──(Vazgeç / 3 sa)──▶ open
 ///     open|claimed ──Çözüldü / Artık yok──▶ closing ("… dendi"; haritada kalır, ömrü kısalmaz)
 ///     closing ──Hâlâ yardım gerekiyor (kapatan dışında herkes)──▶ open
-///     closing ──Evet, çözüldü (ikinci kişi)──▶ closed      closing ──Geri al (kapatan, 10 dk)──▶ open
+///     closing ──Evet, çözüldü (ikinci kişi)──▶ closed
+///     closing ──Geri al (kapatan, 10 dk)──▶ claimed (sahiplik hâlâ geçerliyse) | open
 ///     open|claimed ──Çözüldü / Artık yok (koyan; başka gören yoksa)──▶ closed
 ///     open|claimed|closing ──süresi doldu──▶ closed
 ///
@@ -245,6 +246,12 @@ public enum ReportLifecycle {
         return !report.objectors.contains(userID) && report.objectors.count < maxDisputed
     }
 
+    /// "… dendi" önerisine bu kişi yanıt verebilir mi ("Evet, çözüldü" ya da "Hâlâ yardım gerekiyor")?
+    /// Takip sorusu yalnızca bu kişilere sorulur; yanıt veremeyen paydaş işareti başkaları gibi görür.
+    public static func canAnswerClosing(_ report: Report, by userID: String) -> Bool {
+        canConfirmClosing(report, by: userID) || canDispute(report, by: userID)
+    }
+
     /// Bu kullanıcının "Hâlâ orada" demesi "kaç kişi bildirdi" sayısını artırır mı?
     /// Listede değilse ve liste dolmadıysa artırır.
     public static func confirmAddsSeen(to report: Report, by userID: String) -> Bool {
@@ -365,9 +372,15 @@ public enum ReportLifecycle {
             guard closing.userID == userID, now < closing.at.addingTimeInterval(undoWindow) else {
                 throw ReportError.notYourClosing
             }
-            updated.status = .open
             updated.closing = nil
-            updated.claim = nil
+            // Öneriden önceki sahiplik hâlâ geçerliyse (başkasınınki de) aynen kalır: "Çözüldü" + "Geri al"
+            // taze bir sahipliği düşüremez (kurallardaki isUndo).
+            if let kept = report.claim, kept.expiresAt > now {
+                updated.status = .claimed
+            } else {
+                updated.status = .open
+                updated.claim = nil
+            }
 
         case .expire:
             guard isDue(report, at: now) else { throw ReportError.notExpired }

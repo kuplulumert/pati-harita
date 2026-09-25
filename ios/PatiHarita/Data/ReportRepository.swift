@@ -31,8 +31,8 @@ protocol ReportRepository: AnyObject {
 
     /// İşareti kaydeder ve aynı yazımda günlük haktan bir tane harcar. Beklemez: işaret anında haritada
     /// görünür, çevrimdışıysa bağlantı gelince gönderilir. Hak bittiği biliniyorsa hiçbir şey yazmadan
-    /// `CreateQuotaError.exhausted` fırlatır. Sunucu reddederse `onFailure` çağrılır
-    /// (günlük sınır yüzündense `CreateQuotaError.rejected` ile).
+    /// `CreateQuotaError.exhausted` fırlatır. Sunucu reddederse `onFailure` çağrılır (günlük sınır
+    /// yüzündense `CreateQuotaError.rejected`, işaret çok geç gönderildiyse `CreateQuotaError.tooLate` ile).
     func create(_ report: Report, onFailure: @escaping @MainActor (Error) -> Void) throws
 
     /// "Geri al": az önce koyulan işareti siler. Bu arada biri işlem yaptıysa sunucu reddeder.
@@ -82,6 +82,9 @@ enum CreateQuotaError: Error, Equatable {
     case exhausted(limit: Int, nextCreateAt: Date?)
     /// Sunucu, günlük sınır yüzünden reddetti (çoğunlukla çevrimdışı konan işaret sonradan gönderilince).
     case rejected
+    /// Sunucu reddetti ve işaret neredeyse 24 saat önce konmuştu: kurallar (`maxBackdate`) bu kadar geç
+    /// gelen işareti kabul etmez; sebep günlük sınır değil, gecikmedir.
+    case tooLate
 }
 
 /// Kanıtlı öneri hangi yolla denensin. Sunucu kanıtlı öneriyi reddederse (ör. pencere sınırında telefon

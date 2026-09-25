@@ -477,14 +477,20 @@ final class ReportLifecycleTests: ReportTestCase {
                 .lastSeenAt, .expiresAt, .seenBy,
             ]],
             .confirmClosing: [closed],
-            .undoClosing: [[
-                .status, .closingReason, .closingBy, .closingAt, .closingCredible,
-                .claimedBy, .claimedAt, .claimExpiresAt,
-            ]],
+            // isUndo: geçerli sahiplik aynen kalır (claimed) ya da sahiplik temizlenir (open).
+            .undoClosing: [
+                [.status, .closingReason, .closingBy, .closingAt, .closingCredible],
+                [
+                    .status, .closingReason, .closingBy, .closingAt, .closingCredible,
+                    .claimedBy, .claimedAt, .claimExpiresAt,
+                ],
+            ],
             .expire: [closed],
         ]
 
         var checked = 0
+        var undoneKeepingClaim = 0
+        var undoneClearingClaim = 0
         for (name, report, now) in try phaseCatalogue() {
             var attempts: [(user: String, action: ReportAction, at: Date)] = []
             for user in [alice, bob, cara, dan, eve] {
@@ -507,10 +513,25 @@ final class ReportLifecycleTests: ReportTestCase {
                 // Hiçbir eylem ömrü kısaltmaz.
                 XCTAssertGreaterThanOrEqual(updated.expiresAt, report.expiresAt, label)
                 assertValidShape(updated, label)
+                if attempt.action == .undoClosing {
+                    // isUndo: sahiplik hâlâ geçerliyse (başkasınınki de) alanları aynen kalır; yoksa işaret açılır.
+                    if let claim = report.claim, claim.expiresAt > attempt.at {
+                        XCTAssertEqual(updated.status, .claimed, label)
+                        XCTAssertEqual(updated.claim, claim, label)
+                        undoneKeepingClaim += 1
+                    } else {
+                        XCTAssertEqual(updated.status, .open, label)
+                        XCTAssertNil(updated.claim, label)
+                        undoneClearingClaim += 1
+                    }
+                }
                 checked += 1
             }
         }
         XCTAssertGreaterThan(checked, 80)
+        // Katalog iki "Geri al" yolunu da (sahiplik kalır / temizlenir) içermeli.
+        XCTAssertGreaterThan(undoneKeepingClaim, 0)
+        XCTAssertGreaterThan(undoneClearingClaim, 0)
     }
 
     func testChangedFieldsIgnoresUntouchedValues() throws {

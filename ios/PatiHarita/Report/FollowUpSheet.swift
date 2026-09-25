@@ -3,10 +3,12 @@ import SwiftUI
 
 /// A7 takip sorusu: kişinin koyduğu, gördüğü ya da ilgilendiği işaret için başkası "Çözüldü" / "Artık yok"
 /// dedi. Zaman çizelgesi gösterilir ve "Bilmiyorum" varsayılandır: tanımadığı birinin sözüyle "Evet" denmesin.
-/// Her yanıt ("Bilmiyorum" ve sayfayı kaydırıp kapatmak dahil) bu öneri için "yanıtlandı" sayılır.
+/// "Bilmiyorum" (ve sayfayı kaydırıp kapatmak) hemen "yanıtlandı" sayılır; diğer yanıtlar eylem yapılınca.
 struct FollowUpSheet: View {
     let followUp: MapViewModel.FollowUp
     let now: Date
+    /// Başka bir eylem sürüyor: "Evet" / "Hâlâ yardım gerekiyor" o bitene kadar kapalı (yoksa yapılmadan kaybolurdu).
+    let isBusy: Bool
     let onAnswer: (MapViewModel.FollowUpAnswer) -> Void
 
     /// Zaman çizelgesinin bir satırı.
@@ -99,6 +101,7 @@ struct FollowUpSheet: View {
     /// "Bilmiyorum" (varsayılan) dolu, diğerleri eşit ağırlıkta sade düğmelerdir.
     private func optionButton(_ option: MapViewModel.FollowUp.Option) -> some View {
         let isDefault = option.answer == .dontKnow
+        let isDisabled = isBusy && !isDefault
         return Button {
             onAnswer(option.answer)
         } label: {
@@ -115,6 +118,8 @@ struct FollowUpSheet: View {
                 )
         }
         .buttonStyle(PressableStyle())
+        .disabled(isDisabled)
+        .opacity(isDisabled ? 0.5 : 1)
         .accessibilityIdentifier("follow-up-\(option.answer.rawValue)")
     }
 }
@@ -140,5 +145,5 @@ struct FollowUpSheet: View {
             MapViewModel.FollowUp.Option(answer: .dontKnow, title: "Bilmiyorum"),
         ]
     )
-    return FollowUpSheet(followUp: followUp, now: now) { _ in }
+    return FollowUpSheet(followUp: followUp, now: now, isBusy: false) { _ in }
 }

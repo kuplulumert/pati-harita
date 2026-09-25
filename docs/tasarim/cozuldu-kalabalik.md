@@ -612,15 +612,3 @@ public static func countsAsWaiting(_ r: Report, userID: String?, mode: ClosingMo
    - Turkey stays on fixed UTC+3.
    - Rules cannot check presence, because GPS is supplied by the client.
 9. **Griefing in the pro-animal direction** (plan residual). Hostile objections, or reaching 2 objections on a report, keep real rescues on the map as "?" until expiry. It costs volunteers wasted trips, not animals. B3's objection budget limits it.
-
-Files read (not edited):
-- `C:/Users/kuplu/AppData/Local/Temp/claude/C--Users-kuplu-OneDrive-Desktop-animal-claude-compassionate-bardeen-o2o6vj-animal-claude-compassionate-bardeen-o2o6vj/84536744-9b6c-46e1-b181-b7c57f3dd8fc/scratchpad/synthesis.md`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/firebase/firestore.rules`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/firebase/tests/contract.test.ts`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/shared/report-contract.json`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/ios/Packages/AnimalKit/Sources/AnimalKit/ReportLifecycle.swift`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/ios/Packages/AnimalKit/Sources/AnimalKit/Report.swift`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/ios/Packages/AnimalKit/Sources/AnimalKit/Need.swift`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/ios/PatiHarita/Map/ReportMapView.swift`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/ios/PatiHarita/Map/MapViewModel.swift`
-- `C:/Users/kuplu/OneDrive/Desktop/animal-claude-compassionate-bardeen-o2o6vj/animal-claude-compassionate-bardeen-o2o6vj/ios/PatiHarita/Design/MarkerPin.swift`

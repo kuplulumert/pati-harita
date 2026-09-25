@@ -9,7 +9,7 @@ rules_version = '2';
 //   open|claimed ──Çözüldü / Artık yok (diğerleri)──▶ closing ("… dendi"; ömrü kısalmaz)
 //   closing ──Hâlâ yardım gerekiyor (kapatan dışında herkes)──▶ open
 //   closing ──Evet, çözüldü (ikinci kişi)──▶ closed
-//   closing ──Geri al (kapatan, 10 dk içinde)──▶ open
+//   closing ──Geri al (kapatan, 10 dk içinde)──▶ claimed (sahiplik hâlâ geçerliyse) | open
 //   open|claimed|closing ──expiresAt geçti (herkes)──▶ closed
 //
 // Değişmez kural: koyandan başka biri hayvanı gördüyse, işareti süresi dolmadan tek bir kişi
@@ -357,7 +357,9 @@ service cloud.firestore {
         && closesAs(before.closingReason);
     }
 
-    // "Geri al": kapatma önerisini yapan kişi 10 dk içinde; işaret yeniden yardım bekler.
+    // "Geri al": kapatma önerisini yapan kişi 10 dk içinde. Sahiplik hâlâ geçerliyse (başkasınınki
+    // de) aynen kalır ve işaret yeniden 'claimed' olur; yoksa işaret 'open' olur, sahiplik temizlenir.
+    // Başkasının 45 dk'dan taze sahipliği "Çözüldü" + "Geri al" ile düşürülemez (isRelease gibi).
     function isUndo() {
       let before = resource.data;
       let after = request.resource.data;
@@ -365,9 +367,18 @@ service cloud.firestore {
         && request.time < before.closingAt + undoWindow()
         && changedKeys().hasOnly(['status', 'closingReason', 'closingBy', 'closingAt',
                                   'closingCredible', 'claimedBy', 'claimedAt', 'claimExpiresAt'])
-        && after.status == 'open'
         && after.closingReason == null
-        && after.claimedBy == null;
+        && ((before.claimedBy != null && before.claimExpiresAt > request.time
+              && after.status == 'claimed'
+              && after.claimedBy == before.claimedBy
+              && after.claimedAt == before.claimedAt
+              && after.claimExpiresAt == before.claimExpiresAt)
+            || (after.status == 'open'
+              && after.claimedBy == null
+              && (before.claimedBy == null
+                  || before.claimExpiresAt <= request.time
+                  || before.claimedBy == me()
+                  || request.time >= before.claimedAt + claimStale())));
     }
 
     // ---- Süre dolunca ------------------------------------------------------

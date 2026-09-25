@@ -46,6 +46,10 @@ class ReportTestCase: XCTestCase {
         let byPasserBy = try ReportLifecycle.apply(.resolve, to: seen, by: bob, at: minutes(30))
         let byClaimer = try ReportLifecycle.apply(.resolve, to: claimed, by: bob, at: minutes(30))
         let byReporter = try ReportLifecycle.apply(.resolve, to: seen, by: alice, at: minutes(30))
+        // İşareti koyan, bob'un taze sahipliği üstüne "Çözüldü" dedi ("Geri al" sahipliği korur).
+        let byReporterOverClaim = try ReportLifecycle.apply(.resolve, to: claimed, by: alice, at: minutes(10))
+        // bob'un sahipliği 182. dakikada doldu; dan 4. saatte "Çözüldü" dedi ("Geri al" sahipliği temizler).
+        let overExpiredClaim = try ReportLifecycle.apply(.resolve, to: claimed, by: dan, at: hours(4))
         let credible = try ReportLifecycle.apply(.resolve, to: seen, by: dan, at: minutes(30), credible: true)
         let goneClosing = try ReportLifecycle.apply(.reportGone, to: votedTwice, by: eve, at: minutes(30))
         let disputed = try ReportLifecycle.apply(.dispute, to: byPasserBy, by: cara, at: minutes(40))
@@ -63,6 +67,8 @@ class ReportTestCase: XCTestCase {
             ("geri alma süresi bitti", byPasserBy, minutes(45)),
             ("ilgilenen çözüldü dedi", byClaimer, minutes(35)),
             ("koyan çözüldü dedi", byReporter, minutes(35)),
+            ("koyan taze sahiplikte çözüldü dedi", byReporterOverClaim, minutes(12)),
+            ("süresi dolmuş sahiplikte çözüldü dendi", overExpiredClaim, minutes(245)),
             ("kanıtlı öneri", credible, minutes(35)),
             ("artık yok dendi", goneClosing, minutes(35)),
             ("itiraz edildi", disputed, minutes(45)),

@@ -43,7 +43,7 @@ struct MapScreen: View {
             }
             // Açıklama sayfasıyla aynı görünüme bağlanmasın diye burada (iki `.sheet` bir arada sorun çıkarabiliyor).
             .sheet(item: followUpBinding) { followUp in
-                FollowUpSheet(followUp: followUp, now: viewModel.now) { answer in
+                FollowUpSheet(followUp: followUp, now: viewModel.now, isBusy: viewModel.busyAction != nil) { answer in
                     viewModel.answerFollowUp(answer)
                 }
                 .presentationDetents([.medium, .large])
@@ -57,7 +57,7 @@ struct MapScreen: View {
         .animation(.snappy(duration: 0.3), value: viewModel.toast)
         .sensoryFeedback(.success, trigger: viewModel.reportsCreated)
         .sheet(isPresented: $showsLegend) {
-            LegendSheet(userID: viewModel.userID)
+            LegendSheet(userID: viewModel.userID, closingMode: viewModel.closingMode)
                 .presentationDetents([.medium, .large])
         }
         // "Hâlâ yardım gerekiyor" onayı. `presenting`: düğme, soru açıldığı andaki işaretle çalışır.

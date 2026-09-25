@@ -25,8 +25,15 @@ enum Messages {
 
     // MARK: Eylem bildirimleri
 
-    /// Öneri başlatmayan eylemlerden sonra.
-    static func actionDone(_ action: ReportAction, outcome: ActionOutcome, addsSeen: Bool) -> String {
+    /// Öneri başlatmayan eylemlerden sonra (öneri başlatanlar için `closerToast`).
+    static func actionDone(
+        _ action: ReportAction,
+        outcome: ActionOutcome,
+        addsSeen: Bool,
+        userID: String,
+        now: Date
+    ) -> String {
+        let report = outcome.report
         switch action {
         case .claim:
             return "Teşekkürler! İşaret \(Int(ReportLifecycle.claimDuration / 3600)) saat boyunca sende."
@@ -36,15 +43,30 @@ enum Messages {
             return "Harika! İşaret haritadan kaldırıldı."
         case .confirmStillThere:
             return addsSeen
-                ? "Teşekkürler! Bu hayvanı artık \(outcome.report.seenCount) kişi bildirdi."
+                ? "Teşekkürler! Bu hayvanı artık \(report.seenCount) kişi bildirdi."
                 : "Teşekkürler, işaret güncellendi."
         case .reportGone:
-            if outcome.report.status == .closed { return "Teşekkürler! İşaret haritadan kaldırıldı." }
+            // Oy öneri başlattıysa buraya gelinmez ("… dendi" bildirimi `closerToast`ta).
+            if report.status == .closed { return "Teşekkürler! İşaret haritadan kaldırıldı." }
+            if let claim = report.activeClaim(at: now), claim.userID != userID {
+                // Oylar başkasının canlı sahipliği üstüne öneri başlatamaz; yalnızca sayılır.
+                return "Teşekkürler, kaydedildi. Biri bu hayvanla ilgilendiği için işaret yerinde kalıyor."
+            }
+            if report.goneReports.count >= ReportLifecycle.goneThreshold {
+                // Eşik aşıldı ama bu kişi öneremiyor (ör. önceki kapatma önerisine itiraz edildi).
+                return "Teşekkürler, kaydedildi."
+            }
             return "Teşekkürler. \(ReportLifecycle.goneThreshold) kişi 'Artık yok' derse işaret 'Artık yok dendi' olarak işaretlenir."
         case .dispute:
             return "Teşekkürler, işaret yeniden yardım bekliyor."
         case .undoClosing:
-            return "Geri alındı; işaret yeniden yardım bekliyor."
+            // Geçerli sahiplik "Geri al"da kalır (kurallardaki isUndo).
+            guard let claim = report.activeClaim(at: now) else {
+                return "Geri alındı; işaret yeniden yardım bekliyor."
+            }
+            return claim.userID == userID
+                ? "Geri alındı; bu hayvanla hâlâ sen ilgileniyorsun."
+                : "Geri alındı; biri hâlâ bu hayvanla ilgileniyor."
         case .expire:
             return "Bu işaretin süresi doldu."
         }
@@ -107,6 +129,9 @@ enum Messages {
 
     /// Çevrimdışı konan işaret sonradan gönderilince sunucu günlük sınır yüzünden reddetti.
     static let createRejected = "Bu işaret günlük sınır nedeniyle kaydedilemedi."
+
+    /// Çevrimdışı konan işaret ancak ~24 saat sonra gönderilebildi; kurallar bu kadar eskisini kabul etmez.
+    static let createTooLate = "İşaret çok geç gönderilebildiği için kaydedilemedi."
 
     /// Seçim panelinde: hak azaldıysa "Bugün 3 işaret hakkın kaldı", bittiyse ne zaman açılacağı; yoksa `nil`.
     static func createAllowance(_ record: UserRecord, lowThreshold: Int, now: Date) -> String? {

@@ -30,7 +30,9 @@ açılır ve ona **Hâlâ orada** denir, yani aynı hayvan ikinci kez işaretlen
 | --- | --- |
 | Renk + simge | İhtiyaç (kırmızı ünlem = acil, turuncu bandaj = yaralı, yeşil çatal-bıçak = mama/su, mavi steteskop = veteriner, mor ev = barınak, pembe ayıcık = yavrular, gri = diğer) |
 | Köşedeki emoji | Tür (🐈 🐕 🐦 🐾) |
-| Mavi "yürüyen kişi" rozeti | Biri ilgileniyor |
+| Mavi "yürüyen kişi" rozeti | Biri ilgileniyor (45 dk'dır haber yoksa gri) |
+| Koyu "?" rozeti | Biri "Çözüldü" ya da "Artık yok" dedi, henüz doğrulanmadı |
+| Gri nokta (yakınlaşınca) | "Çözüldü" denip haritadan kalkan işaret; hayvan hâlâ oradaysa dokunup bildirilebilir |
 | Sağ alttaki beyaz sayı | Hayvanı kaç farklı kişinin bildirdiği (işareti koyan + "Hâlâ orada" ya da "Ben de gördüm" diyenler; 2 kişiden itibaren görünür, 100 ve üstü "99+") |
 | Büyük ve haleli işaret | Acil |
 | Soluklaşan işaret | Bir süredir kimse doğrulamadı |
@@ -45,21 +47,48 @@ Altında duruma göre değişen düğmeler:
 
 | Kim | Görülen eylemler |
 | --- | --- |
-| Yoldan geçen | **İlgileniyorum** · Hâlâ orada · Artık yok · Yol tarifi |
+| Yoldan geçen | **İlgileniyorum** · Hâlâ orada · Çözüldü · Artık yok · Yol tarifi |
 | İlgilenen kişi | **Çözüldü** · Vazgeç · Artık yok · Yol tarifi |
-| İşareti koyan | **İlgileniyorum** · Çözüldü · Hâlâ orada · Artık yok · Yol tarifi |
+| İşareti koyan | **İlgileniyorum** · Çözüldü · Hâlâ orada · Artık yok · Yol tarifi (45 dk'dır haber vermeyen ilgilenen için "İlgilenen gelmedi") |
+| "Çözüldü dendi" işaretinde | **Evet, çözüldü** (işareti koyan) · Hâlâ yardım gerekiyor · Yol tarifi |
 
-**Çözüldü** denince işaret aktif haritadan kalkar. **Hâlâ orada** diyen kişi bildirenlerin sayısına da eklenir
-("Teşekkürler! Bu hayvanı artık 4 kişi bildirdi.").
+**Hâlâ orada** diyen kişi bildirenlerin sayısına da eklenir ("Teşekkürler! Bu hayvanı artık 4 kişi bildirdi.").
+Kartın altında küçük bir güvenlik notu durur: "Yalnız gitme, kimseyle tartışmaya girme."
+
+### "Çözüldü" ve kötüye kullanıma karşı önlemler
+
+Hayvan düşmanı biri işaretleri sessizce kapatamasın diye: **başkasının da gördüğü bir işareti tek bir kişi süresinden
+önce haritadan kaldıramaz.**
+
+- İşareti koyan kişi, hayvanı başka gören yoksa **Çözüldü** / **Artık yok** ile işareti hemen kapatır (eskisi gibi).
+- Diğer her durumda işaret **"Çözüldü dendi"** olur; ömrü kısalmaz. İşareti koyan **Evet, çözüldü** derse kapanır.
+  Diyen kişi 10 dk içinde **Geri al** diyebilir.
+- Hayvanı gören herkes **Hâlâ yardım gerekiyor** diyerek itiraz edebilir: işaret yeniden yardım bekler, itiraz edilen kişi
+  bu işareti bir daha kapatamaz ve üstlenemez.
+- **Kanıtlı kapatma**: uygulaması en az 1 günlük olan kişinin (ya da işareti koyanın) "Çözüldü"sü günlük haktan düşer
+  (24 saatte 8 puan; acil, yaralı, yavru, veteriner, barınak 2 puan; mama ve diğer 1 puan). Kanıtlı işaret başkalarının
+  haritasından mama/diğer için 1, diğerleri için 2 **gündüz** saati sonra kalkar (gece 00.00–07.00 sayılmaz); işareti koyan
+  ve hayvanı görenler soruyu yanıtlayana kadar görmeye devam eder. Kanıtsız "Çözüldü" yalnızca "?" rozeti ekler; işaret
+  yardım bekleyenler arasında sayılmaya devam eder.
+- Bu gösterim sahibin konsoldaki `config/public.closingMode` ayarına bağlıdır: `demote` (yukarıdaki), `label`
+  (kanıtlı işaret de soluk "?" olarak kalır; ayar yoksa bu) ya da `strict` (her "Çözüldü" yalnızca "?"). Hiçbir işaret
+  erken kapanmadığı için ayar değişince gizlenen her işaret geri gelir.
+- **Artık yok**: 3 farklı kişi derse (biri ilgilenmiyorsa) "Artık yok dendi" olur; "Hâlâ orada" oyları sıfırlar.
+- **İlgileniyorum** kimseyi engellemez: 45 dk haber gelmezse başkaları da "Çözüldü" diyebilir.
+- **İşaret sınırı**: her telefon 24 saatte en fazla 10 yeni işaret koyabilir (uygulamanın ilk gününde 5).
+- Uygulama açılınca, koyduğun ya da gördüğün bir işaret için "Çözüldü" dendiyse sorulur: "Doğru mu?"
+
+Tasarım ve gerekçeler: [docs/tasarim/](docs/tasarim/).
 
 ### Eski işaretler haritada kalmaz
 
 - Her ihtiyacın bir ömrü var (acil ve mama/su 12 sa, yaralı ve diğer 24 sa, veteriner 48 sa, barınak ve yavrular 72 sa). Süre dolunca işaret haritadan kalkar.
 - Hayvanı yine gören herkes **Hâlâ orada** diyerek süreyi yeniden başlatır. İşaret yaşlandıkça soluklaşır.
   Bu, seni hayvanı bildirenlerin sayısına da ekler ("N kişi bildirdi"): her kişi bir kez sayılır, tekrar demek sayıyı artırmaz; en fazla 100 kişi tutulur.
-- **Artık yok**: iki farklı kişi (ya da işareti koyan / ilgilenen kişi tek başına) derse işaret kapanır.
+- Hiçbir işaret, "Hâlâ orada" ile uzatılsa bile oluşturulmasından 7 gün sonra haritada kalamaz.
 - **İlgileniyorum** 3 saat geçerlidir; çözülmezse işaret kendiliğinden yeniden "yardım bekliyor" olur.
-- Sunucuda her 10 dakikada bir temizlik çalışır; kapanan işaretler 30 gün sonra veritabanından silinir.
+- Süresi dolan işaretleri uygulamanın kendisi kapatır (ücretsiz planda sunucu temizliği yok). Blaze'e geçince
+  sunucudaki temizlik de çalışır ve kapanan işaretler 30 gün sonra veritabanından silinir.
 
 ## Teknik çözüm (özet)
 
@@ -178,13 +207,16 @@ cd ios/Packages/AnimalKit && swift test          # durum makinesi, geohash, söz
 `shared/` altındaki dosyalar iki tarafı birbirine bağlar: iOS ile Firestore kuralları aynı süreleri ve kuralları kullanmazsa testler başarısız olur.
 GitHub Actions her push'ta Firebase testlerini, AnimalKit testlerini ve iOS uygulamasının derlemesini çalıştırır (`.github/workflows/ci.yml`).
 Ardından uygulamayı simülatörde açar ve arayüz testiyle ana akışı gerçek dokunuşlarla dener: işaret koyma, işarete dokunma,
-"İlgileniyorum", uzun basma. Her adımın ekran görüntüsü çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü).
+"İlgileniyorum", "Hâlâ orada", "Ben de gördüm", uzun basma, yoldan geçenin "Çözüldü"sü, "Çözüldü dendi" kartı ve
+itiraz. Her adımın ekran görüntüsü çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü).
 
 ## Sonraki adımlar
 
 - **Yakındakilere bildirim**: acil/yaralı işaretlerde, kaba konumuna (geohash-5) abone olan kullanıcılara FCM ile bildirim.
 - **Kümeleme**: yoğun bölgelerde işaretleri MapKit'in yerleşik kümelemesiyle (`MKClusterAnnotation`) gruplamak.
-- **Kötüye kullanıma karşı**: App Check'i zorunlu kılmak, kullanıcı başına hız sınırı, "yanlış işaret" bildirimi.
+- **Kötüye kullanıma karşı, 2. aşama** ([plan](docs/tasarim/kotuye-kullanim-plani.md)): App Check'i zorunlu kılmak
+  (App Attest yeteneği + DeviceCheck), toplu okumayı sınırlamak, yeni hesaplara yarım hak, konsoldan yasaklama.
+  3. aşama (Blaze): "Çözüldü dendi" olunca işareti koyana ve görenlere bildirim, itibar.
 - Gizlilik politikasını ([taslak](docs/gizlilik-politikasi.md)) tamamlayıp herkese açık bir adreste yayımlamak (App Store ister).
 - Tek ekranlık ilk açılış, karanlık harita stili, VoiceOver ince ayarları. (Simgenin kaynağı: [docs/app-icon.svg](docs/app-icon.svg))
 - Android / web istemcisi (aynı Firestore kuralları ve `shared/` sözleşmesiyle).

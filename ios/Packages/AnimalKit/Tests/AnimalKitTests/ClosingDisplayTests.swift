@@ -84,6 +84,36 @@ final class ClosingDisplayTests: XCTestCase {
         XCTAssertTrue(ClosingDisplay.isStakeholder(credible, viewer: cara))
         XCTAssertFalse(ClosingDisplay.isStakeholder(credible, viewer: bob))
         XCTAssertFalse(ClosingDisplay.isStakeholder(credible, viewer: dan))
+        XCTAssertFalse(ClosingDisplay.isStakeholder(credible, viewer: nil))
+    }
+
+    /// Paydaş öneriye yanıt verebilmeli: daha önce itiraz etmiş, artık ne onaylayabilen ne itiraz edebilen
+    /// kişi soru almaz, işaret de onun haritasında başkalarınınkiyle birlikte kalkar.
+    func testStakeholderWhoCannotAnswerDoesNotKeepThePin() throws {
+        // cara 11.00'de gördü, 12.10'da bob'un önerisine itiraz etti; dan 12.20'de kanıtlı "Çözüldü" dedi.
+        let seen = try ReportLifecycle.apply(.confirmStillThere, to: openReport(), by: cara, at: at(11 * 60))
+        let byBob = try ReportLifecycle.apply(.resolve, to: seen, by: bob, at: at(12 * 60))
+        let objected = try ReportLifecycle.apply(.dispute, to: byBob, by: cara, at: at(12 * 60 + 10))
+        let byDan = try ReportLifecycle.apply(.resolve, to: objected, by: dan, at: at(12 * 60 + 20), credible: true)
+        XCTAssertEqual(byDan.objectors, [cara])
+
+        XCTAssertFalse(ReportLifecycle.canAnswerClosing(byDan, by: cara))
+        XCTAssertFalse(ClosingDisplay.isStakeholder(byDan, viewer: cara))
+        XCTAssertEqual(
+            ClosingDisplay.look(of: byDan, mode: .demote, viewer: cara, answered: false, at: at(14 * 60)),
+            .hidden
+        )
+        // İşareti koyan her turda itiraz edebilir: yanıtlayana kadar görmeye devam eder.
+        XCTAssertTrue(ReportLifecycle.canAnswerClosing(byDan, by: alice))
+        XCTAssertTrue(ClosingDisplay.isStakeholder(byDan, viewer: alice))
+        XCTAssertEqual(
+            ClosingDisplay.look(of: byDan, mode: .demote, viewer: alice, answered: false, at: at(14 * 60)),
+            .fading(leavesAt: at(13 * 60 + 20))
+        )
+        // Kapatan yanıt veremez.
+        XCTAssertFalse(ReportLifecycle.canAnswerClosing(byDan, by: dan))
+        // Öneri yoksa kimse yanıt veremez.
+        XCTAssertFalse(ReportLifecycle.canAnswerClosing(objected, by: alice))
     }
 
     func testSeriousNeedsStayTwoDaytimeHours() throws {

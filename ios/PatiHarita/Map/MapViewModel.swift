@@ -488,7 +488,13 @@ final class MapViewModel {
 
     private func createFailed(_ report: Report, error: Error) {
         watched.forget(report.id)
-        let message = error is CreateQuotaError ? Messages.createRejected : "İşaret kaydedilemedi. Lütfen tekrar dene."
+        let message: String
+        if let quota = error as? CreateQuotaError {
+            // Çevrimdışı konup ~24 saat sonra gönderilen işaret sınır yüzünden değil, gecikme yüzünden reddedilir.
+            message = quota == .tooLate ? Messages.createTooLate : Messages.createRejected
+        } else {
+            message = "İşaret kaydedilemedi. Lütfen tekrar dene."
+        }
         show(Toast(message: message))
     }
 
@@ -538,8 +544,21 @@ final class MapViewModel {
         disputeCandidateID = nil
     }
 
-    func perform(_ action: ReportAction, on report: Report) async {
-        guard let userID = session.userID, busyAction == nil else { return }
+    /// Bir eylemin sonucu (takip sorusu yeniden sorulacak mı diye).
+    enum ActionResult {
+        case done
+        /// Başka bir eylem sürüyordu ya da oturum yok; hiçbir şey yazılmadı.
+        case busy
+        /// Sunucudaki güncel hâl eylemi artık kabul etmiyor (ör. öneri onaylandı, itiraz edildi, kapandı).
+        case rejected
+        /// Bağlantı ya da başka bir hata; sonra yeniden denenebilir.
+        case failed
+    }
+
+    /// Eylemi yapar ve sonucu bildirir.
+    @discardableResult
+    func perform(_ action: ReportAction, on report: Report) async -> ActionResult {
+        guard let userID = session.userID, busyAction == nil else { return .busy }
         busyAction = action
         defer { busyAction = nil }
         // "Hâlâ orada" diyen kişi sayıya eklenecek mi? Eylemden önceki hâle bakılır.
@@ -564,12 +583,21 @@ final class MapViewModel {
                     duration: ClosingDisplay.closerUndoToastDuration
                 ))
             } else {
-                show(Toast(message: Messages.actionDone(action, outcome: outcome, addsSeen: addsSeen)))
+                show(Toast(message: Messages.actionDone(
+                    action,
+                    outcome: outcome,
+                    addsSeen: addsSeen,
+                    userID: userID,
+                    now: Date()
+                )))
             }
+            return .done
         } catch let error as ReportError {
             show(Toast(message: error.errorDescription ?? "İşlem tamamlanamadı."))
+            return .rejected
         } catch {
             show(Toast(message: "İşlem tamamlanamadı. Bağlantını kontrol et."))
+            return .failed
         }
     }
 
@@ -606,11 +634,13 @@ final class MapViewModel {
         showNextFollowUp()
     }
 
+    /// `ClosingDisplay.isStakeholder` ile aynı ölçüt (`ReportLifecycle.canAnswerClosing`: "… dendi" ve bu kişi
+    /// kapatan değil, onaylayabilir ya da itiraz edebilir). Yanıt veremeyene sorulmaz; işaret de onun
+    /// haritasında yanıt beklemeden başkalarınınki gibi görünür.
     private func needsFollowUp(_ report: Report, userID: String, at now: Date) -> Bool {
-        guard report.status == .closing, report.isActive(at: now), let closing = report.closing,
-              closing.userID != userID, !watched.isAnswered(report)
-        else { return false }
-        return ReportLifecycle.canConfirmClosing(report, by: userID) || ReportLifecycle.canDispute(report, by: userID)
+        report.isActive(at: now)
+            && ReportLifecycle.canAnswerClosing(report, by: userID)
+            && !watched.isAnswered(report)
     }
 
     /// Sıradaki soruyu gösterir; işaretleme sürerken ya da başka soru açıkken bekler.
@@ -652,11 +682,13 @@ final class MapViewModel {
         )
     }
 
-    /// Takip sorusunun yanıtı. Her yanıt (Bilmiyorum dahil) bu öneri için "yanıtlandı" sayılır.
+    /// Takip sorusunun yanıtı. "Bilmiyorum" hemen "yanıtlandı" sayılır; "Evet" ve "Hâlâ yardım gerekiyor"
+    /// ancak eylem yapılınca ya da sunucu soruyu geçersiz bulunca (öneri bu arada onaylandı, geri alındı…).
+    /// Yapılamadıysa (başka eylem sürüyordu, bağlantı yoktu) soru sıranın sonuna döner ve sonra yeniden
+    /// sorulur; bu arada işaret bu kişinin haritasında kalır.
     func answerFollowUp(_ answer: FollowUpAnswer) {
         guard let followUp else { return }
         self.followUp = nil
-        watched.markAnswered(followUp.report)
         let action: ReportAction
         switch answer {
         case .confirm:
@@ -664,12 +696,28 @@ final class MapViewModel {
         case .dispute:
             action = .dispute
         case .dontKnow:
+            watched.markAnswered(followUp.report)
             showNextFollowUp()
             return
         }
         Task { [weak self] in
-            await self?.perform(action, on: followUp.report)
-            self?.showNextFollowUp()
+            guard let self else { return }
+            let result = await self.perform(action, on: followUp.report)
+            let answered: Bool
+            switch result {
+            case .done, .rejected:
+                answered = true
+            case .busy, .failed:
+                answered = false
+            }
+            if answered {
+                self.watched.markAnswered(followUp.report)
+            }
+            // Önce sıradaki başka soru; başarısız olan hemen yeniden açılıp hata bildirimini örtmesin.
+            self.showNextFollowUp()
+            if !answered {
+                self.followUpQueue.append(followUp.report)
+            }
         }
     }
 

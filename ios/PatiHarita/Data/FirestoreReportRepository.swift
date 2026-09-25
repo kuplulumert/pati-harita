@@ -13,6 +13,10 @@ final class FirestoreReportRepository: ReportRepository {
     /// bu kadarı, her biri rastgele bir beklemeden sonra (herkes aynı anda yazmasın).
     private static let maxExpiriesInFlight = 3
     private static let maxExpiryDelay: Double = 30
+    /// Başarısız süre dolumu (ör. çevrimdışı, telefon saati biraz ileride) bu kadar sonra yeniden denenir.
+    private static let expiryRetryDelay: TimeInterval = 5 * 60
+    /// Bu kadar önce konmuş işareti kurallar (`maxBackdate()` 24 sa, saat toleransı payıyla) artık kabul etmez.
+    private static let lateCreateAge: TimeInterval = 24 * 3600 - Budget.resetMargin
 
     private let db: Firestore
     private let collection: CollectionReference
@@ -23,8 +27,19 @@ final class FirestoreReportRepository: ReportRepository {
     /// users/{me} dinleyicisinin son bildirdiği (ya da az önceki yeni işaretle güncellenmiş) kayıt.
     private var userRecord: UserRecord?
     private var userRecordObservers: [UUID: @MainActor (UserRecord?) -> Void] = [:]
-    private var expiryAttempted: Set<String> = []
+    /// users/{uid} dokümanının var olduğu (önbellekten de olsa) görülen kullanıcı. Görülmediyse yeni
+    /// işaretten önce kayıt oluşturma sıraya konur (bkz. `create`).
+    private var userDocSeenFor: String?
+    /// Süresi dolan işaretin bir sonraki deneme anı: sürerken ya da kapattıktan sonra `.distantFuture`,
+    /// başarısızsa `expiryRetryDelay` sonrası.
+    private var expiryRetryAt: [String: Date] = [:]
     private var expiriesInFlight = 0
+    /// Son dinleme sonucu: bir deneme bitince ya da yeniden deneme zamanı gelince buna bakılır
+    /// (sessiz bir haritada yeni sonuç hiç gelmeyebilir).
+    private var lastSnapshotReports: [Report] = []
+    /// En erken yeniden deneme anında bir kez daha bakan görev ve o an.
+    private var expiryRecheck: Task<Void, Never>?
+    private var expiryRecheckAt: Date?
 
     init(db: Firestore) {
         self.db = db
@@ -93,6 +108,10 @@ final class FirestoreReportRepository: ReportRepository {
                 log.error("Hesap kaydı dinlenemedi: \(error?.localizedDescription ?? "-", privacy: .public)")
                 return
             }
+            if snapshot.exists {
+                // Önbellekten de olsa yeterli: kayıt sunucuda var ya da yazım sırasında yeni işaretlerden önde.
+                self?.userDocSeenFor = userID
+            }
             // Bekleyen yazımdaki sunucu saati (yeni pencere) yerel tahminle okunur; yoksa alan boş gelirdi.
             let record = snapshot.data(with: .estimate).flatMap { FirestoreReportMapper.userRecord(data: $0) }
             self?.setUserRecord(record)
@@ -133,6 +152,7 @@ final class FirestoreReportRepository: ReportRepository {
         _ = try await db.runTransaction { @Sendable transaction, errorPointer in
             Self.createUserIfMissing(ref, in: transaction, errorPointer: errorPointer)
         }
+        userDocSeenFor = userID
     }
 
     /// Kayıt varsa dokunulmaz: hesap yaşı ve haklar sıfırlanamasın (kurallar da güncellemeye izin vermez).
@@ -161,7 +181,6 @@ final class FirestoreReportRepository: ReportRepository {
     func create(_ report: Report, onFailure: @escaping @MainActor (Error) -> Void) throws {
         let now = Date()
         let record = userRecord
-        // Kayıt henüz okunmadıysa (ör. ilk açılışta çevrimdışı) sayaç artırılır; sunucu karar verir.
         var branch = BudgetSpend.sameWindow
         if let record {
             guard let spent = Budget.spendCreate(record, at: now) else {
@@ -173,12 +192,26 @@ final class FirestoreReportRepository: ReportRepository {
             branch = spent.spend
             // Dinleyici yerel yazımı birazdan bildirir; arada konan ikinci işaret eski sayıyla denetlenmesin.
             setUserRecord(spent.record)
+        } else if userDocSeenFor != report.reporterID {
+            // users/{me} bu cihazda hiç görülmedi (ör. anonim girişten hemen sonra bağlantı koptu ve
+            // `ensureUserRecord` beklemede). Harcama `updateData` olduğundan kayıt sunucuda yoksa işaret de
+            // reddedilirdi: önce kaydı oluşturan yazım sıraya konur. Firestore yazımları sırayla gönderir
+            // (çevrimdışı da çalışır). Kayıt zaten varsa kurallar bunu güncelleme sayıp reddeder; zararsızdır,
+            // toplu yazımdaki artış gerçek kayda uygulanır.
+            users.document(report.reporterID).setData(FirestoreReportMapper.newUserData()) { error in
+                guard let error else { return }
+                log.notice("Hesap kaydı ön yazımı reddedildi (kayıt büyük olasılıkla zaten var): \(error.localizedDescription, privacy: .public)")
+            }
         }
+        // Kayıt okunamadıysa aynı pencere varsayılır: sayaç sunucudaki değerin üstüne artar. Kayıt sunucuya
+        // ulaşmadıysa ya da penceresi çoktan bittiyse sunucu reddeder; `commitCreate` o zaman kaydı sunucudan
+        // okuyup harcamayı ona göre hesaplar ve bir kez daha dener.
         commitCreate(report, branch: branch, record: record, canRetry: true, onFailure: onFailure)
     }
 
     /// Tamamlanmayı beklemeyiz: Firestore yazıyı yerelde hemen uygular (dinleyiciler anında görür)
     /// ve çevrimdışıysa bağlantı gelince gönderir. İşaret ile hak harcaması tek toplu yazımdır.
+    /// `record`: harcamanın dayandığı kayıt (`nil`: bilinmiyordu).
     private func commitCreate(
         _ report: Report,
         branch: BudgetSpend,
@@ -194,6 +227,22 @@ final class FirestoreReportRepository: ReportRepository {
         )
         batch.commit { [weak self] error in
             guard let error else { return }
+            let rejected = Self.isPermissionDenied(error) || Self.isNotFound(error)
+            // Kurallar (`maxBackdate`) bu kadar geç gelen işareti hiçbir dalla kabul etmez; sebep sınır değil.
+            if rejected, Self.isTooLate(report, at: Date()) {
+                log.error("İşaret çok geç gönderildiği için reddedildi: \(error.localizedDescription, privacy: .public)")
+                onFailure(CreateQuotaError.tooLate)
+                return
+            }
+            // Kayıt bilinmeden gönderilmişti (users/{me} sunucuda yoktu ya da penceresi çoktan bitmişti):
+            // kayıt hazırlanır, sunucudan okunur ve harcama ona göre bir kez daha denenir.
+            if record == nil, canRetry, rejected, let self {
+                log.notice("Hesap kaydı bilinmeden gönderilen işaret reddedildi; kayıt okunup yeniden deneniyor.")
+                Task { @MainActor in
+                    await self.retryCreateWithServerRecord(report, rejectedWith: error, onFailure: onFailure)
+                }
+                return
+            }
             guard Self.isPermissionDenied(error), let record else {
                 log.error("İşaret kaydedilemedi: \(error.localizedDescription, privacy: .public)")
                 onFailure(error)
@@ -211,6 +260,38 @@ final class FirestoreReportRepository: ReportRepository {
             log.error("İşaret günlük sınır nedeniyle reddedildi: \(error.localizedDescription, privacy: .public)")
             onFailure(CreateQuotaError.rejected)
         }
+    }
+
+    /// Kayıt bilinmeden gönderilen işaret reddedildi: `ensureUserRecord` ile kayıt hazırlanır, sunucudaki
+    /// hâli okunur, harcama (aynı ya da yeni pencere) ona göre hesaplanır ve işaret bir kez daha gönderilir.
+    /// Bu da olmazsa hata bildirilir. İşaret arada haritadan kalkıp geri gelebilir.
+    private func retryCreateWithServerRecord(
+        _ report: Report,
+        rejectedWith rejection: Error,
+        onFailure: @escaping @MainActor (Error) -> Void
+    ) async {
+        let serverRecord: UserRecord?
+        do {
+            try await ensureUserRecord(userID: report.reporterID)
+            let snapshot = try await users.document(report.reporterID).getDocument(source: .server)
+            serverRecord = snapshot.data().flatMap { FirestoreReportMapper.userRecord(data: $0) }
+        } catch {
+            log.error("İşaret kaydedilemedi, hesap kaydı okunamadı: \(error.localizedDescription, privacy: .public)")
+            onFailure(rejection)
+            return
+        }
+        guard let fresh = serverRecord else {
+            log.error("İşaret kaydedilemedi, hesap kaydı eksik: \(rejection.localizedDescription, privacy: .public)")
+            onFailure(rejection)
+            return
+        }
+        guard let spent = Budget.spendCreate(fresh, at: Date()) else {
+            log.error("İşaret günlük sınır nedeniyle reddedildi (sunucudaki kayıtla).")
+            onFailure(CreateQuotaError.rejected)
+            return
+        }
+        setUserRecord(spent.record)
+        commitCreate(report, branch: spent.spend, record: fresh, canRetry: false, onFailure: onFailure)
     }
 
     func retract(reportID: String, onFailure: @escaping @MainActor (Error) -> Void) {
@@ -357,22 +438,58 @@ final class FirestoreReportRepository: ReportRepository {
     // MARK: Süresi dolanlar
 
     /// Spark'ta temizlik fonksiyonu yok: süresi dolan işaretleri gören istemciler kapatır. Kurallar yalnızca
-    /// `expiresAt <= request.time` iken izin verir; yarışta (başkası önce kapattı) hata yok sayılır.
+    /// `expiresAt <= request.time` iken izin verir. Başarısız deneme (çevrimdışı, telefon saati biraz ileride)
+    /// `expiryRetryDelay` sonra yeniden denenir; başkası önce kapattıysa işaret sonraki sonuçta zaten yoktur.
+    /// Her deneme bitince son sonuca yeniden bakılır: yer açılınca bekleyenler, yeni sonuç beklemeden denenir.
     private func expireDueReports(_ reports: [Report]) {
+        lastSnapshotReports = reports
         guard let userID else { return }
         let now = Date()
-        let due = reports.filter { ReportLifecycle.isDue($0, at: now) && !expiryAttempted.contains($0.id) }
+        let due = reports.filter {
+            ReportLifecycle.isDue($0, at: now) && (expiryRetryAt[$0.id] ?? .distantPast) <= now
+        }
         let slots = max(0, Self.maxExpiriesInFlight - expiriesInFlight)
         for report in due.prefix(slots) {
             let reportID = report.id
-            expiryAttempted.insert(reportID)
+            // Sürüyor; başarılı olursa da öyle kalır (kapanan işaret bir daha denenmez).
+            expiryRetryAt[reportID] = .distantFuture
             expiriesInFlight += 1
             let delay = Double.random(in: 0...Self.maxExpiryDelay)
             Task { [weak self] in
                 try? await Task.sleep(for: .seconds(delay))
-                _ = try? await self?.perform(.expire, onReportID: reportID, by: userID)
-                self?.expiriesInFlight -= 1
+                let expired = (try? await self?.perform(.expire, onReportID: reportID, by: userID)) != nil
+                guard let self else { return }
+                self.expiriesInFlight -= 1
+                if !expired {
+                    self.expiryRetryAt[reportID] = Date().addingTimeInterval(Self.expiryRetryDelay)
+                }
+                self.expireDueReports(self.lastSnapshotReports)
             }
+        }
+        scheduleExpiryRecheck(after: now)
+    }
+
+    /// Yeniden denenecek (başarısız olmuş) işaretlerin en erken zamanı gelince bir kez daha bakılır.
+    /// Sessiz bir haritada yeni dinleme sonucu hiç gelmeyebilir.
+    private func scheduleExpiryRecheck(after now: Date) {
+        let retryTimes = lastSnapshotReports.compactMap { report -> Date? in
+            guard ReportLifecycle.isDue(report, at: now),
+                  let retryAt = expiryRetryAt[report.id],
+                  retryAt > now, retryAt != .distantFuture
+            else { return nil }
+            return retryAt
+        }
+        guard let earliest = retryTimes.min() else { return }
+        // Bu an ya da daha erkeni için kurulmuş bir bakış varsa yenisi gerekmez.
+        if let scheduled = expiryRecheckAt, scheduled > now, scheduled <= earliest { return }
+        expiryRecheck?.cancel()
+        expiryRecheckAt = earliest
+        let wait = earliest.timeIntervalSince(now)
+        expiryRecheck = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(wait))
+            guard !Task.isCancelled, let self else { return }
+            self.expiryRecheckAt = nil
+            self.expireDueReports(self.lastSnapshotReports)
         }
     }
 
@@ -382,6 +499,18 @@ final class FirestoreReportRepository: ReportRepository {
         let error = error as NSError
         return error.domain == FirestoreErrorDomain
             && error.code == FirestoreErrorCode.Code.permissionDenied.rawValue
+    }
+
+    /// Toplu yazımdaki `updateData`, dokümanı sunucuda bulamadı (users/{me} henüz yok).
+    private nonisolated static func isNotFound(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == FirestoreErrorDomain
+            && error.code == FirestoreErrorCode.Code.notFound.rawValue
+    }
+
+    /// Çevrimdışı konan işaret o kadar geç gönderildi ki kurallar (`maxBackdate`) kabul etmez.
+    private static func isTooLate(_ report: Report, at now: Date) -> Bool {
+        now.timeIntervalSince(report.createdAt) >= lateCreateAge
     }
 }
 

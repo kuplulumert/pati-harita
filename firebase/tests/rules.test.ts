@@ -145,6 +145,8 @@ function objection(uid: string, before: DocumentData, extra: Record<string, unkn
 
 const release = { status: "open", ...clearedClaim };
 const undo = { status: "open", ...clearedClosing, ...clearedClaim };
+/** Geçerli sahiplik varken "Geri al": sahiplik alanlarına dokunulmaz, işaret yeniden 'claimed' olur. */
+const undoKeepingClaim = { status: "claimed", ...clearedClosing };
 
 beforeAll(async () => {
   env = await initializeTestEnvironment({
@@ -341,6 +343,21 @@ describe("işaret oluşturma", () => {
 
   it("users kaydı olmayan kişi işaret oluşturamaz", async () => {
     await assertFails(setDoc(ref(DAVE), openReport({ reporterId: DAVE, seenBy: [DAVE] })));
+  });
+
+  // Uygulama users/{me}'yi hiç görmediyse işaretten önce kaydı oluşturan yazımı sıraya koyar
+  // (FirestoreReportRepository.create): kayıt yoksa oluşur, varsa reddedilir ve zararsızdır.
+  it("kayıt oluşturma sıraya konunca ardından gelen aynı pencere harcamalı işaret kabul edilir", async () => {
+    const daves = () => openReport({ reporterId: DAVE, seenBy: [DAVE] });
+    await assertFails(create(DAVE, daves(), "d1"));
+    await assertSucceeds(setDoc(userRef(DAVE), newUserFields()));
+    await assertSucceeds(create(DAVE, daves(), "d1"));
+    // Kayıt zaten varken ön yazım reddedilir; sonraki işaretin artışı gerçek kayda uygulanır.
+    await assertFails(setDoc(userRef(DAVE), newUserFields()));
+    await assertSucceeds(create(DAVE, daves(), "d2"));
+    const user = (await stored(`${contract.usersCollection}/${DAVE}`))!;
+    expect(user.createUsed).toBe(2);
+    expect(user.createLast.id).toBe("d2");
   });
 
   it("başkası adına işaret oluşturulamaz", async () => {
@@ -1104,14 +1121,67 @@ describe("Evet, çözüldü (agree)", () => {
 });
 
 describe("Geri al (undo)", () => {
-  it(`kapatan ${UNDO} dk içinde geri alabilir; sahiplik de bırakılır`, async () => {
-    await seed(closingReport(BOB, "resolved", true, claimOf(BOB, 30)));
-    await assertFails(updateDoc(ref(BOB), { ...undo, ...claimOf(BOB, 30) }));
-    await assertFails(updateDoc(ref(BOB), { ...undo, status: "claimed", ...claimOf(BOB, 30) }));
+  it(`kapatan ${UNDO} dk içinde geri alabilir; sahiplik yoksa işaret yeniden yardım bekler`, async () => {
+    await seed(closingReport(BOB, "resolved", true));
+    await assertFails(updateDoc(ref(BOB), { ...undoKeepingClaim, ...claimOf(BOB) }));
     await assertSucceeds(updateDoc(ref(BOB), undo));
     const after = (await stored())!;
     expect(after.status).toBe("open");
+    expect(after.closingBy).toBeNull();
+  });
+
+  it("ilgilenen kendi önerisini geri alınca sahipliği aynen kalır (bırakmak da serbest)", async () => {
+    const claim = claimOf(BOB, 30);
+    await seed(closingReport(BOB, "resolved", true, claim));
+    // Sahiplik alanları değiştirilemez (ör. yeni bir 3 saat).
+    await assertFails(updateDoc(ref(BOB), { ...undoKeepingClaim, claimExpiresAt: ts(Date.now() + 3 * HOUR) }));
+    await assertFails(updateDoc(ref(BOB), { ...undoKeepingClaim, claimedAt: ts(Date.now()) }));
+    await assertFails(updateDoc(ref(BOB), { status: "open", ...clearedClosing }));
+    await assertSucceeds(updateDoc(ref(BOB), undoKeepingClaim));
+    const after = (await stored())!;
+    expect(after.status).toBe("claimed");
+    expect(after.claimedBy).toBe(BOB);
+    expect(after.claimedAt.toMillis()).toBe(claim.claimedAt.toMillis());
+    expect(after.claimExpiresAt.toMillis()).toBe(claim.claimExpiresAt.toMillis());
+
+    await seed(closingReport(BOB, "resolved", true, claim));
+    await assertSucceeds(updateDoc(ref(BOB), undo));
+  });
+
+  it("koyan, başkasının taze sahipliğini 'Çözüldü' + 'Geri al' ile düşüremez", async () => {
+    // BOB 10 dk'dır ilgileniyor; ALICE (koyan) "Çözüldü" dedi ve geri alıyor.
+    const claim = claimOf(BOB, 10);
+    await seed(closingReport(ALICE, "resolved", false, { seenBy: [ALICE, CARA], ...claim }));
+    await assertFails(updateDoc(ref(ALICE), undo));
+    await assertSucceeds(updateDoc(ref(ALICE), undoKeepingClaim));
+    const after = (await stored())!;
+    expect(after.status).toBe("claimed");
+    expect(after.claimedBy).toBe(BOB);
+    expect(after.claimedAt.toMillis()).toBe(claim.claimedAt.toMillis());
+    expect(after.closingReason).toBeNull();
+  });
+
+  it(`sahiplik ${STALE} dk'yı geçtiyse koyan geri alırken bırakabilir`, async () => {
+    await seed(closingReport(ALICE, "resolved", false, { seenBy: [ALICE, CARA], ...claimOf(BOB, STALE + 1) }));
+    await assertSucceeds(updateDoc(ref(ALICE), undo));
+    expect((await stored())!.claimedBy).toBeNull();
+  });
+
+  it("sahipliğin süresi dolduysa geri alma işareti açar; süresi dolmuş sahiplik korunamaz", async () => {
+    const claimedAt = Date.now() - contract.claimHours * HOUR - 10 * MINUTE;
+    const expired = { claimedBy: BOB, claimedAt: ts(claimedAt), claimExpiresAt: ts(claimedAt + contract.claimHours * HOUR) };
+    await seed(closingReport(ALICE, "resolved", false, { seenBy: [ALICE, CARA], ...expired }));
+    await assertFails(updateDoc(ref(ALICE), undoKeepingClaim));
+    await assertSucceeds(updateDoc(ref(ALICE), undo));
+    const after = (await stored())!;
+    expect(after.status).toBe("open");
     expect(after.claimedBy).toBeNull();
+  });
+
+  it("sahiplik yokken geri alma 'claimed' yapamaz", async () => {
+    await seed(closingReport(BOB));
+    await assertFails(updateDoc(ref(BOB), { ...undoKeepingClaim, ...claimFields(BOB) }));
+    await assertFails(updateDoc(ref(BOB), undoKeepingClaim));
   });
 
   it(`${UNDO} dk sonra geri alınamaz`, async () => {

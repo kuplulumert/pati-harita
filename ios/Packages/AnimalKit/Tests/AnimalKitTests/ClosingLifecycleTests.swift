@@ -56,15 +56,58 @@ final class ClosingLifecycleTests: ReportTestCase {
             }
         }
 
+        // İlgilenen kendi önerisini geri alınca sahipliği (hâlâ geçerli) kendisinde kalır.
         let undone = try ReportLifecycle.apply(.undoClosing, to: proposed, by: bob, at: minutes(39.9))
-        XCTAssertEqual(undone.status, .open)
+        XCTAssertEqual(undone.status, .claimed)
         XCTAssertNil(undone.closing)
-        XCTAssertNil(undone.claim)
+        XCTAssertEqual(undone.claim, claimed.claim)
         XCTAssertEqual(undone.expiresAt, proposed.expiresAt)
-        XCTAssertEqual(undone.phase(for: cara, at: minutes(40)), .waiting)
+        XCTAssertEqual(undone.phase(for: bob, at: minutes(40)), .helpedByMe(until: minutes(182)))
+        XCTAssertEqual(undone.phase(for: cara, at: minutes(40)), .helpedByOther(since: minutes(2)))
+
+        // Sahiplik yoksa işaret yeniden yardım bekler.
+        let byPasserBy = try proposedByBob()
+        let reopened = try ReportLifecycle.apply(.undoClosing, to: byPasserBy, by: bob, at: minutes(35))
+        XCTAssertEqual(reopened.status, .open)
+        XCTAssertNil(reopened.closing)
+        XCTAssertNil(reopened.claim)
+        XCTAssertEqual(reopened.phase(for: cara, at: minutes(36)), .waiting)
 
         XCTAssertEqual(ReportLifecycle.availableActions(for: proposed, userID: bob, at: minutes(39)), [.undoClosing])
         XCTAssertEqual(ReportLifecycle.availableActions(for: proposed, userID: bob, at: minutes(40)), [])
+    }
+
+    /// "Geri al" öneriden önceki hâle döner: geçerli sahiplik (başkasınınki de) aynen kalır, süresi dolmuş
+    /// sahiplik temizlenir. Böylece işareti koyan, başkasının taze sahipliğini "Çözüldü" + "Geri al" ile
+    /// düşüremez (doğrudan "İlgilenen gelmedi" ancak 45 dk sonra açılır).
+    func testUndoKeepsOnlyALiveClaim() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: seenReport(), by: bob, at: minutes(2))
+        XCTAssertThrowsError(try ReportLifecycle.apply(.release, to: claimed, by: alice, at: minutes(10))) {
+            XCTAssertEqual($0 as? ReportError, .notClaimedByYou)
+        }
+        let byReporter = try ReportLifecycle.apply(.resolve, to: claimed, by: alice, at: minutes(10))
+        let undone = try ReportLifecycle.apply(.undoClosing, to: byReporter, by: alice, at: minutes(15))
+        XCTAssertEqual(undone.status, .claimed)
+        XCTAssertEqual(undone.claim, claimed.claim)
+        XCTAssertNil(undone.closing)
+        XCTAssertEqual(undone.phase(for: bob, at: minutes(16)), .helpedByMe(until: minutes(182)))
+        XCTAssertEqual(
+            undone.changedFields(from: byReporter),
+            [.status, .closingReason, .closingBy, .closingAt, .closingCredible]
+        )
+
+        // Sahiplik öneriden sonra, geri almadan önce dolduysa işaret yeniden yardım bekler.
+        let late = try ReportLifecycle.apply(.resolve, to: claimed, by: alice, at: minutes(175))
+        let afterClaimEnded = try ReportLifecycle.apply(.undoClosing, to: late, by: alice, at: minutes(182))
+        XCTAssertEqual(afterClaimEnded.status, .open)
+        XCTAssertNil(afterClaimEnded.claim)
+        XCTAssertEqual(afterClaimEnded.phase(for: cara, at: minutes(183)), .waiting)
+
+        // Süresi çoktan dolmuş sahiplik üstüne yapılan öneri geri alınınca da sahiplik temizlenir.
+        let overExpired = try ReportLifecycle.apply(.resolve, to: claimed, by: dan, at: hours(4))
+        let reopened = try ReportLifecycle.apply(.undoClosing, to: overExpired, by: dan, at: hours(4.1))
+        XCTAssertEqual(reopened.status, .open)
+        XCTAssertNil(reopened.claim)
     }
 
     // MARK: Hâlâ yardım gerekiyor

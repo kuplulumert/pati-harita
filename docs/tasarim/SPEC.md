@@ -115,7 +115,12 @@ Start from the plan §5a sketch, apply the clutter §4a delta (rename cred* → 
 11. **objection ("Hâlâ yardım gerekiyor")**: plan §5a `isObjection`, plus `closingCredible` → null in the same write.
 12. **agree ("Evet, çözüldü" / "Evet, artık yok")**: plan §5a `isAgree` unchanged (reporter confirms someone
     else's close; if the reporter closed, a `seenBy` member who is not the reporter confirms). → `closed(closingReason)`.
-13. **undo**: closer, `request.time < closingAt + undoWindow()` → `open`, quartet null, claim cleared.
+13. **undo**: closer, `request.time < closingAt + undoWindow()`, quartet null → `claimed` with the claim fields
+    unchanged if the claim is still live (`claimExpiresAt > request.time`), otherwise `open` with the claim
+    cleared. Rules: the `claimed` branch requires `claimedBy/claimedAt/claimExpiresAt` unchanged; the `open`
+    branch requires `claimedBy == null` and (no claim, or an expired claim, or the claimer is me, or the claim
+    is ≥ `claimStale()` old), so "Çözüldü" + "Geri al" cannot drop someone else's fresh claim (same bar as
+    release, §2.7). Objection still clears the claim (§2.11).
 14. **expire**: anyone, `expiresAt <= request.time` → `closed(expired)` for open/claimed, `closed(closingReason)`
     for closing.
 15. **retract (delete)**: reporter, status open, `seenBy == [me()]`, `goneReports` empty, `disputed` empty.
@@ -203,7 +208,10 @@ Public API the app will use (names may be refined, but keep them if possible):
     closer (`closing.userID == viewer`) → `.hidden` (pin leaves the closer's own map at once; street-zoom dot
     still lets them undo); not credible or mode `strict` → `.unverified`; mode `label` → `.fading(leavesAt: nil)`;
     mode `demote` → `.fading(leavesAt: at)` before `at`, afterwards `.hidden` — except stakeholders (viewer is
-    reporter or in `seenBy`, not the closer, and `answered == false`) who keep `.fading(leavesAt: at)`.
+    reporter or in `seenBy`, not the closer, can still act — `ReportLifecycle.canAnswerClosing` =
+    `canConfirmClosing || canDispute` — and `answered == false`) who keep `.fading(leavesAt: at)`. A reporter or
+    seer who can no longer act (e.g. already objected) is not a stakeholder: they are never asked, so the pin
+    leaves their map with everyone else's.
   - `ClosingDisplay.countsAsWaiting(_:viewer:mode:at:) -> Bool`: waiting phase, or a stale claim by someone else,
     or a closing report whose non-stakeholder look is `.unverified`.
   - `streetDotMaxRadius = 600` m.
@@ -228,6 +236,15 @@ Data layer:
   - map query `status in [open, claimed, closing]`.
   - `create`: `WriteBatch` = report `setData` + `users/me` create spend (`createUsed` increment or reset,
     `createWindow` unchanged or `serverTimestamp()`, `createLast: {t: serverTimestamp(), id}`) — works offline.
+    The spend is an `updateData`, so it needs `users/me` on the server. The repository remembers whether the
+    `users/me` listener has ever seen the doc exist (any snapshot, cache or server, or a finished
+    `ensureUserRecord`). If the record is unknown and the doc was never seen, `create` first queues a plain
+    `users/me.setData(newUserData())` (ordered write queue, works offline; if the doc already exists the rules
+    reject it harmlessly and it is only logged), then the batch with the same-window branch. If a batch sent
+    with an unknown record is still rejected (permission-denied or not-found), the repository once awaits
+    `ensureUserRecord`, reads `users/me` from the server, recomputes the spend with `Budget.spendCreate` and
+    commits again; only then is the failure reported. A rejected create whose `createdAt` is ≥ 24 h − 15 min
+    old reports `CreateQuotaError.tooLate` (rules `maxBackdate`), not the daily-limit error.
   - `perform`: transaction reads report and `users/me`; if `ReportLifecycle.wouldStartClosing`, compute
     credibility; when credible also update `users/me` close spend (`closeLast: {t: serverTimestamp(), id, w}`)
     and write `closingCredible: true`. Retry once with the other window branch on permission-denied near a
@@ -235,13 +252,22 @@ Data layer:
   - `ensureUserRecord`: transaction; create the users doc if missing (right after anonymous sign-in).
   - listener on `users/me` and `config/public`.
   - lazy expiry: after a snapshot, for at most 3 due reports (`ReportLifecycle.isDue`) run `.expire` after a
-    random 0–30 s delay; ignore failures.
+    random 0–30 s delay. Each report has a retry time (in flight or done → never; failed → now + 5 min); after
+    every attempt the due check runs again on the last snapshot, and one re-check is scheduled for the earliest
+    retry time, so failed or skipped reports are retried without waiting for a new snapshot.
 - `FirestoreReportMapper`: new fields (read and write), `NSNull()` for null quartet on create, users-doc mapping.
 - `DemoReportRepository`: in-memory equivalents (demo user record created 3 days ago so closes are credible; mode
   `demote`); seed one extra sample that is already `closing` (non-credible, by someone else, e.g. a dog "Mama / su"
   with "Çözüldü dendi") so the objection flow can be shown; keep the injured cat with 3 seers (UI test relies on it).
 - `AppEnvironment`: App Check factory that returns `AppAttestProvider` (fallback DeviceCheck) in release; debug
   provider in DEBUG. Never add sign-out.
+  **Deliberate deviation (this release):** release builds use `DeviceCheckProviderFactory` only. App Attest
+  needs the App Attest capability on the App ID and the `com.apple.developer.devicecheck.appattest-environment`
+  entitlement (neither exists yet, and `AppAttestProvider` does not fall back to DeviceCheck when attestation
+  fails for lack of them), so shipping it now would only lose tokens. Switch to the App Attest factory with
+  DeviceCheck fallback together with Tier B enforcement (plan B1), adding the capability and entitlement in
+  the same change. The B1 checklist must register **DeviceCheck** (.p8 key) in the Firebase console as well as
+  App Attest, so installed DeviceCheck-only builds keep working once App Check is enforced.
 
 UI:
 - Markers: "?" badge for closing looks `.unverified`/`.fading` (in the walking-badge slot); `.fading` food/other
@@ -261,13 +287,25 @@ UI:
   Create-limit toast: "Son 24 saatte 10 işaret koydun. Yeni işaret hakkın saat 14.20'de açılır. Yakındaki bir
   işaret aynı hayvansa 'Ben de gördüm' diyebilirsin." (numbers/time computed; first day says 5). When ≤ 3
   creates remain, the report panel shows "Bugün 3 işaret hakkın kaldı". Offline create rejected by the quota:
-  "Bu işaret günlük sınır nedeniyle kaydedilemedi."
+  "Bu işaret günlük sınır nedeniyle kaydedilemedi."; rejected because it was sent ≥ 24 h − 15 min after it was
+  placed: "İşaret çok geç gönderilebildiği için kaydedilemedi."
+  "Artık yok" vote that did not start closing: closed → "Teşekkürler! İşaret haritadan kaldırıldı."; live claim
+  by someone else → "Teşekkürler, kaydedildi. Biri bu hayvanla ilgilendiği için işaret yerinde kalıyor.";
+  threshold reached but this voter cannot propose → "Teşekkürler, kaydedildi."; otherwise "Teşekkürler. 3 kişi
+  'Artık yok' derse işaret 'Artık yok dendi' olarak işaretlenir." (a vote that starts closing gets the closer
+  toast). "Geri al" toast says whether a live claim was kept.
 - Follow-up prompt (plan A7): `WatchedReports` in `UserDefaults` (≤ 50 IDs created/confirmed/claimed/objected on
   this device, kept until `expiresAt + 24 h`, plus per-report "answered"); on foreground at most every 10 min
-  fetch them; if one is `closing` by someone else and this user can act, show a sheet (texts in plan A7 / clutter
-  §5; default button "Bilmiyorum", which marks answered). The 40 m "Ben de gördüm" suggestion also matches
-  closing reports and offers the objection.
+  fetch them; if one is `closing` by someone else and this user can act (`canAnswerClosing`, the same test as
+  the stakeholder look), show a sheet (texts in plan A7 / clutter §5; default button "Bilmiyorum", which marks
+  answered at once). "Evet" / "Hâlâ yardım gerekiyor" mark answered only after the action succeeds; if it
+  fails (or another action was in flight) the report goes back to the queue and is asked again later. The
+  sheet's action buttons are disabled while another action is in flight. The 40 m "Ben de gördüm" suggestion
+  also matches closing reports and offers the objection.
 - Legend: new rows for "?" badge, faded pin, grey dot, night rule, stale claim; "Nasıl çalışır?" step 3 text.
+  The legend follows `closingMode`: faded-pin row hidden in `strict`; in `label`/`strict` the faded pin "stays
+  until the reporter confirms or it expires" and the grey dot is only the closer's own; night-rule and
+  stakeholder rows only in `demote`; step 3 has a text per mode.
 - UI test (`ReportFlowUITests`): keep steps 01–09 green; add: passerby "Çözüldü" on a seeded report shows the
   "Yardımın kaydedildi" toast (time-agnostic assertion) → screenshot `10-cozuldu-dendi`; open the seeded closing
   report, card shows "Çözüldü dendi" → screenshot `11-cozuldu-dendi-karti`; tap "Hâlâ yardım gerekiyor", confirm →
