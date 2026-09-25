@@ -49,7 +49,9 @@ struct MapScreen: View {
                 .presentationDetents([.medium, .large])
         }
         .task { await viewModel.run() }
-        .onChange(of: viewModel.location.coordinate) {
+        // `initial`: konum ekran ilk çizilmeden gelmişse de (izin önceden verilmişken olur) kullanıcının
+        // çevresine gidilsin; yoksa harita varsayılan şehir merkezinde kalıyor ve oraya abone oluyordu.
+        .onChange(of: viewModel.location.coordinate, initial: true) {
             viewModel.userLocationChanged()
         }
     }
