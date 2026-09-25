@@ -1,9 +1,11 @@
-import type { Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
+import type { DocumentData, Firestore, QueryDocumentSnapshot } from "firebase-admin/firestore";
 import { Timestamp } from "firebase-admin/firestore";
 
 /** shared/report-contract.json ile aynı değerler. */
 export const REPORTS = "reports";
 export const RETENTION_DAYS = 30;
+/** Henüz kapanmamış, haritada duran işaret durumları. */
+export const ACTIVE_STATUSES = ["open", "claimed", "closing"];
 
 const PAGE_SIZE = 400;
 // Tek çalıştırmada en fazla bu kadar sayfa işlenir; kalan bir sonraki çalıştırmaya kalır.
@@ -15,11 +17,16 @@ export interface SweepResult {
   claimsReleased: number;
 }
 
-/** Süresi dolan açık işaret: haritadan kalkar, `retentionDays` sonra TTL ile silinir. */
-export function expiredFields(now: Timestamp) {
+/**
+ * Süresi dolan işaret: haritadan kalkar, `retentionDays` sonra TTL ile silinir.
+ * "Çözüldü dendi" / "Artık yok dendi" (closing) işaret önerildiği sebeple kapanır;
+ * kurallardaki isExpire ile aynı (Spark'ta istemciler de süresi dolanı böyle kapatır).
+ */
+export function expiredFields(now: Timestamp, report: DocumentData = {}) {
+  const proposed = report.status === "closing" ? report.closingReason : null;
   return {
     status: "closed",
-    closedReason: "expired",
+    closedReason: proposed === "resolved" || proposed === "gone" ? proposed : "expired",
     closedAt: now,
     purgeAt: Timestamp.fromMillis(now.toMillis() + RETENTION_DAYS * DAY_MS),
   };
@@ -37,7 +44,8 @@ export function releasedClaimFields() {
 
 /**
  * Haritayı temiz tutar:
- *  1. `expiresAt` geçmiş açık/ilgilenilen işaretleri `closed(expired)` yapar.
+ *  1. `expiresAt` geçmiş açık/ilgilenilen işaretleri `closed(expired)`, "… dendi" işaretleri
+ *     önerilen sebeple (`closed(closingReason)`) kapatır.
  *  2. `claimExpiresAt` geçmiş sahiplikleri bırakır (işaret yeniden `open` olur).
  *
  * İstemci de süresi dolmuş işaretleri gizlediği için bu iş birkaç dakika gecikse
@@ -49,12 +57,12 @@ export async function sweepReports(db: Firestore, now: Timestamp = Timestamp.now
   const expired = await updateInPages(
     () =>
       reports
-        .where("status", "in", ["open", "claimed"])
+        .where("status", "in", ACTIVE_STATUSES)
         .where("expiresAt", "<=", now)
         .limit(PAGE_SIZE)
         .get(),
     db,
-    () => expiredFields(now),
+    (doc) => expiredFields(now, doc.data()),
   );
 
   const claimsReleased = await updateInPages(
@@ -74,7 +82,7 @@ export async function sweepReports(db: Firestore, now: Timestamp = Timestamp.now
 async function updateInPages(
   fetchPage: () => Promise<{ docs: QueryDocumentSnapshot[] }>,
   db: Firestore,
-  fields: () => Record<string, unknown>,
+  fields: (doc: QueryDocumentSnapshot) => Record<string, unknown>,
 ): Promise<number> {
   let total = 0;
   for (let page = 0; page < MAX_PAGES; page++) {
@@ -82,7 +90,7 @@ async function updateInPages(
     if (docs.length === 0) break;
 
     const batch = db.batch();
-    for (const doc of docs) batch.update(doc.ref, fields());
+    for (const doc of docs) batch.update(doc.ref, fields(doc));
     await batch.commit();
 
     total += docs.length;

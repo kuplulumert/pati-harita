@@ -1,7 +1,8 @@
+import { readFileSync } from "node:fs";
 import { deleteApp, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { REPORTS, RETENTION_DAYS, sweepReports } from "../src/sweep";
+import { ACTIVE_STATUSES, REPORTS, RETENTION_DAYS, sweepReports } from "../src/sweep";
 
 const PROJECT = "demo-patiharita-sweep";
 const HOUR = 3_600_000;
@@ -31,6 +32,12 @@ function report(overrides: Record<string, unknown> = {}) {
     seenBy: ["alice"],
     closedAt: null,
     purgeAt: null,
+    closingReason: null,
+    closingBy: null,
+    closingAt: null,
+    closingCredible: null,
+    objectors: [],
+    disputed: [],
     ...overrides,
   };
 }
@@ -49,6 +56,15 @@ beforeEach(async () => {
   });
 });
 
+describe("sözleşme", () => {
+  it("sabitler shared/report-contract.json ile aynı", () => {
+    const contract = JSON.parse(readFileSync(new URL("../../../shared/report-contract.json", import.meta.url), "utf8"));
+    expect(REPORTS).toBe(contract.collection);
+    expect(RETENTION_DAYS).toBe(contract.retentionDays);
+    expect(ACTIVE_STATUSES).toEqual(contract.statuses.filter((s: string) => s !== "closed"));
+  });
+});
+
 describe("sweepReports", () => {
   it("süresi dolan işaretleri kapatır ve silinme tarihini ayarlar", async () => {
     await db.collection(REPORTS).doc("stale").set(report({ expiresAt: Timestamp.fromMillis(Date.now() - 1000) }));
@@ -62,6 +78,53 @@ describe("sweepReports", () => {
     expect(doc.closedReason).toBe("expired");
     expect(doc.closedAt.toMillis()).toBe(now.toMillis());
     expect(doc.purgeAt.toMillis()).toBe(now.toMillis() + RETENTION_DAYS * DAY);
+  });
+
+  it("süresi dolan \"… dendi\" işareti önerilen sebeple kapatır, öneriyi geçmiş olarak bırakır", async () => {
+    const past = Timestamp.fromMillis(Date.now() - 1000);
+    const closing = (closingReason: string) =>
+      report({
+        status: "closing",
+        expiresAt: past,
+        closingReason,
+        closingBy: "bob",
+        closingAt: Timestamp.fromMillis(Date.now() - 2 * HOUR),
+        closingCredible: true,
+      });
+    await db.collection(REPORTS).doc("rescued").set(closing("resolved"));
+    await db.collection(REPORTS).doc("gone").set(closing("gone"));
+    await db.collection(REPORTS).doc("live").set({ ...closing("resolved"), expiresAt: Timestamp.fromMillis(Date.now() + HOUR) });
+
+    const result = await sweepReports(db);
+
+    expect(result).toEqual({ expired: 2, claimsReleased: 0 });
+    const rescued = await get("rescued");
+    expect(rescued.status).toBe("closed");
+    expect(rescued.closedReason).toBe("resolved");
+    expect(rescued.closingBy).toBe("bob");
+    expect(rescued.closingCredible).toBe(true);
+    expect((await get("gone")).closedReason).toBe("gone");
+    expect((await get("live")).status).toBe("closing");
+  });
+
+  it("sahipliği olan işaret süresi dolunca closed(expired) olur", async () => {
+    const claimedAt = Date.now() - HOUR;
+    await db.collection(REPORTS).doc("claimed").set(
+      report({
+        status: "claimed",
+        claimedBy: "bob",
+        claimedAt: Timestamp.fromMillis(claimedAt),
+        claimExpiresAt: Timestamp.fromMillis(claimedAt + 3 * HOUR),
+        expiresAt: Timestamp.fromMillis(Date.now() - 1000),
+      }),
+    );
+
+    const result = await sweepReports(db);
+
+    expect(result).toEqual({ expired: 1, claimsReleased: 0 });
+    const doc = await get("claimed");
+    expect(doc.status).toBe("closed");
+    expect(doc.closedReason).toBe("expired");
   });
 
   it("süresi dolan sahipliği bırakır, işaret yeniden yardım bekler", async () => {
