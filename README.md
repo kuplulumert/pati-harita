@@ -137,6 +137,9 @@ git tag v1.0.1
 git push origin v1.0.1
 ```
 
+Etiketi, mesajında `[skip ci]` olan bir commit'e koymayın: Codemagic de bu commit'leri atlar ("Webhook is skipped").
+Etiket derleme başlatmazsa Codemagic'te uygulamanın **Webhooks** sekmesindeki *Recent deliveries* listesine bakın.
+
 Derleme işlenince TestFlight'taki **Ekip** grubuna otomatik dağıtılır. Codemagic'te `ios_signing` grubuna
 `GOOGLE_SERVICE_INFO_PLIST` (base64) eklenirse uygulama gerçek Firebase'e bağlanır; yoksa demo modunda açılır.
 

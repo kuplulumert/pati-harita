@@ -24,6 +24,8 @@ workflows:
       xcode: latest
     # Her push'ta değil: TestFlight'a gönderim bilinçli olsun ve Codemagic dakikaları (ayda 500) harcanmasın.
     # Göndermek için: git tag v1.0.1 && git push origin v1.0.1  (ya da Codemagic'te "Start new build" → etiket).
+    # Tetikleme GitHub'daki Codemagic webhook'uyla olur (uygulama → Webhooks). Mesajında [skip ci] olan
+    # commit'e konan etiket atlanır.
     triggering:
       events:
         - tag
