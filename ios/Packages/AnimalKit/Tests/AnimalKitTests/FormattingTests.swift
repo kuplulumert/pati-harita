@@ -44,4 +44,21 @@ final class FormattingTests: XCTestCase {
         XCTAssertEqual(Formatting.seenCount(2), "2 kişi bildirdi")
         XCTAssertEqual(Formatting.seenCount(100), "100 kişi bildirdi")
     }
+
+    func testClockUsesTurkeyTime() {
+        // 2026-09-21 00.00, Türkiye saati (UTC+3); cihazın saat diliminden bağımsız.
+        let midnight = Date(timeIntervalSince1970: 1_789_938_000)
+        func time(_ hour: Int, _ minute: Int = 0) -> Date {
+            midnight.addingTimeInterval(TimeInterval(hour * 3600 + minute * 60))
+        }
+
+        XCTAssertEqual(Formatting.clock(time(14, 20), now: time(9)), "14.20")
+        XCTAssertEqual(Formatting.clock(time(14, 20).addingTimeInterval(59), now: time(9)), "14.20")
+        XCTAssertEqual(Formatting.clock(time(0), now: time(23)), "00.00")
+        XCTAssertEqual(Formatting.clock(time(23, 59), now: time(0)), "23.59")
+        XCTAssertEqual(Formatting.clock(time(24 + 8), now: time(23)), "yarın 08.00")
+        XCTAssertEqual(Formatting.clock(time(24), now: time(23, 30)), "yarın 00.00")
+        XCTAssertEqual(Formatting.clock(time(-1), now: time(1)), "dün 23.00")
+        XCTAssertEqual(Formatting.clock(time(48 + 8), now: time(1)), "23 Eylül 08.00")
+    }
 }

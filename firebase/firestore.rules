@@ -4,18 +4,29 @@ rules_version = '2';
 //
 // Her işaret (report) küçük bir durum makinesidir:
 //
-//   open ──İlgileniyorum──▶ claimed ──Çözüldü──▶ closed(resolved)
-//    ▲                         │
-//    └──Vazgeç / süre doldu────┘
+//   open ──İlgileniyorum──▶ claimed ──Vazgeç / 3 sa doldu──▶ open
+//   open|claimed ──Çözüldü / Artık yok (koyan; başka gören yoksa)──▶ closed
+//   open|claimed ──Çözüldü / Artık yok (diğerleri)──▶ closing ("… dendi"; ömrü kısalmaz)
+//   closing ──Hâlâ yardım gerekiyor (kapatan dışında herkes)──▶ open
+//   closing ──Evet, çözüldü (ikinci kişi)──▶ closed
+//   closing ──Geri al (kapatan, 10 dk içinde)──▶ claimed (sahiplik hâlâ geçerliyse) | open
+//   open|claimed|closing ──expiresAt geçti (herkes)──▶ closed
 //
-//   open|claimed ──"Artık yok" (2 kişi, ya da bildiren/ilgilenen)──▶ closed(gone)
-//   open|claimed ──süresi doldu (Cloud Function)──────────────────▶ closed(expired)
+// Değişmez kural: koyandan başka biri hayvanı gördüyse, işareti süresi dolmadan tek bir kişi
+// kaldıramaz. "Çözüldü dendi" başkalarının haritasında yalnızca kanıtlıysa (closingCredible:
+// kapatanın günlük bütçesinden, en az 24 saatlik bir hesaptan ya da koyandan) gizlenebilir;
+// gizlemek yalnızca görünümdür, doküman closing olarak kalır.
+//
+// users/{uid}: hesap yaşı ve 24 saatlik haklar (yeni işaret, kanıtlı kapatma). Her harcama tek
+// bir işarete bağlıdır (createLast / closeLast: bu an + bu işaret); işaret kuralı bunu getAfter
+// ile doğrular, böylece bir toplu yazımdaki tek harcama iki işarete yetmez.
 //
 // İstemci tarafındaki karşılığı: ios/Packages/AnimalKit/Sources/AnimalKit/ReportLifecycle.swift
 // Paylaşılan sabitler: shared/report-contract.json (testler iki tarafın uyumunu doğrular).
 //
-// Zaman damgaları istemci saatiyle yazılır (çevrimdışı işaretlemede "görüldüğü an" korunur);
-// kurallar bunları request.time'a göre makul sınırlar içinde tutar.
+// Görülme anları istemci saatiyle yazılır (çevrimdışı işaretlemede "görüldüğü an" korunur) ve
+// request.time'a göre makul sınırlarda tutulur. claimedAt, closingAt ve harcama anları ise
+// serverTimestamp() ile yazılır: sahte bir zaman çizelgesi kurulamasın.
 
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -46,18 +57,52 @@ service cloud.firestore {
     function rounding() { return duration.value(1, 'm'); }
     // "Kaç kişi bildirdi" listesinde (seenBy) tutulan en fazla kullanıcı sayısı.
     function maxSeenBy() { return 100; }
+    // Başkası bu kadar süredir ilgileniyorsa herkes "Çözüldü" diyebilir.
+    function claimStale() { return duration.value(45, 'm'); }
+    // Kapatma önerisini yapanın "Geri al" süresi.
+    function undoWindow() { return duration.value(10, 'm'); }
+    // Hiçbir işaret oluşturulmasından bu kadar sonra haritada kalamaz.
+    function maxAge() { return duration.value(7, 'd'); }
+    // İtiraz alan en fazla kapatma önerisi; dolunca işareti yalnızca süresi kapatır.
+    function maxDisputed() { return 10; }
+
+    // Bu yaştan genç hesap ilk gün daha az işaret koyar ve kanıtlı kapatamaz (kendi işareti hariç).
+    function newAccountAge() { return duration.value(24, 'h'); }
+    // Hakların sayıldığı pencere; pencere bittikten sonraki ilk harcamada yeniden başlar.
+    function budgetWindow() { return duration.value(24, 'h'); }
+    function maxCreates() { return 10; }
+    function maxCreatesFirstDay() { return 5; }
+    // Kanıtlı kapatma bütçesi: pencere başına puan; ağır ihtiyaçlar 2, hafifler 1 puan.
+    function closePoints() { return 8; }
+    function closeCost() {
+      return {
+        'emergency': 2,
+        'injured': 2,
+        'babies': 2,
+        'vet': 2,
+        'food': 1,
+        'shelter': 2,
+        'other': 1
+      };
+    }
+    // Bundan fazla itiraz almış işarette kapatma kanıtlı sayılmaz.
+    function credibleMaxDisputed() { return 1; }
 
     // "Şimdi" anlamına gelmesi gereken, istemcinin yazdığı bir zaman damgası.
     function isNow(t) {
       return t is timestamp && t > request.time - skew() && t < request.time + skew();
     }
 
+    function userPath() { return /databases/$(database)/documents/users/$(me()); }
+
     // ---- Doküman şekli -----------------------------------------------------
 
     function reportKeys() {
       return ['species', 'need', 'lat', 'lng', 'geohash', 'status', 'closedReason',
               'reporterId', 'createdAt', 'lastSeenAt', 'expiresAt', 'claimedBy',
-              'claimedAt', 'claimExpiresAt', 'goneReports', 'seenBy', 'closedAt', 'purgeAt'];
+              'claimedAt', 'claimExpiresAt', 'goneReports', 'seenBy', 'closedAt', 'purgeAt',
+              'closingReason', 'closingBy', 'closingAt', 'closingCredible', 'objectors',
+              'disputed'];
     }
 
     function validShape(d) {
@@ -67,7 +112,7 @@ service cloud.firestore {
         && d.lat is number && d.lat >= -90 && d.lat <= 90
         && d.lng is number && d.lng >= -180 && d.lng <= 180
         && d.geohash is string && d.geohash.matches('^[0-9b-hjkmnp-z]{10}$')
-        && d.status in ['open', 'claimed', 'closed']
+        && d.status in ['open', 'claimed', 'closing', 'closed']
         && d.reporterId is string
         && d.createdAt is timestamp
         && d.lastSeenAt is timestamp
@@ -75,9 +120,19 @@ service cloud.firestore {
         && d.goneReports is list && d.goneReports.size() <= 20
         // Hayvanı gören farklı kullanıcılar: önce bildiren, sonra "Hâlâ orada" diyenler.
         && d.seenBy is list && d.seenBy.size() >= 1 && d.seenBy.size() <= maxSeenBy()
+        // Her itiraz tam bir kapatanı disputed'a ekler; objectors disputed'ı geçemez.
+        && d.objectors is list && d.objectors.size() <= maxDisputed()
+        && d.disputed is list && d.disputed.size() <= maxDisputed()
         && ((d.claimedBy == null && d.claimedAt == null && d.claimExpiresAt == null)
             || (d.claimedBy is string && d.claimedAt is timestamp && d.claimExpiresAt is timestamp))
         && (d.status != 'claimed' || d.claimedBy != null)
+        // Kapatma önerisi: dördü birlikte dolu ya da boş; closed'da geçmiş olarak kalır.
+        && ((d.closingReason == null && d.closingBy == null && d.closingAt == null
+               && d.closingCredible == null)
+            || (d.closingReason in ['resolved', 'gone'] && d.closingBy is string
+               && d.closingAt is timestamp && d.closingCredible is bool))
+        && (d.status != 'closing' || d.closingReason != null)
+        && (d.status in ['closing', 'closed'] || d.closingReason == null)
         && ((d.status == 'closed'
               && d.closedReason in ['resolved', 'gone', 'expired']
               && d.closedAt is timestamp
@@ -90,10 +145,15 @@ service cloud.firestore {
 
     // ---- Durum yardımcıları ------------------------------------------------
 
-    function isActive(r) { return r.status in ['open', 'claimed']; }
+    // Yardım bekleyen (ya da biri ilgilenen) işaret; closing ayrı eylemlerle yönetilir.
+    function isWaiting(r) { return r.status in ['open', 'claimed']; }
+    // Süresi dolmuş işarete yalnızca "süre doldu" yazılabilir (geri diriltilemez).
+    function isLive(r) { return r.expiresAt > request.time; }
     function hasLiveClaim(r) { return r.status == 'claimed' && r.claimExpiresAt > request.time; }
     function isClaimer(r) { return hasLiveClaim(r) && r.claimedBy == me(); }
     function isReporter(r) { return r.reporterId == me(); }
+    // Hayvanı koyandan başka gören yok.
+    function reporterAlone(r) { return isReporter(r) && r.seenBy == [me()]; }
 
     function changedKeys() {
       return request.resource.data.diff(resource.data).affectedKeys();
@@ -114,24 +174,84 @@ service cloud.firestore {
         && after.purgeAt <= after.closedAt + retention() + rounding();
     }
 
+    // expiresAt aynı kalır ya da `limit`e kadar uzar; oluşturulmasından itibaren maxAge'i aşmaz.
+    function extendsTo(before, after, limit) {
+      return after.expiresAt == before.expiresAt
+        || (after.expiresAt > before.expiresAt
+            && after.expiresAt <= limit
+            && after.expiresAt <= before.createdAt + maxAge());
+    }
+
+    // "Hayvanı şimdi gördüm": lastSeenAt yenilenir, ömür uzayabilir (asla kısalmaz) ve kişi
+    // kendini (yalnızca kendini, bir kez) seenBy'ın sonuna ekleyebilir. Zaten listedeyse ya da
+    // liste doluysa seenBy aynı kalır.
+    function refreshes(before, after) {
+      return isNow(after.lastSeenAt)
+        && after.lastSeenAt > before.lastSeenAt
+        && extendsTo(before, after, after.lastSeenAt + lifetime(before.need) + rounding())
+        && (after.seenBy == before.seenBy
+            || (!(me() in before.seenBy)
+                && before.seenBy.size() < maxSeenBy()
+                && after.seenBy == before.seenBy.concat([me()])));
+    }
+
+    // Bu kişi işareti closing'e alabilir mi? Başkasının 45 dk'dan taze sahipliğine saygı gösterilir.
+    function mayPropose(r) {
+      return !(me() in r.disputed)
+        && r.disputed.size() < maxDisputed()
+        && (!hasLiveClaim(r) || isClaimer(r) || isReporter(r)
+            || request.time >= r.claimedAt + claimStale());
+    }
+
+    // Kanıtlı kapatma: kapatanın bütçesinden bu an ve bu işaret için doğru puan harcanmış olmalı.
+    // users/{me} yalnızca closingCredible == true istendiğinde okunur.
+    function credible(r, reportId) {
+      let u = getAfter(userPath()).data;
+      return r.disputed.size() <= credibleMaxDisputed()
+        && (isReporter(r) || u.createdAt <= request.time - newAccountAge())
+        && u.closeLast.t == request.time
+        && u.closeLast.id == reportId
+        && u.closeLast.w == closeCost()[r.need];
+    }
+
+    function startsClosing(reason, reportId) {
+      let after = request.resource.data;
+      return after.status == 'closing'
+        && after.closingReason == reason
+        && after.closingBy == me()
+        && after.closingAt == request.time
+        && (after.closingCredible == false
+            || (after.closingCredible == true && credible(resource.data, reportId)));
+    }
+
     // ---- Oluşturma -------------------------------------------------------
 
-    function validCreate(d) {
+    // Her yeni işaret, aynı toplu yazımda users/{me}'den bu işaret için harcanan bir hakla gelir.
+    function paidCreate(reportId) {
+      let u = getAfter(userPath()).data;
+      return u.createLast.t == request.time && u.createLast.id == reportId;
+    }
+
+    function validCreate(d, reportId) {
       return validShape(d)
         && d.reporterId == me()
         && d.status == 'open'
         && d.claimedBy == null
+        && d.closingReason == null
         && d.goneReports.size() == 0
+        && d.objectors == []
+        && d.disputed == []
         && d.seenBy == [me()]
         // Çevrimdışı işaretlenip sonradan senkronlanan kayıtlara izin ver.
         && d.createdAt < request.time + skew()
         && d.createdAt > request.time - maxBackdate()
         && d.lastSeenAt == d.createdAt
         && d.expiresAt > d.createdAt
-        && d.expiresAt <= d.createdAt + lifetime(d.need) + rounding();
+        && d.expiresAt <= d.createdAt + lifetime(d.need) + rounding()
+        && paidCreate(reportId);
     }
 
-    // ---- Eylemler ----------------------------------------------------------
+    // ---- open|claimed üzerindeki eylemler --------------------------------
 
     // "İlgileniyorum": açık (ya da sahipliği süresi dolmuş) işareti üstüne al.
     function isClaim() {
@@ -139,80 +259,231 @@ service cloud.firestore {
       let after = request.resource.data;
       return changedKeys().hasOnly(['status', 'claimedBy', 'claimedAt', 'claimExpiresAt', 'expiresAt'])
         && !hasLiveClaim(before)
+        && !(me() in before.disputed)
         && after.status == 'claimed'
         && after.claimedBy == me()
-        && isNow(after.claimedAt)
-        && after.claimExpiresAt > after.claimedAt
-        && after.claimExpiresAt <= after.claimedAt + claimDuration() + rounding()
+        && after.claimedAt == request.time
+        && after.claimExpiresAt > request.time
+        && after.claimExpiresAt <= request.time + claimDuration() + skew()
         // İlgilenilen işaret, sahiplik süresi bitmeden haritadan düşmesin.
-        && (after.expiresAt == before.expiresAt
-            || (after.expiresAt > before.expiresAt && after.expiresAt <= after.claimExpiresAt));
+        && extendsTo(before, after, after.claimExpiresAt);
     }
 
-    // "Vazgeç": yalnızca şu an ilgilenen kişi bırakabilir.
+    // "Vazgeç": ilgilenen kişi; ya da 45 dk'dır haber vermeyen sahipliği işareti koyan kaldırır.
     function isRelease() {
+      let before = resource.data;
       let after = request.resource.data;
       return changedKeys().hasOnly(['status', 'claimedBy', 'claimedAt', 'claimExpiresAt'])
-        && isClaimer(resource.data)
+        && (isClaimer(before)
+            || (isReporter(before) && hasLiveClaim(before)
+                && request.time >= before.claimedAt + claimStale()))
         && after.status == 'open'
         && after.claimedBy == null;
     }
 
-    // "Çözüldü": ilgilenen kişi ya da işareti koyan kişi kapatabilir.
-    function isResolve() {
-      return changedKeys().hasOnly(['status', 'closedReason', 'closedAt', 'purgeAt'])
-        && (isClaimer(resource.data) || isReporter(resource.data))
-        && closesAs('resolved');
+    // "Çözüldü": koyan tek tanıksa hemen kapanır; diğer her durumda "Çözüldü dendi".
+    function isResolve(reportId) {
+      return (reporterAlone(resource.data)
+              && changedKeys().hasOnly(['status', 'closedReason', 'closedAt', 'purgeAt'])
+              && closesAs('resolved'))
+        || (mayPropose(resource.data)
+              && changedKeys().hasOnly(['status', 'closingReason', 'closingBy', 'closingAt',
+                                        'closingCredible'])
+              && startsClosing('resolved', reportId));
     }
 
-    // "Hâlâ orada": herkes işaretin ömrünü ihtiyaca göre uzatabilir (asla kısaltamaz).
-    // Aynı eylem "kaç kişi bildirdi" sayısını da artırır: kişi kendini (yalnızca kendini,
-    // bir kez) seenBy'ın sonuna ekler. Zaten listedeyse ya da liste doluysa seenBy aynı kalır.
+    // "Hâlâ orada": herkes ömrü ihtiyaca göre uzatabilir ve eski "Artık yok" oylarını sıfırlayabilir.
     function isConfirm() {
       let before = resource.data;
       let after = request.resource.data;
-      return changedKeys().hasOnly(['lastSeenAt', 'expiresAt', 'seenBy'])
-        && isNow(after.lastSeenAt)
-        && after.lastSeenAt > before.lastSeenAt
-        && (after.expiresAt == before.expiresAt
-            || (after.expiresAt > before.expiresAt
-                && after.expiresAt <= after.lastSeenAt + lifetime(before.need) + rounding()))
-        && (after.seenBy == before.seenBy
-            || (!(me() in before.seenBy)
-                && before.seenBy.size() < maxSeenBy()
-                && after.seenBy == before.seenBy.concat([me()])));
+      return changedKeys().hasOnly(['lastSeenAt', 'expiresAt', 'seenBy', 'goneReports'])
+        && (after.goneReports == before.goneReports || after.goneReports.size() == 0)
+        && refreshes(before, after);
     }
 
-    // "Artık yok": her kullanıcı bir kez bildirebilir. 2 farklı kişi, ya da
-    // işareti koyan / şu an ilgilenen kişi bildirirse işaret kapanır.
-    function isGoneReport() {
+    // "Artık yok": her kullanıcı bir kez oy verir. Koyan tek tanıksa işaret hemen kapanır;
+    // koyan ya da ilgilenen "Artık yok dendi" yapar; diğerlerinde 3. oy (başkasının canlı
+    // sahipliği yoksa) "Artık yok dendi" yapar.
+    function isGoneReport(reportId) {
       let before = resource.data;
       let after = request.resource.data;
       let keys = changedKeys();
       return !(me() in before.goneReports)
         && after.goneReports == before.goneReports.concat([me()])
         && (keys.hasOnly(['goneReports'])
-            || (keys.hasOnly(['goneReports', 'status', 'closedReason', 'closedAt', 'purgeAt'])
-                && closesAs('gone')
-                && (after.goneReports.size() >= 2 || isReporter(before) || isClaimer(before))));
+            || (reporterAlone(before)
+                && keys.hasOnly(['goneReports', 'status', 'closedReason', 'closedAt', 'purgeAt'])
+                && closesAs('gone'))
+            || (keys.hasOnly(['goneReports', 'status', 'closingReason', 'closingBy', 'closingAt',
+                              'closingCredible'])
+                && mayPropose(before)
+                && (isReporter(before) || isClaimer(before)
+                    || (!hasLiveClaim(before) && after.goneReports.size() >= 3))
+                && startsClosing('gone', reportId)));
     }
 
-    // "Geri al": kimse dokunmadıysa işareti koyan kişi silebilir.
+    // ---- closing üzerindeki eylemler ---------------------------------------
+
+    // "Hâlâ yardım gerekiyor": kapatan dışında herkes; koyan sınırsız, diğerleri bir kez.
+    // Kapatan disputed'a eklenir ve bu işarette bir daha ilgilenemez ya da kapatma öneremez.
+    function isObjection() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return before.closingBy != me()
+        && changedKeys().hasOnly(['status', 'closingReason', 'closingBy', 'closingAt',
+                                  'closingCredible', 'claimedBy', 'claimedAt', 'claimExpiresAt',
+                                  'goneReports', 'objectors', 'disputed', 'lastSeenAt',
+                                  'expiresAt', 'seenBy'])
+        && after.status == 'open'
+        && after.closingReason == null
+        && after.claimedBy == null
+        && after.goneReports.size() == 0
+        && after.disputed == before.disputed.concat([before.closingBy])
+        && ((isReporter(before) && after.objectors == before.objectors)
+            || (!isReporter(before)
+                && !(me() in before.objectors)
+                && after.objectors == before.objectors.concat([me()])))
+        && refreshes(before, after);
+    }
+
+    // "Evet, çözüldü": ikinci kişi onaylar. Kapatan başkasıysa koyan; kapatan koyansa hayvanı
+    // gören (seenBy) başka biri.
+    function isAgree() {
+      let before = resource.data;
+      return ((isReporter(before) && before.closingBy != me())
+              || (before.closingBy == before.reporterId && !isReporter(before)
+                  && (me() in before.seenBy)))
+        && changedKeys().hasOnly(['status', 'closedReason', 'closedAt', 'purgeAt'])
+        && closesAs(before.closingReason);
+    }
+
+    // "Geri al": kapatma önerisini yapan kişi 10 dk içinde. Sahiplik hâlâ geçerliyse (başkasınınki
+    // de) aynen kalır ve işaret yeniden 'claimed' olur; yoksa işaret 'open' olur, sahiplik temizlenir.
+    // Başkasının 45 dk'dan taze sahipliği "Çözüldü" + "Geri al" ile düşürülemez (isRelease gibi).
+    function isUndo() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return before.closingBy == me()
+        && request.time < before.closingAt + undoWindow()
+        && changedKeys().hasOnly(['status', 'closingReason', 'closingBy', 'closingAt',
+                                  'closingCredible', 'claimedBy', 'claimedAt', 'claimExpiresAt'])
+        && after.closingReason == null
+        && ((before.claimedBy != null && before.claimExpiresAt > request.time
+              && after.status == 'claimed'
+              && after.claimedBy == before.claimedBy
+              && after.claimedAt == before.claimedAt
+              && after.claimExpiresAt == before.claimExpiresAt)
+            || (after.status == 'open'
+              && after.claimedBy == null
+              && (before.claimedBy == null
+                  || before.claimExpiresAt <= request.time
+                  || before.claimedBy == me()
+                  || request.time >= before.claimedAt + claimStale())));
+    }
+
+    // ---- Süre dolunca ------------------------------------------------------
+
+    // Süresi dolan işareti herkes kapatabilir (Spark'ta temizlik fonksiyonu yok); asla erken değil.
+    // "… dendi" işaret önerildiği sebeple kapanır (functions/src/sweep.ts ile aynı).
+    function isExpire() {
+      let before = resource.data;
+      return before.status in ['open', 'claimed', 'closing']
+        && before.expiresAt <= request.time
+        && changedKeys().hasOnly(['status', 'closedReason', 'closedAt', 'purgeAt'])
+        && ((before.status != 'closing' && closesAs('expired'))
+            || (before.status == 'closing' && closesAs(before.closingReason)));
+    }
+
+    // "Geri al" (silme): yalnızca koyanın, kimsenin görmediği ve dokunmadığı işareti.
     function canRetract(r) {
-      return isReporter(r) && r.status == 'open' && r.goneReports.size() == 0;
+      return isReporter(r) && r.status == 'open' && r.seenBy == [me()]
+        && r.goneReports.size() == 0 && r.disputed.size() == 0;
+    }
+
+    // ---- users/{uid}: hesap yaşı ve 24 saatlik haklar ----------------------
+
+    function userKeys() {
+      return ['createdAt', 'createWindow', 'createUsed', 'createLast',
+              'closeWindow', 'closeUsed', 'closeLast'];
+    }
+
+    function validUserCreate(d) {
+      return d.keys().hasAll(userKeys()) && d.keys().hasOnly(userKeys())
+        && d.createdAt == request.time
+        && d.createWindow == request.time
+        && d.closeWindow == request.time
+        && d.createUsed == 0
+        && d.closeUsed == 0
+        && d.createLast == null
+        && d.closeLast == null;
+    }
+
+    // Yeni işaret hakkı harcamak. Pencere sürerken sayaç 1 artar; pencere bittiyse yeniden başlar.
+    // (Pencere bittikten sonra artırmak da serbest: yalnızca daha kısıtlayıcıdır.)
+    function isCreateSpend() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys().hasOnly(['createWindow', 'createUsed', 'createLast'])
+        && after.createLast.keys().hasAll(['t', 'id'])
+        && after.createLast.keys().hasOnly(['t', 'id'])
+        && after.createLast.t == request.time
+        && after.createLast.id is string
+        && ((after.createWindow == before.createWindow
+              && after.createUsed == before.createUsed + 1)
+            || (request.time >= before.createWindow + budgetWindow()
+              && after.createWindow == request.time
+              && after.createUsed == 1))
+        && after.createUsed <= maxCreates()
+        && (after.createUsed <= maxCreatesFirstDay()
+            || before.createdAt <= request.time - newAccountAge());
+    }
+
+    // Kanıtlı kapatma için puan harcamak (w: işaretin ihtiyacına göre 1 ya da 2 puan).
+    function isCloseSpend() {
+      let before = resource.data;
+      let after = request.resource.data;
+      return after.diff(before).affectedKeys().hasOnly(['closeWindow', 'closeUsed', 'closeLast'])
+        && after.closeLast.keys().hasAll(['t', 'id', 'w'])
+        && after.closeLast.keys().hasOnly(['t', 'id', 'w'])
+        && after.closeLast.t == request.time
+        && after.closeLast.id is string
+        && after.closeLast.w is int
+        && after.closeLast.w in [1, 2]
+        && ((after.closeWindow == before.closeWindow
+              && after.closeUsed == before.closeUsed + after.closeLast.w)
+            || (request.time >= before.closeWindow + budgetWindow()
+              && after.closeWindow == request.time
+              && after.closeUsed == after.closeLast.w))
+        && after.closeUsed <= closePoints();
     }
 
     // ---- Koleksiyonlar -----------------------------------------------------
 
     match /reports/{reportId} {
       allow read: if signedIn();
-      allow create: if signedIn() && validCreate(request.resource.data);
+      allow create: if signedIn() && validCreate(request.resource.data, reportId);
       allow update: if signedIn()
-        && isActive(resource.data)
         && validShape(request.resource.data)
         && identityUnchanged()
-        && (isClaim() || isRelease() || isResolve() || isConfirm() || isGoneReport());
+        && ((isWaiting(resource.data) && isLive(resource.data)
+              && (isClaim() || isRelease() || isResolve(reportId) || isConfirm()
+                  || isGoneReport(reportId)))
+            || (resource.data.status == 'closing' && isLive(resource.data)
+              && (isObjection() || isAgree() || isUndo()))
+            || isExpire());
       allow delete: if signedIn() && canRetract(resource.data);
+    }
+
+    // Yalnızca sahibi okur; listelenemez, silinemez (hesap yaşı sıfırlanamasın).
+    match /users/{uid} {
+      allow get: if signedIn() && me() == uid;
+      allow create: if signedIn() && me() == uid && validUserCreate(request.resource.data);
+      allow update: if signedIn() && me() == uid && (isCreateSpend() || isCloseSpend());
+    }
+
+    // Uzaktan ayarlar (ör. config/public.closingMode); yalnızca konsoldan yazılır.
+    match /config/{doc} {
+      allow get: if signedIn();
     }
   }
 }

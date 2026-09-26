@@ -5,16 +5,50 @@ import SwiftUI
 struct MarkerStyle: Hashable {
     let need: Need
     let species: Species
-    let isBeingHelped: Bool
+    /// Sol üstteki durum rozeti; yoksa `nil`.
+    let badge: MarkerBadge?
     let isSelected: Bool
     /// Sağ alttaki "kaç kişi bildirdi" rozeti (`Formatting.seenCountBadge`); tek kişi bildirdiyse `nil`.
     /// Ham sayı yerine metin tutulur: 99'dan sonrası aynı ikonu paylaşır.
     let seenBadge: String?
 }
 
+/// İşaretin sol üst köşesindeki durum rozeti.
+enum MarkerBadge: Hashable, CaseIterable {
+    /// Biri ilgileniyor (mavi yürüyen kişi).
+    case helping
+    /// Başkasının sahipliği 45 dk'yı geçti ve haber yok (gri yürüyen kişi): sen de gidebilirsin.
+    case helpingStale
+    /// "Çözüldü dendi" / "Artık yok dendi" ("?"): doğrulanmadı ya da birazdan kalkacak.
+    case closing
+
+    var symbolName: String {
+        switch self {
+        case .helping, .helpingStale: "figure.walk"
+        case .closing: "questionmark"
+        }
+    }
+
+    /// İkonlar açık/koyu moddan bağımsız çizilir; renkler sabittir.
+    var color: Color {
+        switch self {
+        case .helping: .blue
+        case .helpingStale: Color(red: 0.56, green: 0.56, blue: 0.58) // #8E8E93
+        case .closing: Color(red: 0.2, green: 0.23, blue: 0.25) // #343A40
+        }
+    }
+}
+
+/// İkon önbelleğinin anahtarı: iğne ya da gri nokta.
+enum MarkerIcon: Hashable {
+    case pin(MarkerStyle)
+    /// Başkalarının haritasından kalkan "… dendi" işareti; yalnızca sokak yakınlığında çizilir.
+    case streetDot(isSelected: Bool)
+}
+
 /// Harita işareti: renk + simge ihtiyacı, köşedeki emoji türü, sol üstteki rozet
-/// birinin ilgilendiğini, sağ alttaki sayı hayvanı kaç kişinin bildirdiğini gösterir.
-/// Acil işaretler daha büyük ve haleli çizilir.
+/// durumu (ilgilenen, haber vermeyen ilgilenen, "… dendi"), sağ alttaki sayı hayvanı kaç kişinin
+/// bildirdiğini gösterir. Acil işaretler daha büyük ve haleli çizilir.
 ///
 /// Görünümün alt-orta noktası iğnenin ucudur (`ReportMapView` işareti bu noktadan konumlar).
 struct MarkerPin: View {
@@ -73,12 +107,12 @@ struct MarkerPin: View {
                 .offset(x: 4, y: -4)
         }
         .overlay(alignment: .topLeading) {
-            if style.isBeingHelped {
-                Image(systemName: "figure.walk")
-                    .font(.system(size: 10, weight: .bold))
+            if let badge = style.badge {
+                Image(systemName: badge.symbolName)
+                    .font(.system(size: badge == .closing ? 11 : 10, weight: badge == .closing ? .heavy : .bold))
                     .foregroundStyle(.white)
                     .frame(width: 20, height: 20)
-                    .background(Circle().fill(Color.blue))
+                    .background(Circle().fill(badge.color))
                     .overlay(Circle().stroke(.white, lineWidth: 1.5))
                     .offset(x: -4, y: -4)
             }
@@ -94,6 +128,22 @@ struct MarkerPin: View {
             .frame(minWidth: 16, minHeight: 16)
             .background(Capsule().fill(.white))
             .shadow(color: .black.opacity(0.2), radius: 1)
+    }
+}
+
+/// Başkalarının haritasından kalkan "… dendi" işareti: sokak yakınlığında küçük gri nokta. Yanındaki kişi
+/// dokunup "Hâlâ yardım gerekiyor" diyebilsin, kapatan da "Geri al" diyebilsin diye çizilir; dokunma alanı
+/// haritada genişletilir (`ReportAnnotationView.touchPadding`). Görünümün ortası koordinattır.
+struct StreetDot: View {
+    var isSelected = false
+
+    var body: some View {
+        Circle()
+            .fill(Color(red: 0.56, green: 0.56, blue: 0.58))
+            .frame(width: isSelected ? 18 : 14, height: isSelected ? 18 : 14)
+            .overlay(Circle().stroke(.white, lineWidth: 2))
+            .shadow(color: .black.opacity(0.2), radius: 1)
+            .frame(width: isSelected ? 24 : 20, height: isSelected ? 24 : 20)
     }
 }
 
@@ -143,15 +193,24 @@ struct PlacementPin: View {
     VStack(spacing: 24) {
         HStack(alignment: .bottom) {
             ForEach(Need.allCases) { need in
-                MarkerPin(style: MarkerStyle(need: need, species: .cat, isBeingHelped: false, isSelected: false, seenBadge: nil))
+                MarkerPin(style: MarkerStyle(need: need, species: .cat, badge: nil, isSelected: false, seenBadge: nil))
             }
         }
         HStack(alignment: .bottom) {
-            MarkerPin(style: MarkerStyle(need: .injured, species: .dog, isBeingHelped: true, isSelected: false, seenBadge: "3"))
-            MarkerPin(style: MarkerStyle(need: .food, species: .bird, isBeingHelped: false, isSelected: true, seenBadge: "12"))
-            MarkerPin(style: MarkerStyle(need: .emergency, species: .dog, isBeingHelped: false, isSelected: false, seenBadge: "99+"))
+            MarkerPin(style: MarkerStyle(need: .injured, species: .dog, badge: .helping, isSelected: false, seenBadge: "3"))
+            MarkerPin(style: MarkerStyle(need: .food, species: .bird, badge: nil, isSelected: true, seenBadge: "12"))
+            MarkerPin(style: MarkerStyle(need: .emergency, species: .dog, badge: nil, isSelected: false, seenBadge: "99+"))
             PlacementPin(species: nil, isLifted: false)
             PlacementPin(species: .cat, isLifted: true)
+        }
+        // "… dendi": "?" rozeti; hafif ihtiyaçlar soluk; kalkınca gri nokta. Haber vermeyen ilgilenen: gri rozet.
+        HStack(alignment: .bottom) {
+            MarkerPin(style: MarkerStyle(need: .injured, species: .cat, badge: .closing, isSelected: false, seenBadge: "2"))
+            MarkerPin(style: MarkerStyle(need: .food, species: .dog, badge: .closing, isSelected: false, seenBadge: nil))
+                .opacity(0.6)
+            MarkerPin(style: MarkerStyle(need: .vet, species: .bird, badge: .helpingStale, isSelected: false, seenBadge: nil))
+            StreetDot()
+            StreetDot(isSelected: true)
         }
     }
     .padding()

@@ -9,10 +9,24 @@ final class DemoReportRepository: ReportRepository {
     /// Bakılan yerin bu kadar yakınında hiç işaret yoksa oraya örnekler konur. Sorgu yarıçapından
     /// bağımsızdır: geniş bir görünümün yarıçapı birkaç km olabilir ve uzaktaki örnekleri "yakında" sayardı.
     static let seedSpacing: Double = 1_000
+    /// Demo hesabı birkaç gün önce açılmış sayılır: "Çözüldü" kanıtlı olur (ilk gün sınırı yok).
+    static let demoAccountAge: TimeInterval = 3 * 24 * 3600
+    /// Demoda kanıtlı "Çözüldü" başkalarının haritasından kalkar (TestFlight'taki mod).
+    static let closingMode: ClosingMode = .demote
 
     private var reports: [String: Report] = [:]
     private var observers: [UUID: @MainActor ([Report]) -> Void] = [:]
+    private var recordObservers: [UUID: @MainActor (UserRecord?) -> Void] = [:]
     private var seedCount = 0
+    /// Demo kullanıcısının `users/{uid}` karşılığı: günlük haklar bellekte sayılır.
+    private var userRecord: UserRecord
+
+    init(now: Date = Date()) {
+        let createdAt = now.addingTimeInterval(-Self.demoAccountAge)
+        userRecord = UserRecord.new(at: createdAt)
+    }
+
+    // MARK: Dinleme
 
     func observeActiveReports(
         center: Coordinate,
@@ -31,16 +45,49 @@ final class DemoReportRepository: ReportRepository {
         }
     }
 
+    func observeUserRecord(
+        userID: String,
+        onChange: @escaping @MainActor (UserRecord?) -> Void
+    ) -> ReportSubscription {
+        let id = UUID()
+        recordObservers[id] = onChange
+        onChange(userID == Self.demoUserID ? userRecord : nil)
+        return ReportSubscription { [weak self] in
+            Task { @MainActor in self?.recordObservers[id] = nil }
+        }
+    }
+
+    func observeClosingMode(onChange: @escaping @MainActor (ClosingMode) -> Void) -> ReportSubscription {
+        onChange(Self.closingMode)
+        return ReportSubscription {}
+    }
+
+    func ensureUserRecord(userID: String) async throws {
+        // Demo kaydı başlangıçta hazır.
+    }
+
+    // MARK: Yeni işaret
+
     func newReportID() -> String {
         UUID().uuidString
     }
 
-    func create(_ report: Report, onFailure: @escaping @MainActor (Error) -> Void) {
+    func create(_ report: Report, onFailure: @escaping @MainActor (Error) -> Void) throws {
+        let now = Date()
+        guard let spent = Budget.spendCreate(userRecord, at: now) else {
+            throw CreateQuotaError.exhausted(
+                limit: Budget.createLimit(userRecord, at: now),
+                nextCreateAt: Budget.nextCreateAt(userRecord, at: now)
+            )
+        }
+        userRecord = spent.record
         reports[report.id] = report
         notify()
+        notifyRecord()
     }
 
     func retract(reportID: String, onFailure: @escaping @MainActor (Error) -> Void) {
+        // Harcanan hak geri verilmez (kurallar da azaltmaya izin vermez).
         guard let report = reports[reportID], ReportLifecycle.canRetract(report, by: Self.demoUserID) else {
             onFailure(ReportError.notAllowed)
             return
@@ -49,13 +96,40 @@ final class DemoReportRepository: ReportRepository {
         notify()
     }
 
-    func perform(_ action: ReportAction, onReportID reportID: String, by userID: String) async throws {
-        guard let report = reports[reportID] else { throw ReportError.notFound }
+    // MARK: Eylemler
+
+    func perform(_ action: ReportAction, onReportID reportID: String, by userID: String) async throws -> ActionOutcome {
+        guard reports[reportID] != nil else { throw ReportError.notFound }
         // Ağ gecikmesini taklit et; düğmedeki bekleme durumu görülebilsin.
         try await Task.sleep(for: .milliseconds(300))
-        reports[reportID] = try ReportLifecycle.apply(action, to: report, by: userID, at: Date())
+        // Beklerken değişmiş olabilir: sunucudaki gibi güncel hâle uygulanır.
+        guard let report = reports[reportID] else { throw ReportError.notFound }
+        let now = Date()
+        var decision: CloseDecision?
+        if ReportLifecycle.wouldStartClosing(action, on: report, by: userID, at: now) {
+            decision = CloseDecision.make(
+                report: report,
+                userID: userID,
+                record: userID == Self.demoUserID ? userRecord : nil,
+                at: now,
+                attempt: .automatic
+            )
+        }
+        let updated = try ReportLifecycle.apply(action, to: report, by: userID, at: now, credible: decision?.credible ?? false)
+        reports[reportID] = updated
+        if let spend = decision?.spend {
+            userRecord = spend.record
+            notifyRecord()
+        }
         notify()
+        return ActionOutcome(report: updated, credibility: decision?.credibility)
     }
+
+    func fetchReports(ids: [String]) async -> [Report] {
+        ids.compactMap { reports[$0] }
+    }
+
+    // MARK: Yardımcılar
 
     private var activeReports: [Report] {
         let now = Date()
@@ -66,6 +140,12 @@ final class DemoReportRepository: ReportRepository {
         let active = activeReports
         for observer in observers.values {
             observer(active)
+        }
+    }
+
+    private func notifyRecord() {
+        for observer in recordObservers.values {
+            observer(userRecord)
         }
     }
 
@@ -85,16 +165,12 @@ final class DemoReportRepository: ReportRepository {
         ]
         for (index, sample) in samples.enumerated() {
             let (species, need, north, east, minutesAgo, helper, seers) = sample
-            let coordinate = Coordinate(
-                latitude: center.latitude + north / 111_320,
-                longitude: center.longitude + east / (111_320 * cos(center.latitude * .pi / 180))
-            )
             let createdAt = now.addingTimeInterval(-minutesAgo * 60)
             var report = ReportLifecycle.makeReport(
                 id: "demo-\(seedCount)-\(index)",
                 species: species,
                 need: need,
-                at: coordinate,
+                at: Self.offset(center, north: north, east: east),
                 reporterID: "someone-else",
                 now: createdAt
             )
@@ -110,5 +186,33 @@ final class DemoReportRepository: ReportRepository {
             }
             reports[report.id] = report
         }
+
+        // "Çözüldü dendi" örneği: yoldan geçen biri 20 dk önce dedi, bütçesiz (doğrulanmadı). Haritada "?"
+        // rozetiyle kalır ve itiraz ("Hâlâ yardım gerekiyor") akışı denenebilir. Etiketi ("Yaralı / hasta,
+        // Köpek") diğer örneklerden ayrılır; arayüz testi onu bununla bulur.
+        let closingCreatedAt = now.addingTimeInterval(-90 * 60)
+        var closing = ReportLifecycle.makeReport(
+            id: "demo-\(seedCount)-\(samples.count)",
+            species: .dog,
+            need: .injured,
+            at: Self.offset(center, north: -260, east: 20),
+            reporterID: "someone-else",
+            now: closingCreatedAt
+        )
+        if let seen = try? ReportLifecycle.apply(.confirmStillThere, to: closing, by: "passer-by-1", at: now.addingTimeInterval(-60 * 60)) {
+            closing = seen
+        }
+        if let proposed = try? ReportLifecycle.apply(.resolve, to: closing, by: "passer-by-2", at: now.addingTimeInterval(-20 * 60)) {
+            closing = proposed
+        }
+        reports[closing.id] = closing
+    }
+
+    /// Merkezden metre cinsinden kaydırılmış nokta.
+    private static func offset(_ center: Coordinate, north: Double, east: Double) -> Coordinate {
+        Coordinate(
+            latitude: center.latitude + north / 111_320,
+            longitude: center.longitude + east / (111_320 * cos(center.latitude * .pi / 180))
+        )
     }
 }

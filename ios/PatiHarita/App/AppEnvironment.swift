@@ -11,6 +11,8 @@ import Foundation
 /// - **firebase**: GoogleService-Info.plist varsa gerçek Firebase projesi.
 /// - **emulator**: `-useEmulator` başlatma argümanı; yerel Firebase emülatörleri (plist gerekmez).
 /// - **demo**: plist yoksa ya da `-demo` argümanıyla; veriler yalnızca bellekte.
+///
+/// Oturum kapatma bilerek yok: her cihaz tek bir anonim kimlikle kalır (hesap yaşı ve günlük haklar ona bağlı).
 @MainActor
 final class AppEnvironment {
     enum Backend {
@@ -23,14 +25,24 @@ final class AppEnvironment {
     let repository: ReportRepository
     let session: UserSession
     let location: LocationProvider
+    /// Takip sorusu (A7) için bu cihazın ilgilendiği işaretler.
+    let watched: WatchedReports
     /// Geliştiriciye gösterilecek kurulum uyarısı (ör. demo modu).
     let setupWarning: String?
 
-    init(backend: Backend, repository: ReportRepository, session: UserSession, location: LocationProvider, setupWarning: String?) {
+    init(
+        backend: Backend,
+        repository: ReportRepository,
+        session: UserSession,
+        location: LocationProvider,
+        watched: WatchedReports,
+        setupWarning: String?
+    ) {
         self.backend = backend
         self.repository = repository
         self.session = session
         self.location = location
+        self.watched = watched
         self.setupWarning = setupWarning
     }
 
@@ -48,6 +60,8 @@ final class AppEnvironment {
                 repository: DemoReportRepository(),
                 session: UserSession(userID: DemoReportRepository.demoUserID) { DemoReportRepository.demoUserID },
                 location: LocationProvider(),
+                // Demo örneklerinin kimlikleri her açılışta aynı; önceki açılıştan kalan takip soru sordurmasın.
+                watched: WatchedReports(defaults: nil),
                 setupWarning: demoWarning
             )
         }
@@ -55,6 +69,9 @@ final class AppEnvironment {
         #if DEBUG
         AppCheck.setAppCheckProviderFactory(AppCheckDebugProviderFactory())
         #else
+        // App Attest daha güçlü ama App ID'de App Attest yeteneği ve imza dosyasında
+        // `com.apple.developer.devicecheck.appattest-environment` ister; ikisi yokken jeton alınamaz.
+        // Zorunlu kılmadan (2. aşama) önce onlarla birlikte App Attest'e geçilecek.
         AppCheck.setAppCheckProviderFactory(DeviceCheckProviderFactory())
         #endif
         FirebaseApp.configure()
@@ -71,6 +88,7 @@ final class AppEnvironment {
                 try await auth.signInAnonymously().user.uid
             },
             location: LocationProvider(),
+            watched: WatchedReports(defaults: .standard),
             setupWarning: nil
         )
     }
