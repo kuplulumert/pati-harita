@@ -1,14 +1,49 @@
 name: CI
 
+# Her iş yalnızca kendi dosyaları değişince çalışır (depo açık olduğu için dakika ücretsiz, ama beklemeye
+# ve boşa çalışmaya gerek yok). Hepsini elle çalıştırmak için: gh workflow run ci.yml --ref <dal>
 on:
   # Yalnızca dallar: v* etiketleri TestFlight içindir (Codemagic), aynı commit burada zaten test edildi.
   push:
     branches: ["**"]
-  pull_request:
+  workflow_dispatch:
+
+# Aynı dala yeni commit gelince yarım kalan eski çalışma iptal edilir.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
+  changes:
+    name: Değişen bölümler
+    runs-on: ubuntu-latest
+    outputs:
+      firebase: ${{ steps.filter.outputs.firebase }}
+      animalkit: ${{ steps.filter.outputs.animalkit }}
+      ios: ${{ steps.filter.outputs.ios }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            firebase:
+              - 'firebase/**'
+              - 'shared/**'
+              - 'prototype/firebase-kurulum.html'
+              - '.github/workflows/ci.yml'
+            animalkit:
+              - 'ios/Packages/AnimalKit/**'
+              - 'shared/**'
+              - '.github/workflows/ci.yml'
+            ios:
+              - 'ios/**'
+              - 'shared/**'
+
   firebase:
     name: Firebase kuralları ve fonksiyonlar
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.firebase == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,14 +68,15 @@ jobs:
         working-directory: firebase
         run: npm test
 
+  # Saf Swift (yalnızca Foundation): Linux'ta daha hızlı başlar. iOS'a özgü kod uygulama işinde derlenir.
   animalkit:
-    name: AnimalKit (Swift)
-    runs-on: macos-15
+    name: AnimalKit (Swift, Linux)
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.animalkit == 'true'
+    runs-on: ubuntu-latest
+    container: swift:6.1
     steps:
       - uses: actions/checkout@v4
-      - uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: latest-stable
       - name: swift test
         working-directory: ios/Packages/AnimalKit
         run: swift test
@@ -49,6 +85,8 @@ jobs:
   # ve uygulamanın simülatörde açılıp çökmediğini gösteren ekran görüntüsü.
   ios-app:
     name: iOS uygulaması derlemesi
+    needs: changes
+    if: github.event_name == 'workflow_dispatch' || needs.changes.outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 30
     steps:
@@ -56,6 +94,12 @@ jobs:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: latest-stable
+      # Firebase SPM paketlerini her seferinde yeniden indirmemek için.
+      - uses: actions/cache@v4
+        with:
+          path: ios/build/SourcePackages
+          key: spm-${{ runner.os }}-${{ hashFiles('ios/project.yml') }}
+          restore-keys: spm-${{ runner.os }}-
       - name: Xcode projesini üret
         working-directory: ios
         run: |

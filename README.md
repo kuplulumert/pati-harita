@@ -147,7 +147,7 @@ Kendi iPhone'unuzda çalıştırmak için `cp Config/Secrets.example.xcconfig Co
 
 ### Mac olmadan: tarayıcıda simülatör
 
-CI her push'ta uygulamanın simülatör paketini üretir ve uygulamayı simülatörde açıp ekran görüntüsü alır.
+CI, iOS dosyaları değişince (ya da elle: `gh workflow run ci.yml --ref <dal>`) uygulamanın simülatör paketini üretir ve uygulamayı simülatörde açıp ekran görüntüsü alır.
 
 1. GitHub → **Actions** → son çalışma → *Artifacts* altından `PatiHarita-simulator`'ı indirin. İçinden `PatiHarita-simulator.zip` çıkar.
 2. [appetize.io](https://appetize.io)'da hesap açıp bu zip'i yükleyin (iOS). Uygulama tarayıcıda bir iPhone simülatöründe açılır.
@@ -205,7 +205,9 @@ cd ios/Packages/AnimalKit && swift test          # durum makinesi, geohash, söz
 ```
 
 `shared/` altındaki dosyalar iki tarafı birbirine bağlar: iOS ile Firestore kuralları aynı süreleri ve kuralları kullanmazsa testler başarısız olur.
-GitHub Actions her push'ta Firebase testlerini, AnimalKit testlerini ve iOS uygulamasının derlemesini çalıştırır (`.github/workflows/ci.yml`).
+GitHub Actions (`.github/workflows/ci.yml`) her işi yalnızca kendi dosyaları değişince çalıştırır: Firebase testleri,
+AnimalKit testleri (Linux) ve iOS uygulamasının derlemesi ile arayüz testi (macOS). Depo açık olduğu için ücretsizdir;
+depo özele dönerse macOS dakikaları 10 kat sayılır (bir iOS çalışması ≈ 200 dakika, ayda 2000 dakikalık hakkın onda biri).
 Ardından uygulamayı simülatörde açar ve arayüz testiyle ana akışı gerçek dokunuşlarla dener: işaret koyma, işarete dokunma,
 "İlgileniyorum", "Hâlâ orada", "Ben de gördüm", uzun basma, yoldan geçenin "Çözüldü"sü, "Çözüldü dendi" kartı ve
 itiraz. Her adımın ekran görüntüsü çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü).
