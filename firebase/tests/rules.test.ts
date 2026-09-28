@@ -39,6 +39,7 @@ import {
   ROOT,
   agedUser,
   claimFields,
+  clientTime,
   claimedReport,
   clearedClaim,
   clearedClosing,
@@ -216,10 +217,10 @@ describe("users/{uid}: hesap kaydı", () => {
 
   it("hesap yaşı ve pencereler sunucu saatinde başlar; sayaçlar sıfır, harcamalar boş", async () => {
     const now = Date.now();
-    await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createdAt: ts(now) }));
+    await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createdAt: clientTime() }));
     await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createdAt: ts(now - 3 * DAY) }));
-    await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createWindow: ts(now) }));
-    await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), closeWindow: ts(now) }));
+    await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createWindow: clientTime() }));
+    await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), closeWindow: clientTime() }));
     await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createUsed: -5 }));
     await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), closeUsed: -5 }));
     await assertFails(setDoc(userRef(ALICE), { ...newUserFields(), createLast: { t: serverTimestamp(), id: ID } }));
@@ -269,7 +270,7 @@ describe("users/{uid}: yeni işaret hakkı harcama", () => {
 
   it("createLast yalnızca sunucu saatli t ve bir işaret kimliği içerir", async () => {
     await seedUser(ALICE);
-    await assertFails(updateDoc(userRef(ALICE), { createUsed: 1, createLast: { t: ts(Date.now()), id: "x" } }));
+    await assertFails(updateDoc(userRef(ALICE), { createUsed: 1, createLast: { t: clientTime(), id: "x" } }));
     await assertFails(updateDoc(userRef(ALICE), { createUsed: 1, createLast: { t: serverTimestamp() } }));
     await assertFails(updateDoc(userRef(ALICE), { createUsed: 1, createLast: { t: serverTimestamp(), id: 7 } }));
     await assertFails(updateDoc(userRef(ALICE), { createUsed: 1, createLast: { t: serverTimestamp(), id: "x", w: 1 } }));
@@ -286,7 +287,7 @@ describe("users/{uid}: yeni işaret hakkı harcama", () => {
 
   it("yeni pencere sunucu saatinde ve 1 hakla başlar", async () => {
     await seedUser(ALICE, agedUser({ createWindow: ts(Date.now() - 25 * HOUR), createUsed: 10 }));
-    await assertFails(updateDoc(userRef(ALICE), { ...createReset("x"), createWindow: ts(Date.now()) }));
+    await assertFails(updateDoc(userRef(ALICE), { ...createReset("x"), createWindow: clientTime() }));
     await assertFails(updateDoc(userRef(ALICE), { ...createReset("x"), createUsed: 2 }));
     await assertFails(updateDoc(userRef(ALICE), { ...createReset("x"), createUsed: 0 }));
   });
@@ -332,7 +333,7 @@ describe("users/{uid}: kanıtlı kapatma puanı harcama", () => {
 
   it("closeLast yalnızca sunucu saatli t, işaret kimliği ve w içerir", async () => {
     await seedUser(ALICE);
-    await assertFails(updateDoc(userRef(ALICE), { closeUsed: 2, closeLast: { t: ts(Date.now()), id: "x", w: 2 } }));
+    await assertFails(updateDoc(userRef(ALICE), { closeUsed: 2, closeLast: { t: clientTime(), id: "x", w: 2 } }));
     await assertFails(updateDoc(userRef(ALICE), { closeUsed: 2, closeLast: { t: serverTimestamp(), id: "x" } }));
     await assertFails(updateDoc(userRef(ALICE), { closeUsed: 2, closeLast: { t: serverTimestamp(), id: "x", w: 2, n: 1 } }));
   });
@@ -344,7 +345,7 @@ describe("users/{uid}: kanıtlı kapatma puanı harcama", () => {
     await seedUser(ALICE, agedUser({ closeWindow: ts(Date.now() - 25 * HOUR), closeUsed: points }));
     await assertFails(updateDoc(userRef(ALICE), closeSpend("x", 2)));
     await assertFails(updateDoc(userRef(ALICE), { ...closeReset("x", 2), closeUsed: 3 }));
-    await assertFails(updateDoc(userRef(ALICE), { ...closeReset("x", 2), closeWindow: ts(Date.now()) }));
+    await assertFails(updateDoc(userRef(ALICE), { ...closeReset("x", 2), closeWindow: clientTime() }));
     await assertSucceeds(updateDoc(userRef(ALICE), closeReset("x", 2)));
   });
 
@@ -527,7 +528,7 @@ describe("günlük yeni işaret hakkı", () => {
 
   it("harcama anı sunucu saati değilse reddedilir", async () => {
     await seedUser(ALICE);
-    await assertFails(create(ALICE, openReport(), ID, { createUsed: 1, createLast: { t: ts(Date.now()), id: ID } }));
+    await assertFails(create(ALICE, openReport(), ID, { createUsed: 1, createLast: { t: clientTime(), id: ID } }));
   });
 
   it("daha önce yapılmış bir harcama yeni işarete yetmez", async () => {
@@ -563,7 +564,7 @@ describe("İlgileniyorum (claim)", () => {
   it("sahiplik anı sunucu saati olmalı", async () => {
     await seed(openReport());
     const now = Date.now();
-    await assertFails(updateDoc(ref(BOB), { ...claimFields(BOB), claimedAt: ts(now) }));
+    await assertFails(updateDoc(ref(BOB), { ...claimFields(BOB), claimedAt: clientTime() }));
     await assertFails(updateDoc(ref(BOB), { ...claimFields(BOB), claimedAt: ts(now - STALE * MINUTE) }));
     await assertSucceeds(updateDoc(ref(BOB), claimFields(BOB)));
     expect((await stored())!.claimedAt).toBeInstanceOf(Timestamp);
@@ -678,7 +679,7 @@ describe("Çözüldü (resolve)", () => {
     await seed(openReport());
     const now = Date.now();
     await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), closingAt: ts(now - 10 * MINUTE) }));
-    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), closingAt: ts(now) }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), closingAt: clientTime() }));
   });
 
   it("kapatma önerisi ömrü değiştiremez, başkası adına ya da başka sebeple yapılamaz", async () => {

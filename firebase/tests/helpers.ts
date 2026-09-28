@@ -64,6 +64,13 @@ export const DAY = 24 * HOUR;
 
 export const ts = (millis: number) => Timestamp.fromMillis(millis);
 
+/**
+ * "Sunucu saati değil" diye reddedilmesi beklenen istemci saati. `ts(Date.now())` hızlı bir makinede
+ * sunucunun `request.time`'ıyla aynı milisaniyeye denk gelip kabul edilebiliyordu; istek her zaman
+ * bundan sonra işlendiği için 1 sn geride olan değer ona asla eşit olamaz.
+ */
+export const clientTime = () => ts(Date.now() - 1000);
+
 export const ALICE = "alice"; // işareti koyan
 export const BOB = "bob"; // yardım eden
 export const CARA = "cara"; // yoldan geçen
