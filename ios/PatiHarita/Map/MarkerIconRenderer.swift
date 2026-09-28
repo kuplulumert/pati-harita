@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 /// `MarkerPin` ve `StreetDot` görünümlerini harita işareti (`MKAnnotationView`) için bitmap'e çevirir. Olası
-/// görünüm sayısı az (7 ihtiyaç × 4 tür × durum rozeti × gören sayısı rozeti, artı iki nokta) olduğundan her
+/// görünüm sayısı az (6 ihtiyaç × 2 tür × durum rozeti × gören sayısı rozeti, artı iki nokta) olduğundan her
 /// biri bir kez çizilip önbellekte tutulur.
 final class MarkerIconRenderer {
     private var cache: [MarkerIcon: UIImage] = [:]

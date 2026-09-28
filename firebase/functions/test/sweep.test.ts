@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { deleteApp, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore, Timestamp, type Firestore } from "firebase-admin/firestore";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { ACTIVE_STATUSES, REPORTS, RETENTION_DAYS, sweepReports } from "../src/sweep";
+import { ACTIVE_STATUSES, REPORTS, RETENTION_DAYS, expiredFields, sweepReports } from "../src/sweep";
 
 const PROJECT = "demo-patiharita-sweep";
 const HOUR = 3_600_000;
@@ -38,6 +38,7 @@ function report(overrides: Record<string, unknown> = {}) {
     closingCredible: null,
     objectors: [],
     disputed: [],
+    editCount: 0,
     ...overrides,
   };
 }
@@ -57,11 +58,27 @@ beforeEach(async () => {
 });
 
 describe("sözleşme", () => {
+  const contract = JSON.parse(readFileSync(new URL("../../../shared/report-contract.json", import.meta.url), "utf8"));
+
   it("sabitler shared/report-contract.json ile aynı", () => {
-    const contract = JSON.parse(readFileSync(new URL("../../../shared/report-contract.json", import.meta.url), "utf8"));
     expect(REPORTS).toBe(contract.collection);
     expect(RETENTION_DAYS).toBe(contract.retentionDays);
     expect(ACTIVE_STATUSES).toEqual(contract.statuses.filter((s: string) => s !== "closed"));
+  });
+
+  it("her kapatma sebebi olduğu gibi kapanış sebebi olur; sebepsiz işaret expired olur", () => {
+    const now = Timestamp.now();
+    for (const reason of contract.closingReasons as string[]) {
+      expect(contract.closedReasons).toContain(reason);
+      expect(expiredFields(now, { status: "closing", closingReason: reason }).closedReason).toBe(reason);
+    }
+    expect(contract.closedReasons).toContain("expired");
+    expect(expiredFields(now, { status: "open", closingReason: null }).closedReason).toBe("expired");
+    expect(expiredFields(now, { status: "claimed" }).closedReason).toBe("expired");
+    expect(expiredFields(now).closedReason).toBe("expired");
+    // Bozuk bir closing kaydı bile kapanır (boş sebep yazılmaz).
+    expect(expiredFields(now, { status: "closing", closingReason: "" }).closedReason).toBe("expired");
+    expect(expiredFields(now, { status: "closing", closingReason: null }).closedReason).toBe("expired");
   });
 });
 
@@ -93,17 +110,25 @@ describe("sweepReports", () => {
       });
     await db.collection(REPORTS).doc("rescued").set(closing("resolved"));
     await db.collection(REPORTS).doc("gone").set(closing("gone"));
+    await db.collection(REPORTS).doc("fine").set(closing("unneeded"));
+    // Bu sürümün bilmediği bir sebep de (ör. ileride eklenecek) olduğu gibi taşınır.
+    await db.collection(REPORTS).doc("future").set(closing("someday"));
     await db.collection(REPORTS).doc("live").set({ ...closing("resolved"), expiresAt: Timestamp.fromMillis(Date.now() + HOUR) });
 
     const result = await sweepReports(db);
 
-    expect(result).toEqual({ expired: 2, claimsReleased: 0 });
+    expect(result).toEqual({ expired: 4, claimsReleased: 0 });
     const rescued = await get("rescued");
     expect(rescued.status).toBe("closed");
     expect(rescued.closedReason).toBe("resolved");
     expect(rescued.closingBy).toBe("bob");
     expect(rescued.closingCredible).toBe(true);
     expect((await get("gone")).closedReason).toBe("gone");
+    const fine = await get("fine");
+    expect(fine.status).toBe("closed");
+    expect(fine.closedReason).toBe("unneeded");
+    expect(fine.closingReason).toBe("unneeded");
+    expect((await get("future")).closedReason).toBe("someday");
     expect((await get("live")).status).toBe("closing");
   });
 

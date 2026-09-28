@@ -1,12 +1,14 @@
 import AnimalKit
 import Foundation
 
-/// Saate, sayıya ve kişiye göre değişen Türkçe metinler: bildirimler, günlük sınır, takip sorusu.
+/// Saate, sayıya ve kişiye göre değişen Türkçe metinler: bildirimler, günlük sınır, takip sorusu,
+/// "Yardıma ihtiyacı var mı?" kontrolü.
 enum Messages {
     // MARK: Düğmeler
 
     /// Eylemin bu kişi için başlığı: işareti koyanın başkasının sahipliğini kaldırması "İlgilenen gelmedi",
-    /// "Artık yok dendi"yi onaylamak "Evet, artık yok"; diğerleri `ReportAction.title`.
+    /// "Artık yok dendi"yi onaylamak "Evet, artık yok"; mama işaretinde "Hâlâ yardım lazım" ve
+    /// "Yardım gerekmiyor" (seçenekleri `unneededChoiceTitle`); diğerleri `ReportAction.title`.
     static func title(for action: ReportAction, on report: Report, userID: String?, now: Date) -> String {
         switch action {
         case .release:
@@ -14,13 +16,36 @@ enum Messages {
             return report.reporterID == userID && !isClaimer ? "İlgilenen gelmedi" : action.title
         case .confirmClosing:
             return confirmClosingTitle(report.closing?.reason ?? .resolved)
-        case .claim, .resolve, .confirmStillThere, .reportGone, .dispute, .undoClosing, .expire:
+        case .confirmStillThere:
+            // Hafif ihtiyaçta hayvanın orada olması yetmez; ağır ihtiyaçta orada olması ihtiyacın kendisidir.
+            return report.need.allowsUnneeded ? "Hâlâ yardım lazım" : action.title
+        case .reportGone:
+            // Mamada "Ne gördün?" seçimini açar (`MapViewModel.unneededChoices`).
+            return report.need.allowsUnneeded ? unneededButtonTitle : action.title
+        case .claim, .resolve, .reportUnneeded, .dispute, .undoClosing, .expire:
             return action.title
         }
     }
 
+    /// Mama kartındaki düğme; "Ne gördün?" seçimini açar.
+    static let unneededButtonTitle = "Yardım gerekmiyor"
+
+    /// "Ne gördün?" seçimindeki düğmeler.
+    static func unneededChoiceTitle(_ action: ReportAction) -> String {
+        switch action {
+        case .reportGone: "Hayvan artık orada değil"
+        case .reportUnneeded, .claim, .release, .resolve, .confirmStillThere, .dispute, .confirmClosing,
+             .undoClosing, .expire:
+            action.title
+        }
+    }
+
     static func confirmClosingTitle(_ reason: ClosedReason) -> String {
-        reason == .gone ? "Evet, artık yok" : "Evet, çözüldü"
+        switch reason {
+        case .gone: "Evet, artık yok"
+        case .unneeded: "Evet, ihtiyacı yoktu"
+        case .resolved, .expired: "Evet, çözüldü"
+        }
     }
 
     // MARK: Eylem bildirimleri
@@ -39,8 +64,15 @@ enum Messages {
             return "Teşekkürler! İşaret \(Int(ReportLifecycle.claimDuration / 3600)) saat boyunca sende."
         case .release:
             return "İşaret yeniden yardım bekliyor."
-        case .resolve, .confirmClosing:
+        case .resolve:
             return "Harika! İşaret haritadan kaldırıldı."
+        case .confirmClosing:
+            return report.closedReason == .unneeded
+                ? "Teşekkürler! İşaret haritadan kaldırıldı."
+                : "Harika! İşaret haritadan kaldırıldı."
+        case .reportUnneeded:
+            // Öneri başlattıysa buraya gelinmez; işareti koyan tek başınaydı ve işaret hemen kalktı.
+            return "\(unneededThanks) İşaret haritadan kaldırıldı."
         case .confirmStillThere:
             return addsSeen
                 ? "Teşekkürler! Bu hayvanı artık \(report.seenCount) kişi bildirdi."
@@ -72,8 +104,11 @@ enum Messages {
         }
     }
 
-    /// "Çözüldü" / "Artık yok" diyene: işaretin başkalarının haritasında ne olacağı (kanıtlılık ve moda göre).
-    /// Hepsi "Teşekkürler! … kaydedildi." ile başlar.
+    /// "Yardım gerekmiyor" (hayvan orada ama iyi görünüyor) diyene.
+    static let unneededThanks = "Teşekkürler! Harita gerçekten yardım bekleyenler için daha temiz."
+
+    /// "Çözüldü" / "Artık yok" / "Yardım gerekmiyor" diyene: işaretin başkalarının haritasında ne olacağı
+    /// (kanıtlılık ve moda göre). Hepsi bir teşekkürle başlar.
     static func closerToast(
         for report: Report,
         by userID: String,
@@ -82,7 +117,12 @@ enum Messages {
         now: Date
     ) -> String {
         let reason = report.closing?.reason ?? .resolved
-        let thanks = reason == .gone ? "Teşekkürler! Bildirimin kaydedildi." : "Teşekkürler! Yardımın kaydedildi."
+        let thanks: String
+        switch reason {
+        case .gone: thanks = "Teşekkürler! Bildirimin kaydedildi."
+        case .unneeded: thanks = unneededThanks
+        case .resolved, .expired: thanks = "Teşekkürler! Yardımın kaydedildi."
+        }
         // İşareti koyan kapattıysa onu hayvanı gören başka biri onaylar.
         let confirmer = report.reporterID == userID ? "hayvanı gören başka biri" : "işareti koyan kişi"
         let unverified = "Başkalarına 'doğrulanmadı' olarak görünecek; \(confirmer) onaylayınca kalkacak."
@@ -148,7 +188,7 @@ enum Messages {
     static func duplicateClosingPrompt(_ report: Report, now: Date) -> String? {
         guard let closing = report.closing else { return nil }
         let ago = Formatting.timeAgo(closing.at, now: now)
-        return "Burada \(ago) bir \(report.species.noun) için '\(verb(closing.reason))' dendi. Aynı hayvan mı, hâlâ yardım gerekiyor mu?"
+        return "Burada \(ago) bir \(report.species.noun) için '\(verb(closing))' dendi. Aynı hayvan mı, hâlâ yardım gerekiyor mu?"
     }
 
     /// A7 takip sorusu. `leavesAt`: işaretin başkalarının haritasından kalkacağı an (biliniyorsa).
@@ -156,13 +196,16 @@ enum Messages {
         guard let closing = report.closing else { return "" }
         let animal = "\(report.species.noun) (\(report.need.title))"
         let ago = Formatting.timeAgo(closing.at, now: now)
-        let said = "'\(verb(closing.reason))'"
+        let said = "'\(verb(closing))'"
+        // Tanınmayan nedenli öneri bu sürümde onaylanamaz; yalnızca itiraz sorulur.
+        let question = closing.unrecognizedReason == nil ? "Doğru mu?" : "Hâlâ yardım gerekiyor mu?"
         var text: String
         if report.reporterID == viewer {
-            text = "Koyduğun \(report.species.noun) işareti (\(report.need.title)) için \(ago) \(said) dendi. Doğru mu?"
+            // "Koyduğun Aç ve zayıf kedi işareti için 20 dk önce 'Yardım gerekmiyor' dendi. Doğru mu?"
+            text = "Koyduğun \(report.need.title) \(report.species.noun) işareti için \(ago) \(said) dendi. \(question)"
         } else if closing.userID == report.reporterID && report.seenBy.contains(viewer) {
             // İşareti koyanın önerisini hayvanı gören başka biri onaylayabilir.
-            text = "İşareti koyan, gördüğün \(animal) için \(ago) \(said) dedi. Doğru mu?"
+            text = "İşareti koyan, gördüğün \(animal) için \(ago) \(said) dedi. \(question)"
         } else if report.seenBy.contains(viewer) {
             text = "Gördüğün \(animal) için \(ago) \(said) dendi. Hâlâ yardım gerekiyor mu?"
         } else {
@@ -173,6 +216,78 @@ enum Messages {
         }
         return text
     }
+
+    // MARK: Üst etiket
+
+    /// Ağır ihtiyaçlar önce, hafifler (mama) ayrı: "3 hayvan yardım bekliyor · 5 düşük öncelikli",
+    /// "Yakında acil ihtiyaç yok · 5 düşük öncelikli", "Yakında yardım bekleyen yok".
+    static func waitingHeadline(_ counts: WaitingCounts) -> String {
+        let light = counts.light > 0 ? " · \(counts.light) düşük öncelikli" : ""
+        if counts.serious > 0 {
+            return "\(counts.serious) hayvan yardım bekliyor\(light)"
+        }
+        return counts.light > 0 ? "Yakında acil ihtiyaç yok\(light)" : "Yakında yardım bekleyen yok"
+    }
+
+    /// Engellenen kimlik: bildirimde ve üst etikette kalıcı. Adres varsa itiraz için eklenir.
+    static var banned: String {
+        let text = "Bu kimlikle işaret koyma kapatıldı."
+        guard !AppInfo.supportEmail.isEmpty else { return text }
+        return "\(text) Hata olduğunu düşünüyorsan: \(AppInfo.supportEmail)"
+    }
+
+    // MARK: Yeni işaretten önceki sorular
+
+    static let gentleCheckTitle = "Yardıma ihtiyacı var mı?"
+    static let gentleCheckConfirmTitle = "Yardıma ihtiyacı var, işaretle"
+    static let gentleCheckCancelTitle = "Sağlıklı görünüyor, vazgeç"
+    static let gentleCheckCancelled = "Teşekkürler! Harita yalnızca yardım bekleyen hayvanlar için; böylece gönüllüler boşuna yola çıkmaz."
+
+    /// "Yardıma ihtiyacı var mı?" metni; `recentCount` verilirse "Son 24 saatte N işaret koydun." ile başlar.
+    static func gentleCheck(need: Need, recentCount: Int?) -> String {
+        let text: String
+        switch need {
+        case .food:
+            text = "Sokakta yaşayan, beslenen ve sağlıklı görünen hayvanlar işaretlenmez. Çok zayıfsa, günlerdir beslenmiyorsa ya da su bulamıyorsa işaretle."
+        case .shelter:
+            text = "Sokakta yaşayan sağlıklı hayvanlar için değil. Terk edilmiş, çok yaşlı ya da engelli bir hayvansa işaretle."
+        case .emergency, .injured, .babies, .vet:
+            text = "Yalnızca yardıma ihtiyacı varsa işaretle. Sağlıklı sokak hayvanları işaretlenmez."
+        }
+        guard let recentCount else { return text }
+        return "Son 24 saatte \(recentCount) işaret koydun. \(text)"
+    }
+
+    static let distanceConfirmTitle = "Evet, orada gördüm"
+    static let distanceFixTitle = "İğneyi düzelt"
+
+    /// "İğne bulunduğun yerden 2,4 km uzakta. Hayvanı orada, son bir saat içinde gördün mü?"
+    static func distanceQuestion(meters: Double) -> String {
+        "İğne bulunduğun yerden \(Formatting.distance(meters: meters)) uzakta. Hayvanı orada, son bir saat içinde gördün mü?"
+    }
+
+    // MARK: Düzeltme, bildirme, gizleme
+
+    static let reportEdited = "İşaret güncellendi."
+    static let editUnchanged = "Değişiklik yapılmadı."
+    static let reportDeleted = "İşaret silindi."
+    static let reportHidden = "İşaret senin haritandan kaldırıldı."
+    static let flagSent = "Teşekkürler, bildirimin bize ulaştı. İşaret senin haritandan kaldırıldı."
+    static let flagMailSubject = "Pati Harita işaret bildirimi"
+
+    static func flagMailBody(reportID: String) -> String {
+        "İşaret: \(reportID)\n\nNe gördüğünü kısaca yaz:\n"
+    }
+
+    /// "Konumu paylaş": "Pati Harita'dan bir hayvana yardıma gidiyorum: <Apple Haritalar bağlantısı>".
+    static func shareLocation(_ coordinate: Coordinate) -> String {
+        "Pati Harita'dan bir hayvana yardıma gidiyorum: https://maps.apple.com/?ll=\(coordinate.latitude),\(coordinate.longitude)&q=Pati%20Harita"
+    }
+
+    // MARK: Güncelleme
+
+    static let updateRequiredTitle = "Güncelleme gerekli"
+    static let updateRequiredMessage = "Bu sürüm artık desteklenmiyor. TestFlight'tan güncelle."
 
     // MARK: Saat
 
@@ -209,14 +324,39 @@ enum Messages {
 
     // MARK: Yardımcılar
 
-    /// "Çözüldü" / "Artık yok"
+    /// "Çözüldü" / "Artık yok" / "Yardım gerekmiyor"
     static func verb(_ reason: ClosedReason) -> String {
-        reason == .gone ? "Artık yok" : "Çözüldü"
+        switch reason {
+        case .resolved: "Çözüldü"
+        case .gone: "Artık yok"
+        case .unneeded: "Yardım gerekmiyor"
+        case .expired: "Süresi doldu"
+        }
     }
 
-    /// "Çözüldü dendi" / "Artık yok dendi"
+    /// Önerinin fiili; daha yeni bir sürümün tanımadığımız nedeni genel "…" olur ("… dendi").
+    static func verb(_ closing: Closing) -> String {
+        closing.unrecognizedReason == nil ? verb(closing.reason) : "…"
+    }
+
+    /// "Çözüldü dendi" / "Artık yok dendi" / "Yardım gerekmiyor dendi"
     static func saidLabel(_ reason: ClosedReason) -> String {
         "\(verb(reason)) dendi"
+    }
+
+    /// `saidLabel(_:)` gibi; tanınmayan neden "… dendi".
+    static func saidLabel(_ closing: Closing) -> String {
+        "\(verb(closing)) dendi"
+    }
+
+    /// Kapanan işaretin başlığı: "Çözüldü", "Artık orada değil", "Süresi doldu", "Yanlış alarmdı".
+    static func closedTitle(_ reason: ClosedReason) -> String {
+        switch reason {
+        case .resolved: "Çözüldü"
+        case .gone: "Artık orada değil"
+        case .expired: "Süresi doldu"
+        case .unneeded: "Yanlış alarmdı"
+        }
     }
 }
 
@@ -226,8 +366,6 @@ extension Species {
         switch self {
         case .cat: "kedi"
         case .dog: "köpek"
-        case .bird: "kuş"
-        case .other: "hayvan"
         }
     }
 }

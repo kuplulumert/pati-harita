@@ -1,17 +1,48 @@
 {
-  "$comment": "iOS (AnimalKit) ve Firestore kurallarının paylaştığı sabitler. Burayı değiştirirseniz ReportLifecycle.swift, Need.swift, UserBudget.swift ve firestore.rules'u da güncelleyin; iki taraftaki testler uyumsuzluğu yakalar.",
+  "$comment": "iOS (AnimalKit) ve Firestore kurallarının paylaştığı sabitler. Burayı değiştirirseniz ReportLifecycle.swift, Need.swift, Species.swift, UserBudget.swift ve firestore.rules'u da güncelleyin; iki taraftaki testler uyumsuzluğu yakalar.",
   "collection": "reports",
   "usersCollection": "users",
-  "species": ["cat", "dog", "bird", "other"],
-  "statuses": ["open", "claimed", "closing", "closed"],
+  "species": [
+    "cat",
+    "dog"
+  ],
+  "statuses": [
+    "open",
+    "claimed",
+    "closing",
+    "closed"
+  ],
   "needs": {
-    "emergency": { "lifetimeHours": 12, "closeCost": 2, "demoteMinutes": 120 },
-    "injured": { "lifetimeHours": 24, "closeCost": 2, "demoteMinutes": 120 },
-    "babies": { "lifetimeHours": 72, "closeCost": 2, "demoteMinutes": 120 },
-    "vet": { "lifetimeHours": 48, "closeCost": 2, "demoteMinutes": 120 },
-    "food": { "lifetimeHours": 12, "closeCost": 1, "demoteMinutes": 60 },
-    "shelter": { "lifetimeHours": 72, "closeCost": 2, "demoteMinutes": 120 },
-    "other": { "lifetimeHours": 24, "closeCost": 1, "demoteMinutes": 60 }
+    "emergency": {
+      "lifetimeHours": 12,
+      "closeCost": 2,
+      "demoteMinutes": 120
+    },
+    "injured": {
+      "lifetimeHours": 24,
+      "closeCost": 2,
+      "demoteMinutes": 120
+    },
+    "babies": {
+      "lifetimeHours": 72,
+      "closeCost": 2,
+      "demoteMinutes": 120
+    },
+    "vet": {
+      "lifetimeHours": 48,
+      "closeCost": 2,
+      "demoteMinutes": 120
+    },
+    "food": {
+      "lifetimeHours": 12,
+      "closeCost": 1,
+      "demoteMinutes": 60
+    },
+    "shelter": {
+      "lifetimeHours": 72,
+      "closeCost": 2,
+      "demoteMinutes": 120
+    }
   },
   "claimHours": 3,
   "claimStaleMinutes": 45,
@@ -26,15 +57,59 @@
   "geohashPrecision": 10,
   "newAccountHours": 24,
   "budgetWindowHours": 24,
-  "createQuota": { "perWindow": 10, "firstDay": 5 },
-  "closeBudget": { "points": 8, "maxDisputed": 1 },
+  "createQuota": {
+    "perWindow": 10,
+    "firstDay": 5
+  },
+  "closeBudget": {
+    "points": 8,
+    "maxDisputed": 1
+  },
   "closingDisplay": {
     "dayStartHour": 7,
     "dayEndHour": 24,
     "utcOffsetHours": 3,
     "streetDotMaxRadiusMeters": 600,
     "closerUndoToastSeconds": 10,
-    "modes": ["demote", "label", "strict"],
+    "modes": [
+      "demote",
+      "label",
+      "strict"
+    ],
     "defaultMode": "label"
+  },
+  "closingReasons": [
+    "resolved",
+    "gone",
+    "unneeded"
+  ],
+  "closedReasons": [
+    "resolved",
+    "gone",
+    "expired",
+    "unneeded"
+  ],
+  "unneededNeeds": [
+    "food"
+  ],
+  "gentleCheckNeeds": [
+    "food",
+    "shelter"
+  ],
+  "edit": {
+    "windowMinutes": 30,
+    "maxEdits": 3,
+    "maxLatDelta": 0.0018,
+    "maxLngDelta": 0.0024
+  },
+  "flagReasons": [
+    "fake",
+    "unsafe",
+    "misuse"
+  ],
+  "collections": {
+    "flags": "flags",
+    "banned": "banned",
+    "config": "config"
   }
 }

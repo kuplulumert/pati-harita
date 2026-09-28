@@ -22,6 +22,7 @@ final class ReportLifecycleTests: ReportTestCase {
         XCTAssertNil(report.closing)
         XCTAssertEqual(report.objectors, [])
         XCTAssertEqual(report.disputed, [])
+        XCTAssertEqual(report.editCount, 0)
     }
 
     func testFreshnessFadesTowardsExpiry() {
@@ -307,6 +308,7 @@ final class ReportLifecycleTests: ReportTestCase {
             closedAt: nil,
             purgeAt: nil
         )
+        XCTAssertEqual(old.editCount, 0)
         let claimed = try ReportLifecycle.apply(.claim, to: old, by: bob, at: hours(166))
         XCTAssertEqual(claimed.claim?.expiresAt, hours(169))
         XCTAssertEqual(claimed.expiresAt, hours(168))
@@ -428,6 +430,52 @@ final class ReportLifecycleTests: ReportTestCase {
         XCTAssertEqual(ReportLifecycle.availableActions(for: makeReport(), userID: cara, at: hours(25)), [])
     }
 
+    /// Mama işaretinde "Çözüldü"nün açık olduğu her yerde "Yardım gerekmiyor" da açık, "Artık yok"tan hemen önce.
+    func testFoodOffersUnneededWhereResolveIsOffered() throws {
+        let food = makeReport(need: .food)
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: food, userID: cara, at: minutes(1)),
+            [.claim, .confirmStillThere, .resolve, .reportUnneeded, .reportGone]
+        )
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: food, userID: alice, at: minutes(1)),
+            [.claim, .resolve, .confirmStillThere, .reportUnneeded, .reportGone]
+        )
+
+        let claimed = try ReportLifecycle.apply(.claim, to: food, by: bob, at: t0)
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: bob, at: minutes(1)),
+            [.resolve, .release, .reportUnneeded, .reportGone]
+        )
+        // Başkasının taze sahipliğinde yoldan geçen "Çözüldü" diyemediği gibi "Yardım gerekmiyor" da diyemez.
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: cara, at: minutes(1)),
+            [.confirmStillThere, .reportGone]
+        )
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: cara, at: minutes(50)),
+            [.confirmStillThere, .resolve, .reportUnneeded, .reportGone]
+        )
+        XCTAssertEqual(
+            ReportLifecycle.availableActions(for: claimed, userID: alice, at: minutes(1)),
+            [.resolve, .confirmStillThere, .reportUnneeded, .reportGone]
+        )
+    }
+
+    func testSeriousNeedsNeverOfferUnneeded() throws {
+        for need in Need.allCases where !need.allowsUnneeded {
+            let seen = try seenReport(need: need)
+            for (report, now) in [(makeReport(need: need), minutes(1)), (seen, minutes(2))] {
+                for user in [alice, bob, cara] {
+                    XCTAssertFalse(
+                        ReportLifecycle.availableActions(for: report, userID: user, at: now).contains(.reportUnneeded),
+                        "\(need) \(user)"
+                    )
+                }
+            }
+        }
+    }
+
     func testEveryOfferedActionSucceeds() throws {
         var offered = Set<ReportAction>()
         for (name, report, now) in try phaseCatalogue() {
@@ -440,7 +488,10 @@ final class ReportLifecycleTests: ReportTestCase {
                     )
                     // Öneri başlatan eylem, bütçe harcanmışsa kanıtlı olarak da geçmeli.
                     if ReportLifecycle.wouldStartClosing(action, on: report, by: user, at: now) {
-                        XCTAssertTrue(action == .resolve || action == .reportGone, "\(name): \(user) \(action)")
+                        XCTAssertTrue(
+                            [.resolve, .reportGone, .reportUnneeded].contains(action),
+                            "\(name): \(user) \(action)"
+                        )
                         if report.disputed.count <= Budget.credibleMaxDisputed {
                             XCTAssertEqual(
                                 try ReportLifecycle.apply(action, to: report, by: user, at: now, credible: true).closing?.credible,
@@ -457,14 +508,18 @@ final class ReportLifecycleTests: ReportTestCase {
     }
 
     /// Her eylem yalnızca firestore.rules'un o eylem için izin verdiği alanları değiştirmeli
-    /// (kurallardaki `changedKeys().hasOnly([...])` listeleri) ve `validShape`i korumalı.
+    /// (kurallardaki `changedKeys().hasOnly([...])` listeleri), kim/ne/nerede bilgisine dokunmamalı
+    /// (`identityUnchanged()`) ve `validShape`i korumalı.
     func testEveryActionChangesOnlyFieldsAllowedByRules() throws {
         let closed: Set<ReportField> = [.status, .closedReason, .closedAt, .purgeAt]
         let proposes: Set<ReportField> = [.status, .closingReason, .closingBy, .closingAt, .closingCredible]
+        let identity: Set<ReportField> = [.species, .need, .lat, .lng, .geohash, .editCount]
         let allowed: [ReportAction: [Set<ReportField>]] = [
             .claim: [[.status, .claimedBy, .claimedAt, .claimExpiresAt, .expiresAt]],
             .release: [[.status, .claimedBy, .claimedAt, .claimExpiresAt]],
             .resolve: [closed, proposes],
+            // isUnneeded: "Çözüldü" ile aynı iki yol.
+            .reportUnneeded: [closed, proposes],
             .confirmStillThere: [[.lastSeenAt, .expiresAt, .seenBy, .goneReports]],
             .reportGone: [
                 [.goneReports],
@@ -506,6 +561,7 @@ final class ReportLifecycleTests: ReportTestCase {
                 let updated = try ReportLifecycle.apply(attempt.action, to: report, by: attempt.user, at: attempt.at)
                 let changed = updated.changedFields(from: report)
                 XCTAssertFalse(changed.isEmpty, label)
+                XCTAssertTrue(changed.isDisjoint(with: identity), label)
                 XCTAssertTrue(
                     allowed[attempt.action, default: []].contains { changed.isSubset(of: $0) },
                     "\(label) değiştirdi: \(changed.map(\.rawValue).sorted())"

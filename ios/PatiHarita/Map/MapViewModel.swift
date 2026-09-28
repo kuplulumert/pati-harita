@@ -3,7 +3,8 @@ import Foundation
 import Observation
 
 /// Ana ekranın durumu. Akış:
-/// "Hayvan gördüm" → tür → ihtiyaç → işaret haritada → biri "İlgileniyorum" der → "Çözüldü".
+/// "Yardım gereken hayvan" → tür → ihtiyaç (hafif ihtiyaçta bazen "Yardıma ihtiyacı var mı?") → işaret haritada
+/// → biri "İlgileniyorum" der → "Çözüldü". İşareti koyan, kimse dokunmadan kısa süre içinde düzeltebilir ya da silebilir.
 @MainActor
 @Observable
 final class MapViewModel {
@@ -11,6 +12,9 @@ final class MapViewModel {
         case browsing
         case choosingSpecies
         case choosingNeed(Species)
+        /// "İşareti düzelt": önce tür (`species` `nil`), sonra ihtiyaç; ihtiyaca dokununca kaydedilir.
+        /// İğne yeni işaretlemedeki gibi haritanın ortasındadır.
+        case editing(reportID: String, species: Species?)
     }
 
     struct Toast: Identifiable, Equatable {
@@ -18,7 +22,7 @@ final class MapViewModel {
         enum Undo: Equatable {
             /// Az önce konan işareti siler.
             case retract(reportID: String)
-            /// Az önceki "Çözüldü" / "Artık yok" önerisini geri alır (`ReportAction.undoClosing`).
+            /// Az önceki "Çözüldü" / "Artık yok" / "Yardım gerekmiyor" önerisini geri alır (`ReportAction.undoClosing`).
             case undoClosing(reportID: String)
         }
 
@@ -38,6 +42,83 @@ final class MapViewModel {
         }
     }
 
+    /// İhtiyaç seçildi ama işaret henüz kaydedilmedi: seçim panelinde ızgaranın yerinde bir soru var.
+    /// Hiçbiri işaretlemeyi engellemez.
+    struct PendingReport: Equatable {
+        enum Step: Equatable {
+            /// "Yardıma ihtiyacı var mı?" (`GentleCheck`). `recentCount`: metin "Son 24 saatte N işaret koydun."
+            /// ile başlar; cihazın ilk hafif işaretlerinden biriyse `nil`.
+            case gentleCheck(recentCount: Int?)
+            /// "İğne bulunduğun yerden 2,4 km uzakta. …"
+            case distance(meters: Double)
+        }
+
+        let species: Species
+        let need: Need
+        /// İhtiyaca dokunulduğu andaki iğne: işaret buraya konur.
+        let coordinate: Coordinate
+        var step: Step
+
+        /// Uzaklık sorusunda başlık yok.
+        var title: String? {
+            if case .gentleCheck = step { return Messages.gentleCheckTitle }
+            return nil
+        }
+
+        var message: String {
+            switch step {
+            case .gentleCheck(let recentCount): Messages.gentleCheck(need: need, recentCount: recentCount)
+            case .distance(let meters): Messages.distanceQuestion(meters: meters)
+            }
+        }
+
+        /// `confirmPendingReport()`: soruyu geçer, sıradaki soru yoksa işaret kaydedilir.
+        var confirmTitle: String {
+            switch step {
+            case .gentleCheck: Messages.gentleCheckConfirmTitle
+            case .distance: Messages.distanceConfirmTitle
+            }
+        }
+
+        /// `cancelPendingReport()`: kontrolde işaretlemeden vazgeçilir, uzaklık sorusunda iğneye dönülür.
+        var cancelTitle: String {
+            switch step {
+            case .gentleCheck: Messages.gentleCheckCancelTitle
+            case .distance: Messages.distanceFixTitle
+            }
+        }
+
+        /// Arayüz testi düğmeleri bunlarla bulur.
+        var confirmIdentifier: String {
+            switch step {
+            case .gentleCheck: "check-confirm"
+            case .distance: "distance-confirm"
+            }
+        }
+
+        var cancelIdentifier: String {
+            switch step {
+            case .gentleCheck: "check-cancel"
+            case .distance: "distance-fix"
+            }
+        }
+    }
+
+    /// Gece yardıma giderken güvenlik hatırlatması; "Devam et" deyince bekleyen iş yapılır.
+    struct NightReminder: Identifiable, Equatable {
+        enum Pending: Equatable {
+            /// "İlgileniyorum"
+            case claim
+            /// "Yol tarifi": bu bağlantı açılır.
+            case directions(URL)
+        }
+
+        let report: Report
+        let pending: Pending
+
+        var id: String { report.id }
+    }
+
     /// A7: takip edilen bir işaret için başkası "… dendi" dedi; bu kişiye soru.
     struct FollowUp: Identifiable, Equatable {
         struct Option: Identifiable, Equatable {
@@ -55,7 +136,7 @@ final class MapViewModel {
     }
 
     enum FollowUpAnswer: String, Hashable {
-        /// "Evet, çözüldü" / "Evet, artık yok" (`ReportAction.confirmClosing`)
+        /// "Evet, çözüldü" / "Evet, artık yok" / "Evet, ihtiyacı yoktu" (`ReportAction.confirmClosing`)
         case confirm
         /// "Hayır/Evet, hâlâ yardım gerekiyor" (`ReportAction.dispute`)
         case dispute
@@ -74,6 +155,10 @@ final class MapViewModel {
     static let lowCreatesThreshold = 3
     /// Günlük sınır bildirimi uzun; okunabilsin.
     static let longToastDuration: TimeInterval = 8
+    /// Düzeltmede iğne bundan az kaydıysa konum değişmiş sayılmaz (harita merkezinin yuvarlama farkı).
+    static let editMoveThreshold: Double = 1
+    /// Bir yazım reddedilince `banned/{me}`'e en fazla bu aralıkla bakılır.
+    static let bannedCheckInterval: TimeInterval = 10 * 60
 
     /// "Hâlâ yardım gerekiyor" onayı: sabahki bir görüşe dayanan yanlış itirazları azaltır.
     static let disputeQuestion = "Hayvan hâlâ yardım bekliyor mu? Bunu yalnızca hayvanı şimdi gördüysen söyle."
@@ -82,6 +167,39 @@ final class MapViewModel {
     /// 40 m önerisi bir "… dendi" işaretine denk gelince düğmeler (bkz. `duplicatePrompt`).
     static let duplicateDisputeTitle = "Evet, hâlâ yardım gerekiyor"
     static let duplicateDismissTitle = "Hayır, başka bir hayvan"
+
+    /// Mama kartında "Yardım gerekmiyor" (bkz. `unneededChoices`).
+    static let unneededQuestion = "Ne gördün?"
+    static let unneededCancelTitle = "Vazgeç"
+    /// Karttaki "Düzenle" (`canEdit`, `startEditing`) ve düzeltme paneli.
+    static let editButtonTitle = "Düzenle"
+    static let editPanelTitle = "İşareti düzelt"
+    static let editPanelSubtitle = "İğneyi en fazla 200 m kaydırabilirsin"
+    /// Düzeltme panelindeki "İşareti sil".
+    static let retractButtonTitle = "İşareti sil"
+    static let retractQuestion = "Bu işareti silmek istiyor musun?"
+    static let retractConfirmTitle = "Sil"
+    static let retractCancelTitle = "Vazgeç"
+    /// Kartın "⋯" menüsü.
+    static let flagMenuTitle = "Bu işareti bildir"
+    static let hideMenuTitle = "Bu işareti gizle"
+    static let flagMailMenuTitle = "E-postayla ayrıntı gönder"
+    static let flagQuestion = "Bu işarette ne sorun var?"
+    static let flagMessage = "Tehlikedeysen 112'yi ara."
+    static let flagCancelTitle = "Vazgeç"
+
+    /// Gece (yerel saatle 21.00–06.00) bu ihtiyaçlara "İlgileniyorum" ya da "Yol tarifi" denince, kurulum
+    /// başına en fazla `nightReminderInterval`'da bir.
+    static let nightReminderNeeds: Set<Need> = [.emergency, .injured, .babies]
+    static let nightStartHour = 21
+    static let nightEndHour = 6
+    static let nightReminderInterval: TimeInterval = 7 * 24 * 3600
+    static let nightReminderTitle = "Gece yardıma gidiyorsun"
+    static let nightReminderMessage = "Mümkünse biriyle git ve konumunu bir yakınınla paylaş. Işıksız, ıssız ya da kapalı bir yere (bina içi, inşaat, bodrum) girme. Durum şüpheliyse yaklaşma, 112'yi ara."
+    static let nightReminderContinueTitle = "Devam et"
+    /// "Konumu paylaş" bu ihtiyaçların kartında (`shareLocationText`).
+    static let shareLocationNeeds: Set<Need> = [.emergency, .injured, .babies]
+    static let shareLocationTitle = "Konumu paylaş"
 
     private(set) var reports: [Report] = []
     private(set) var now = Date()
@@ -102,30 +220,53 @@ final class MapViewModel {
     private(set) var duplicateCandidateID: String? = nil
     /// `config/public.closingMode` (demo: `demote`); okunana kadar `ClosingMode.fallback`.
     private(set) var closingMode: ClosingMode = .fallback
+    /// `config/public.minBuild`; yoksa `nil` (bkz. `requiresUpdate`).
+    private(set) var minBuild: Int? = nil
     /// `users/{me}`: hesap yaşı ve günlük haklar; okunana kadar `nil`.
     private(set) var userRecord: UserRecord? = nil
     /// Onay bekleyen itiraz (bkz. `handle(_:on:)`, `disputeQuestion`).
     private(set) var disputeCandidateID: String? = nil
     /// Gösterilecek takip sorusu (A7); arayüz bunu sayfa olarak açar.
     private(set) var followUp: FollowUp? = nil
+    /// İhtiyaç seçildi, önce soru soruluyor (bkz. `PendingReport`).
+    private(set) var pendingReport: PendingReport? = nil
+    /// Düzeltme kaydediliyor: panel düğmeleri beklesin.
+    private(set) var isSavingEdit = false
+    /// Düzeltmede iğne işaretin konumundan izin verilenden uzağa kaydı (kamera durunca güncellenir).
+    private(set) var isEditTargetTooFar = false
+    /// "Ne gördün?" sorulan mama işareti (bkz. `unneededChoices`).
+    private(set) var unneededCandidateID: String? = nil
+    /// "Bu işarette ne sorun var?" sorulan işaret.
+    private(set) var flagCandidateID: String? = nil
+    /// "Bu işareti silmek istiyor musun?" sorulan işaret (düzeltme panelinden).
+    private(set) var retractCandidateID: String? = nil
+    /// Gösterilecek gece hatırlatması.
+    private(set) var nightReminder: NightReminder? = nil
+    /// Bu kimlik konsoldan engellendi (`banned/{me}` görüldü): üst etikette söylenir, yeni işaret açılmaz.
+    private(set) var isBanned = false
 
     let environment: AppEnvironment
     private var repository: ReportRepository { environment.repository }
     var session: UserSession { environment.session }
     var location: LocationProvider { environment.location }
     var watched: WatchedReports { environment.watched }
+    var device: DeviceState { environment.device }
 
     @ObservationIgnored private var cameraTarget: Coordinate?
     @ObservationIgnored private var visibleArea: (center: Coordinate, radius: Double)?
     @ObservationIgnored private var subscribedArea: (center: Coordinate, radius: Double)?
     @ObservationIgnored private var subscription: ReportSubscription?
     @ObservationIgnored private var userRecordSubscription: ReportSubscription?
-    @ObservationIgnored private var closingModeSubscription: ReportSubscription?
+    @ObservationIgnored private var publicConfigSubscription: ReportSubscription?
     @ObservationIgnored private var hasCenteredOnUser = false
     /// "Hayır, başka bir hayvan" denen öneriler; yeni işaretleme başlayınca sıfırlanır.
     @ObservationIgnored private var dismissedDuplicateIDs: Set<String> = []
+    /// Bu işaretleme boyunca "Yardıma ihtiyacı var" denen ihtiyaçlar: "İğneyi düzelt"ten sonra yeniden sorulmaz.
+    @ObservationIgnored private var confirmedGentleChecks: Set<Need> = []
     /// Sırada bekleyen takip soruları (en yeni öneri önce).
     @ObservationIgnored private var followUpQueue: [Report] = []
+    /// `banned/{me}`'e en son ne zaman bakıldı (bkz. `checkBannedAfterDenial`).
+    @ObservationIgnored private var lastBannedCheck: Date?
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -137,8 +278,9 @@ final class MapViewModel {
     var isPlacing: Bool { mode != .browsing }
 
     /// Süresi dolmamış, kapanmamış işaretler (sunucu temizliğini beklemeden). "… dendi" de aktiftir.
+    /// Bu kişinin bildirdiği ya da gizlediği işaretler yoktur: haritada, sayılarda ve önerilerde görünmez.
     var activeReports: [Report] {
-        reports.filter { $0.isActive(at: now) }
+        reports.filter { $0.isActive(at: now) && !device.isHidden($0.id) }
     }
 
     /// Haritada iğne olarak çizilenler. "… dendi" işaretleri bu kişiye ve moda göre gizlenebilir.
@@ -203,11 +345,10 @@ final class MapViewModel {
         return Messages.duplicateClosingPrompt(report, now: now)
     }
 
-    /// "N hayvan yardım bekliyor": bekleyen, başkasının 45 dk'yı geçen sahipliği ve doğrulanmamış ("?") öneri.
-    var waitingCount: Int {
-        activeReports.filter {
-            ClosingDisplay.countsAsWaiting($0, viewer: userID, mode: closingMode, at: now)
-        }.count
+    /// Üst etiketin sayıları (`Messages.waitingHeadline`): bekleyen, başkasının 45 dk'yı geçen sahipliği ve
+    /// doğrulanmamış ("?") öneri; ağır ihtiyaçlar ve hafifler (mama, "düşük öncelikli") ayrı.
+    var waitingCounts: WaitingCounts {
+        ClosingDisplay.waitingCounts(activeReports, viewer: userID, mode: closingMode, at: now)
     }
 
     /// Son 24 saatte kalan yeni işaret hakkı; kayıt henüz okunmadıysa `nil`.
@@ -216,9 +357,9 @@ final class MapViewModel {
     }
 
     /// Seçim panelinde: "3 yeni işaret hakkın kaldı" (≤ `lowCreatesThreshold`) ya da hak bittiyse
-    /// "Yeni işaret hakkın saat 14.20'de açılır"; yoksa `nil`.
+    /// "Yeni işaret hakkın saat 14.20'de açılır"; düzeltmede ve hak boldaysa `nil`.
     var createAllowanceText: String? {
-        guard let userRecord else { return nil }
+        guard let userRecord, !isEditing else { return nil }
         return Messages.createAllowance(userRecord, lowThreshold: Self.lowCreatesThreshold, now: now)
     }
 
@@ -228,8 +369,127 @@ final class MapViewModel {
         return activeReports.first { $0.id == disputeCandidateID }
     }
 
+    /// "Ne gördün?" sorulan işaret.
+    var unneededCandidate: Report? {
+        guard let unneededCandidateID else { return nil }
+        return activeReports.first { $0.id == unneededCandidateID }
+    }
+
+    /// "Bu işarette ne sorun var?" sorulan işaret.
+    var flagCandidate: Report? {
+        guard let flagCandidateID else { return nil }
+        return activeReports.first { $0.id == flagCandidateID }
+    }
+
+    /// "Bu işareti silmek istiyor musun?" sorulan işaret.
+    var retractCandidate: Report? {
+        guard let retractCandidateID else { return nil }
+        return activeReports.first { $0.id == retractCandidateID }
+    }
+
+    /// Onay, seçim ya da hatırlatma açık: takip sorusu sayfası bunlar kapanınca gösterilir.
+    var isShowingPrompt: Bool {
+        disputeCandidate != nil || unneededCandidate != nil || flagCandidate != nil
+            || retractCandidate != nil || nightReminder != nil
+    }
+
+    /// Kurallar sayfası gösterilmeli: bu sürümün kuralları bu cihazda henüz kabul edilmedi.
+    var needsOnboarding: Bool {
+        device.acceptedTermsVersion < AppInfo.termsVersion
+    }
+
+    /// Bu derleme `config/public.minBuild`den eski: "Güncelleme gerekli" sayfası kapatılamaz.
+    var requiresUpdate: Bool {
+        AppInfo.requiresUpdate(build: AppInfo.build, minBuild: minBuild)
+    }
+
     func distance(to report: Report) -> Double? {
         location.coordinate?.distance(to: report.coordinate)
+    }
+
+    // MARK: Düzeltme durumu
+
+    var editingReportID: String? {
+        if case .editing(let reportID, _) = mode { return reportID }
+        return nil
+    }
+
+    var isEditing: Bool { editingReportID != nil }
+
+    /// Düzeltilen işaret (haritadaki güncel hâli); panel mevcut türü ve ihtiyacı bundan gösterir.
+    var editingReport: Report? {
+        guard let editingReportID else { return nil }
+        return activeReports.first { $0.id == editingReportID }
+    }
+
+    /// Ortadaki iğnenin türü: ihtiyaç seçilirken seçilen tür, düzeltmede seçilen ya da işaretin türü.
+    var placementSpecies: Species? {
+        switch mode {
+        case .choosingNeed(let species):
+            return species
+        case .editing(_, let species):
+            return species ?? editingReport?.species
+        case .browsing, .choosingSpecies:
+            return nil
+        }
+    }
+
+    /// Düzeltme panelinde "İşareti sil" gösterilsin mi (`ReportLifecycle.canRetract`).
+    var canRetractEditing: Bool {
+        guard let report = editingReport, let userID else { return false }
+        return ReportLifecycle.canRetract(report, by: userID)
+    }
+
+    /// Kartta "Düzenle" gösterilsin mi (`ReportLifecycle.canEdit`: koyan, kimse dokunmadan, 30 dk içinde, en fazla 3 kez).
+    func canEdit(_ report: Report) -> Bool {
+        guard let userID else { return false }
+        return ReportLifecycle.canEdit(report, by: userID, at: now)
+    }
+
+    // MARK: Kart
+
+    /// Kartın "⋯" menüsü (bildir, gizle) işareti koyana gösterilmez.
+    func canFlag(_ report: Report) -> Bool {
+        guard let userID else { return false }
+        return report.reporterID != userID
+    }
+
+    /// Karttaki eylemler (bkz. `cardActions(for:userID:at:)`).
+    func cardActions(for report: Report) -> [ReportAction] {
+        Self.cardActions(for: report, userID: userID, at: now)
+    }
+
+    /// `ReportLifecycle.availableActions`; ilki birincil eylemdir. Mamada "Yardım gerekmiyor" tek düğmedir:
+    /// `.reportGone` onun yerinde durur (başlığı `Messages.title`) ve "Ne gördün?" seçimini açar
+    /// (`unneededChoices`); `.reportUnneeded` ayrıca gösterilmez.
+    static func cardActions(for report: Report, userID: String?, at now: Date) -> [ReportAction] {
+        guard let userID else { return [] }
+        var actions = ReportLifecycle.availableActions(for: report, userID: userID, at: now)
+        guard report.need.allowsUnneeded,
+              let index = actions.firstIndex(where: { $0 == .reportUnneeded || $0 == .reportGone })
+        else { return actions }
+        actions.removeAll { $0 == .reportUnneeded || $0 == .reportGone }
+        actions.insert(.reportGone, at: index)
+        return actions
+    }
+
+    /// "Ne gördün?" seçenekleri (başlıkları `Messages.unneededChoiceTitle`): "Hayvan orada ama iyi görünüyor"
+    /// (`.reportUnneeded`) ve "Hayvan artık orada değil" (`.reportGone`); bu kişiye açık olanlar.
+    func unneededChoices(for report: Report) -> [ReportAction] {
+        guard let userID, report.need.allowsUnneeded else { return [] }
+        let available = ReportLifecycle.availableActions(for: report, userID: userID, at: now)
+        return [ReportAction.reportUnneeded, .reportGone].filter { available.contains($0) }
+    }
+
+    /// Acil, yaralı ve yavru kartlarında "Konumu paylaş" metni; diğerlerinde `nil`.
+    func shareLocationText(for report: Report) -> String? {
+        guard Self.shareLocationNeeds.contains(report.need) else { return nil }
+        return Messages.shareLocation(report.coordinate)
+    }
+
+    /// "E-postayla ayrıntı gönder": işaret kimliğiyle hazır e-posta; iletişim adresi yoksa `nil` (menüde yok).
+    func flagMailURL(for report: Report) -> URL? {
+        AppInfo.supportMailURL(subject: Messages.flagMailSubject, body: Messages.flagMailBody(reportID: report.id))
     }
 
     // MARK: Yaşam döngüsü
@@ -250,6 +510,13 @@ final class MapViewModel {
         Task { [weak self] in
             await self?.refreshWatched()
         }
+        // Önceki açılışta engelliydi: etiket hemen söyler; sahip kaldırmış olabilir, bir kez bakılır.
+        if device.knownBanned {
+            isBanned = true
+            Task { [weak self] in
+                await self?.refreshBanned(userID)
+            }
+        }
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(30))
             now = Date()
@@ -268,8 +535,10 @@ final class MapViewModel {
         userRecordSubscription = repository.observeUserRecord(userID: userID) { [weak self] record in
             self?.userRecord = record
         }
-        closingModeSubscription = repository.observeClosingMode { [weak self] mode in
-            self?.closingMode = mode
+        publicConfigSubscription = repository.observePublicConfig { [weak self] config in
+            guard let self else { return }
+            self.closingMode = config.closingMode
+            self.minBuild = config.minBuild
         }
     }
 
@@ -306,6 +575,14 @@ final class MapViewModel {
         cameraRequest = CameraRequest(target: coordinate, zoom: max(Self.browsingZoom, 15))
     }
 
+    // MARK: Kurallar
+
+    /// "Kabul ediyorum, başla": bu sürümün kuralları bu cihazda bir daha sorulmaz.
+    func acceptTerms() {
+        device.acceptTerms(version: AppInfo.termsVersion)
+        showNextFollowUp()
+    }
+
     // MARK: Harita olayları
 
     func cameraWillMove() {
@@ -325,8 +602,9 @@ final class MapViewModel {
             showsStreetDots = dots
         }
         refreshSubscription()
-        // İğne kaydırıldı: yakındaki aynı hayvan yeniden aranır.
+        // İğne kaydırıldı: yakındaki aynı hayvan yeniden aranır, düzeltmede uzaklık yeniden denetlenir.
         updateDuplicateCandidate()
+        updateEditRange()
     }
 
     /// İğne ya da gri nokta.
@@ -348,6 +626,11 @@ final class MapViewModel {
     }
 
     func mapLongPressed(at coordinate: Coordinate) {
+        if isEditing {
+            // Düzeltme sürer; iğne basılan yere gider (200 m sınırı kaydederken denetlenir).
+            cameraRequest = CameraRequest(target: coordinate, zoom: Self.placementZoom)
+            return
+        }
         startPlacing(at: coordinate)
     }
 
@@ -368,6 +651,10 @@ final class MapViewModel {
             reports = []
             // İşaretler kalkınca kart da kapanır; yeniden yakınlaşınca kendiliğinden açılmasın.
             selectedReportID = nil
+            // Düzeltilen işaret de artık bilinmiyor.
+            if isEditing {
+                finishEditing(select: nil, message: nil)
+            }
             return
         }
         if let subscribed = subscribedArea,
@@ -377,36 +664,73 @@ final class MapViewModel {
         let radius = max(area.radius * 1.5, Self.minQueryRadius)
         subscription?.cancel()
         subscription = repository.observeActiveReports(center: area.center, radiusMeters: radius) { [weak self] reports in
-            self?.reports = reports
-            self?.now = Date()
+            guard let self else { return }
+            self.reports = reports
+            self.now = Date()
+            self.reportsChanged()
         }
         subscribedArea = (area.center, radius)
+    }
+
+    /// Düzeltilen işaret bu arada kapandıysa, süresi dolduysa ya da başkası dokunduysa düzeltme biter.
+    private func reportsChanged() {
+        guard let reportID = editingReportID, !isSavingEdit, let userID else { return }
+        guard let report = activeReports.first(where: { $0.id == reportID }) else {
+            finishEditing(select: nil, message: "Bu işaret artık haritada değil.")
+            return
+        }
+        if !ReportLifecycle.canEdit(report, by: userID, at: Date()) {
+            finishEditing(select: reportID, message: ReportError.notEditable.errorDescription)
+        }
     }
 
     // MARK: Yeni işaret
 
     func startPlacing(at coordinate: Coordinate? = nil) {
+        if isBanned {
+            show(Toast(message: Messages.banned, duration: Self.longToastDuration))
+            return
+        }
         selectedReportID = nil
         toast = nil
+        pendingReport = nil
         dismissedDuplicateIDs = []
+        confirmedGentleChecks = []
         mode = .choosingSpecies
         updateDuplicateCandidate()
-        if let target = coordinate ?? location.coordinate {
+        // En taze okuma: yayımlanan konum yalnızca 10 m'de bir değişir.
+        if let target = coordinate ?? location.fix?.coordinate ?? location.coordinate {
             cameraRequest = CameraRequest(target: target, zoom: Self.placementZoom)
         }
     }
 
     func choose(_ species: Species) {
-        mode = .choosingNeed(species)
+        pendingReport = nil
+        if case .editing(let reportID, _) = mode {
+            mode = .editing(reportID: reportID, species: species)
+        } else {
+            mode = .choosingNeed(species)
+        }
         updateDuplicateCandidate()
     }
 
     func backToSpecies() {
-        mode = .choosingSpecies
+        pendingReport = nil
+        if case .editing(let reportID, _) = mode {
+            mode = .editing(reportID: reportID, species: nil)
+        } else {
+            mode = .choosingSpecies
+        }
         updateDuplicateCandidate()
     }
 
+    /// Paneldeki "Vazgeç". Düzeltmede işaret değişmeden kalır ve kartı yeniden açılır.
     func cancelPlacing() {
+        if let reportID = editingReportID {
+            finishEditing(select: reportID, message: nil)
+            return
+        }
+        pendingReport = nil
         mode = .browsing
         updateDuplicateCandidate()
         showNextFollowUp()
@@ -417,6 +741,7 @@ final class MapViewModel {
     /// ("Evet, hâlâ yardım gerekiyor") itiraz edilir: kişi hayvanın başında, ayrıca onay sorulmaz.
     func confirmDuplicate(_ report: Report) {
         let action = duplicateAction(for: report)
+        pendingReport = nil
         mode = .browsing
         updateDuplicateCandidate()
         selectedReportID = report.id
@@ -437,7 +762,8 @@ final class MapViewModel {
     }
 
     /// İhtiyaç seçilirken: iğneye (kamera hedefine) `duplicateRadius` içindeki en yakın, aynı türden ve
-    /// üzerinde bir şey yapılabilen aktif işaret (gizlenmiş "… dendi" de). Başka her durumda öneri yoktur.
+    /// üzerinde bir şey yapılabilen aktif işaret (gizlenmiş "… dendi" de). Başka her durumda (düzeltme dahil)
+    /// öneri yoktur.
     private func updateDuplicateCandidate() {
         var candidateID: String?
         if case .choosingNeed(let species) = mode, let target = cameraTarget {
@@ -455,10 +781,97 @@ final class MapViewModel {
         }
     }
 
-    /// Son dokunuş: işaret iğnenin olduğu yere (kamera hedefine) hemen kaydedilir. Günlük hak bittiyse
-    /// kaydedilmez; iğne yerinde kalır ki yakındaki aynı hayvana "Ben de gördüm" denebilsin.
+    /// Son dokunuş. Yeni işarette işaret iğnenin olduğu yere (kamera hedefine) kaydedilir; gerekirse önce
+    /// bir soru sorulur (`pendingReport`). Günlük hak bittiyse kaydedilmez; iğne yerinde kalır ki yakındaki aynı
+    /// hayvana "Ben de gördüm" denebilsin. Düzeltmede değişiklik kaydedilir.
     func choose(_ need: Need) {
-        guard case .choosingNeed(let species) = mode, let target = cameraTarget else { return }
+        switch mode {
+        case .editing(let reportID, let species?):
+            saveEdit(reportID: reportID, species: species, need: need)
+        case .choosingNeed(let species):
+            guard pendingReport == nil, let target = cameraTarget else { return }
+            placeReport(species: species, need: need, at: target)
+        case .browsing, .choosingSpecies, .editing:
+            return
+        }
+    }
+
+    /// Hafif ihtiyaçta "Yardıma ihtiyacı var mı?", iğne uzaktaysa uzaklık sorusu; ikisi de yoksa hemen kaydedilir.
+    private func placeReport(species: Species, need: Need, at target: Coordinate) {
+        guard session.userID != nil else {
+            show(Toast(message: "Bağlantı kuruluyor, birkaç saniye sonra tekrar dene."))
+            return
+        }
+        let now = Date()
+        if let step = gentleCheckStep(for: need, at: now) ?? distanceStep(for: need, pin: target, at: now) {
+            pendingReport = PendingReport(species: species, need: need, coordinate: target, step: step)
+            return
+        }
+        createReport(species: species, need: need, at: target)
+    }
+
+    /// "Yardıma ihtiyacı var, işaretle" / "Evet, orada gördüm": sıradaki soru varsa o, yoksa işaret kaydedilir.
+    func confirmPendingReport() {
+        guard var pending = pendingReport else { return }
+        if case .gentleCheck = pending.step {
+            confirmedGentleChecks.insert(pending.need)
+            if let step = distanceStep(for: pending.need, pin: pending.coordinate, at: Date()) {
+                pending.step = step
+                pendingReport = pending
+                return
+            }
+        }
+        pendingReport = nil
+        createReport(species: pending.species, need: pending.need, at: pending.coordinate)
+    }
+
+    /// "Sağlıklı görünüyor, vazgeç": işaretleme biter, teşekkür edilir. "İğneyi düzelt": ihtiyaç seçimine
+    /// dönülür; iğne kaydırılıp ihtiyaca yeniden dokunulur.
+    func cancelPendingReport() {
+        guard let pending = pendingReport else { return }
+        pendingReport = nil
+        switch pending.step {
+        case .gentleCheck:
+            mode = .browsing
+            updateDuplicateCandidate()
+            show(Toast(message: Messages.gentleCheckCancelled, duration: Self.longToastDuration))
+            showNextFollowUp()
+        case .distance:
+            break
+        }
+    }
+
+    /// Cihazın ilk hafif işaretleri ya da son 24 saatte çok işaret: "Yardıma ihtiyacı var mı?".
+    private func gentleCheckStep(for need: Need, at now: Date) -> PendingReport.Step? {
+        guard !confirmedGentleChecks.contains(need),
+              let reason = GentleCheck.reason(
+                for: need,
+                lightReportsSoFar: device.lightReportCount,
+                recentReports: device.recentReportCount(at: now)
+              )
+        else { return nil }
+        switch reason {
+        case .intro: return .gentleCheck(recentCount: nil)
+        case .recent(let count): return .gentleCheck(recentCount: count)
+        }
+    }
+
+    /// İğne, taze ve doğru bir konum okumasından 1 km'den uzaksa (acil yardımda hiç sorulmaz).
+    private func distanceStep(for need: Need, pin: Coordinate, at now: Date) -> PendingReport.Step? {
+        guard let fix = location.fix,
+              let meters = GentleCheck.distanceToAsk(
+                need: need,
+                pin: pin,
+                fix: fix.coordinate,
+                fixAt: fix.timestamp,
+                horizontalAccuracy: fix.horizontalAccuracy,
+                at: now
+              )
+        else { return nil }
+        return .distance(meters: meters)
+    }
+
+    private func createReport(species: Species, need: Need, at target: Coordinate) {
         guard let userID = session.userID else {
             show(Toast(message: "Bağlantı kuruluyor, birkaç saniye sonra tekrar dene."))
             return
@@ -488,6 +901,7 @@ final class MapViewModel {
             return
         }
         watched.watch(report)
+        device.recordReport(id: report.id, need: need, at: now)
         mode = .browsing
         updateDuplicateCandidate()
         reportsCreated += 1
@@ -497,10 +911,14 @@ final class MapViewModel {
 
     private func createFailed(_ report: Report, error: Error) {
         watched.forget(report.id)
+        device.forgetReport(id: report.id)
         let message: String
         if let quota = error as? CreateQuotaError {
             // Çevrimdışı konup ~24 saat sonra gönderilen işaret sınır yüzünden değil, gecikme yüzünden reddedilir.
             message = quota == .tooLate ? Messages.createTooLate : Messages.createRejected
+            if quota == .rejected {
+                checkBannedAfterDenial()
+            }
         } else {
             message = "İşaret kaydedilemedi. Lütfen tekrar dene."
         }
@@ -513,10 +931,7 @@ final class MapViewModel {
         self.toast = nil
         switch undo {
         case .retract(let reportID):
-            watched.forget(reportID)
-            repository.retract(reportID: reportID) { [weak self] _ in
-                self?.show(Toast(message: "Geri alınamadı: başka biri de bu işaretle ilgilendi."))
-            }
+            retract(reportID, failureMessage: "Geri alınamadı: başka biri de bu işaretle ilgilendi.")
         case .undoClosing(let reportID):
             guard let report = reports.first(where: { $0.id == reportID }) else {
                 show(Toast(message: "Geri alınamadı: işaret artık haritada değil."))
@@ -528,12 +943,183 @@ final class MapViewModel {
         }
     }
 
+    /// "Geri al" ve "İşareti sil": işaret takipten ve son 24 saatin sayısından çıkar; sunucu reddederse söylenir.
+    private func retract(_ reportID: String, failureMessage: String) {
+        watched.forget(reportID)
+        device.forgetReport(id: reportID)
+        repository.retract(reportID: reportID) { [weak self] error in
+            self?.show(Toast(message: failureMessage))
+            if (error as? RepositoryError) == .permissionDenied {
+                self?.checkBannedAfterDenial()
+            }
+        }
+    }
+
+    // MARK: Düzeltme
+
+    /// Karttaki "Düzenle": iğne işaretin üstünde, önce tür sonra ihtiyaç sorulur.
+    func startEditing(_ report: Report) {
+        if isBanned {
+            show(Toast(message: Messages.banned, duration: Self.longToastDuration))
+            return
+        }
+        guard canEdit(report) else {
+            show(Toast(message: ReportError.notEditable.errorDescription ?? "Bu işaret artık düzenlenemez."))
+            return
+        }
+        selectedReportID = nil
+        toast = nil
+        pendingReport = nil
+        retractCandidateID = nil
+        isEditTargetTooFar = false
+        mode = .editing(reportID: report.id, species: nil)
+        cameraTarget = report.coordinate
+        updateDuplicateCandidate()
+        cameraRequest = CameraRequest(target: report.coordinate, zoom: Self.placementZoom)
+    }
+
+    /// Kamera durunca: iğne işaretin şimdiki konumundan izin verilen kaymanın dışında mı?
+    private func updateEditRange() {
+        var tooFar = false
+        if let report = editingReport, let target = cameraTarget {
+            tooFar = !ReportLifecycle.isWithinEditRange(report, to: target)
+        }
+        if tooFar != isEditTargetTooFar {
+            isEditTargetTooFar = tooFar
+        }
+    }
+
+    /// İhtiyaca dokunuldu: tür, ihtiyaç ve iğnenin yeri tek bir düzeltme olarak kaydedilir.
+    private func saveEdit(reportID: String, species: Species, need: Need) {
+        guard !isSavingEdit, let userID = session.userID, let target = cameraTarget else { return }
+        guard let report = activeReports.first(where: { $0.id == reportID }) else {
+            finishEditing(select: nil, message: "Bu işaret artık haritada değil.")
+            return
+        }
+        guard ReportLifecycle.canEdit(report, by: userID, at: Date()) else {
+            finishEditing(select: reportID, message: ReportError.notEditable.errorDescription)
+            return
+        }
+        let coordinate = target.distance(to: report.coordinate) < Self.editMoveThreshold ? report.coordinate : target
+        guard ReportLifecycle.isWithinEditRange(report, to: coordinate) else {
+            show(Toast(message: ReportError.editTooFar.errorDescription ?? "Konum en fazla 200 m kaydırılabilir."))
+            return
+        }
+        if species == report.species && need == report.need && coordinate == report.coordinate {
+            // Her kayıt bir düzeltme hakkı harcar; değişmeyen işaret yazılmaz.
+            finishEditing(select: reportID, message: Messages.editUnchanged)
+            return
+        }
+        isSavingEdit = true
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let updated = try await self.repository.edit(
+                    reportID: reportID,
+                    species: species,
+                    need: need,
+                    coordinate: coordinate,
+                    by: userID
+                )
+                self.isSavingEdit = false
+                // Ömür değişmiş olabilir; takip süresi de uzasın.
+                self.watched.watch(updated)
+                // Dinleyici de bildirir; kart hemen yeni hâli göstersin.
+                if let index = self.reports.firstIndex(where: { $0.id == updated.id }) {
+                    self.reports[index] = updated
+                }
+                self.endSavedEdit(of: reportID, select: updated.id, message: Messages.reportEdited)
+            } catch let error as ReportError {
+                self.isSavingEdit = false
+                let message = error.errorDescription ?? "Düzeltme kaydedilemedi."
+                if error == .editTooFar {
+                    self.show(Toast(message: message))
+                } else {
+                    self.endSavedEdit(of: reportID, select: reportID, message: message)
+                }
+            } catch RepositoryError.permissionDenied {
+                self.isSavingEdit = false
+                self.show(Toast(message: "Düzeltme kaydedilemedi."))
+                self.checkBannedAfterDenial()
+            } catch {
+                self.isSavingEdit = false
+                self.show(Toast(message: "Düzeltme kaydedilemedi. Bağlantını kontrol et."))
+            }
+        }
+    }
+
+    /// Kaydı biten düzeltme: kişi hâlâ o işareti düzeltiyorsa düzeltme biter ve kartı açılır. Bu arada panelden
+    /// çıkıp başka bir şeye geçtiyse (ör. yeni işaret) o akış bozulmaz; yalnızca sonuç söylenir.
+    private func endSavedEdit(of reportID: String, select selectID: String?, message: String) {
+        if editingReportID == reportID {
+            finishEditing(select: selectID, message: message)
+        } else {
+            show(Toast(message: message))
+        }
+    }
+
+    /// Düzeltme biter; `reportID` verilirse (işaret hâlâ haritadaysa) kartı yeniden açılır.
+    private func finishEditing(select reportID: String?, message: String?) {
+        mode = .browsing
+        pendingReport = nil
+        retractCandidateID = nil
+        isEditTargetTooFar = false
+        updateDuplicateCandidate()
+        if let reportID, let report = activeReports.first(where: { $0.id == reportID }) {
+            selectedReportID = report.id
+            cameraRequest = CameraRequest(target: report.coordinate)
+        }
+        if let message {
+            show(Toast(message: message))
+        }
+        showNextFollowUp()
+    }
+
+    /// Düzeltme panelindeki "İşareti sil": önce onay sorulur (`retractCandidate`).
+    func requestRetract() {
+        guard canRetractEditing, let editingReportID else { return }
+        retractCandidateID = editingReportID
+    }
+
+    /// "Sil" onaylandı. İşaret, onay sorulduğu andaki hâliyle verilir.
+    func confirmRetract(_ report: Report) {
+        retractCandidateID = nil
+        if editingReportID == report.id {
+            mode = .browsing
+            pendingReport = nil
+            isEditTargetTooFar = false
+            updateDuplicateCandidate()
+        }
+        if selectedReportID == report.id {
+            selectedReportID = nil
+        }
+        // Önce: sunucu reddederse hata bildirimi bunun yerine geçer.
+        show(Toast(message: Messages.reportDeleted))
+        retract(report.id, failureMessage: "Silinemedi: başka biri de bu işaretle ilgilendi.")
+        showNextFollowUp()
+    }
+
+    func cancelRetract() {
+        retractCandidateID = nil
+    }
+
     // MARK: İşaret eylemleri
 
-    /// Karttaki düğme. "Hâlâ yardım gerekiyor" önce onay ister (`disputeCandidate`); diğerleri hemen yapılır.
+    /// Karttaki düğme. "Hâlâ yardım gerekiyor" önce onay ister (`disputeCandidate`), mamada "Yardım gerekmiyor"
+    /// önce ne görüldüğünü sorar (`unneededCandidate`), gece "İlgileniyorum" önce hatırlatır (`nightReminder`);
+    /// diğerleri hemen yapılır.
     func handle(_ action: ReportAction, on report: Report) {
         if action == .dispute {
             disputeCandidateID = report.id
+            return
+        }
+        if action == .reportGone || action == .reportUnneeded,
+           report.need.allowsUnneeded, !unneededChoices(for: report).isEmpty {
+            unneededCandidateID = report.id
+            return
+        }
+        if action == .claim, needsNightReminder(for: report, at: Date()) {
+            showNightReminder(NightReminder(report: report, pending: .claim))
             return
         }
         Task { [weak self] in
@@ -551,6 +1137,18 @@ final class MapViewModel {
 
     func cancelDispute() {
         disputeCandidateID = nil
+    }
+
+    /// "Ne gördün?" sorusunun yanıtı: `.reportUnneeded` ya da `.reportGone` (`unneededChoices`).
+    func chooseUnneeded(_ action: ReportAction, on report: Report) {
+        unneededCandidateID = nil
+        Task { [weak self] in
+            await self?.perform(action, on: report)
+        }
+    }
+
+    func cancelUnneeded() {
+        unneededCandidateID = nil
     }
 
     /// Bir eylemin sonucu (takip sorusu yeniden sorulacak mı diye).
@@ -604,26 +1202,151 @@ final class MapViewModel {
         } catch let error as ReportError {
             show(Toast(message: error.errorDescription ?? "İşlem tamamlanamadı."))
             return .rejected
+        } catch RepositoryError.permissionDenied {
+            show(Toast(message: "İşlem tamamlanamadı."))
+            checkBannedAfterDenial()
+            return .failed
         } catch {
             show(Toast(message: "İşlem tamamlanamadı. Bağlantını kontrol et."))
             return .failed
         }
     }
 
-    /// A7: kişinin ilgilendiği işaretler takip edilir (koyduğu işaret `choose(_:)`'da eklenir).
+    /// A7: kişinin ilgilendiği işaretler takip edilir (koyduğu işaret `createReport`'ta eklenir).
     private func remember(_ action: ReportAction, _ report: Report) {
         switch action {
         case .claim, .confirmStillThere, .dispute:
             watched.watch(report)
-        case .release, .resolve, .reportGone, .confirmClosing, .undoClosing, .expire:
+        case .release, .resolve, .reportGone, .reportUnneeded, .confirmClosing, .undoClosing, .expire:
             break
         }
     }
 
+    /// Apple Haritalar'da yürüyerek yol tarifi.
     func directionsURL(for report: Report) -> URL? {
         let destination = "\(report.coordinate.latitude),\(report.coordinate.longitude)"
-        // Apple Haritalar'da yürüyerek yol tarifi.
         return URL(string: "https://maps.apple.com/?daddr=\(destination)&dirflg=w")
+    }
+
+    /// Karttaki "Yol tarifi": açılacak bağlantı. Gece hatırlatması gösterilecekse `nil`; bağlantıyı
+    /// "Devam et" döndürür (`continueAfterNightReminder`).
+    func requestDirections(for report: Report) -> URL? {
+        guard let url = directionsURL(for: report) else { return nil }
+        if needsNightReminder(for: report, at: Date()) {
+            showNightReminder(NightReminder(report: report, pending: .directions(url)))
+            return nil
+        }
+        return url
+    }
+
+    // MARK: Gece hatırlatması
+
+    /// Gece (yerel saatle 21.00–06.00) acil, yaralı ya da yavru işaretine gidilirken; kurulum başına haftada en
+    /// fazla bir kez. `-noNightReminder` ile kapalıdır (arayüz testi).
+    private func needsNightReminder(for report: Report, at now: Date) -> Bool {
+        guard environment.nightReminderEnabled, Self.nightReminderNeeds.contains(report.need) else { return false }
+        let hour = Calendar.current.component(.hour, from: now)
+        guard hour >= Self.nightStartHour || hour < Self.nightEndHour else { return false }
+        guard let shownAt = device.nightReminderShownAt else { return true }
+        // Saat geri alınmışsa da bir hafta beklenmez.
+        return now.timeIntervalSince(shownAt) >= Self.nightReminderInterval || shownAt > now
+    }
+
+    private func showNightReminder(_ reminder: NightReminder) {
+        device.markNightReminderShown(at: Date())
+        nightReminder = reminder
+    }
+
+    /// "Devam et": bekleyen iş yapılır. Yol tarifiyse açılacak bağlantı döner. Hatırlatma, gösterildiği
+    /// andaki hâliyle verilir.
+    func continueAfterNightReminder(_ reminder: NightReminder) -> URL? {
+        if nightReminder?.id == reminder.id {
+            nightReminder = nil
+        }
+        switch reminder.pending {
+        case .claim:
+            Task { [weak self] in
+                await self?.perform(.claim, on: reminder.report)
+            }
+            return nil
+        case .directions(let url):
+            return url
+        }
+    }
+
+    func dismissNightReminder() {
+        nightReminder = nil
+    }
+
+    // MARK: Bildirme ve gizleme
+
+    /// "⋯" → "Bu işareti bildir": önce neden sorulur (`flagCandidate`).
+    func requestFlag(_ report: Report) {
+        guard canFlag(report) else { return }
+        flagCandidateID = report.id
+    }
+
+    /// Neden seçildi: bildirim gönderilir ve işaret bu kişinin haritasından kalkar. Aynı işaret daha önce
+    /// bildirilmişse sunucu reddeder; bu da başarı sayılır.
+    func flag(_ report: Report, reason: FlagReason) {
+        flagCandidateID = nil
+        guard let userID = session.userID else {
+            show(Toast(message: "Bağlantı kuruluyor, birkaç saniye sonra tekrar dene."))
+            return
+        }
+        if !isBanned {
+            repository.flag(reportID: report.id, reason: reason, by: userID) { [weak self] in
+                // Çoğunlukla ikinci bildirim; kimlik engellenmiş de olabilir.
+                self?.checkBannedAfterDenial()
+            }
+        }
+        removeFromMyMap(report)
+        show(Toast(message: isBanned ? Messages.banned : Messages.flagSent, duration: Self.longToastDuration))
+    }
+
+    func cancelFlag() {
+        flagCandidateID = nil
+    }
+
+    /// "⋯" → "Bu işareti gizle": yalnızca bu kişinin haritasından kalkar.
+    func hide(_ report: Report) {
+        removeFromMyMap(report)
+        show(Toast(message: Messages.reportHidden))
+    }
+
+    /// Haritadan, "yardım bekliyor" sayısından, "Aynı hayvan mı?" önerilerinden ve takip sorularından çıkar.
+    private func removeFromMyMap(_ report: Report) {
+        device.hide(report.id, at: Date())
+        watched.forget(report.id)
+        if selectedReportID == report.id {
+            selectedReportID = nil
+        }
+        updateDuplicateCandidate()
+    }
+
+    // MARK: Engel
+
+    /// Bir yazım kurallarca reddedildi: kimlik engellenmiş olabilir. `banned/{me}` bir kez okunur (en fazla
+    /// `bannedCheckInterval`'da bir); engelliyse söylenir ve üst etikette kalır.
+    private func checkBannedAfterDenial() {
+        guard !isBanned, let userID = session.userID else { return }
+        let now = Date()
+        if let lastBannedCheck, now.timeIntervalSince(lastBannedCheck) < Self.bannedCheckInterval { return }
+        lastBannedCheck = now
+        Task { [weak self] in
+            guard let self, await self.refreshBanned(userID) else { return }
+            self.show(Toast(message: Messages.banned, duration: Self.longToastDuration))
+        }
+    }
+
+    /// `banned/{me}` okunur, sonuç cihazda da saklanır (sonraki açılışta yeniden bakılsın). Engelliyse `true`;
+    /// okunamazsa bilinen durum değişmez.
+    @discardableResult
+    private func refreshBanned(_ userID: String) async -> Bool {
+        guard let banned = await repository.isBanned(userID: userID) else { return isBanned }
+        device.setKnownBanned(banned)
+        isBanned = banned
+        return banned
     }
 
     // MARK: Takip sorusu (A7)
@@ -645,16 +1368,18 @@ final class MapViewModel {
 
     /// `ClosingDisplay.isStakeholder` ile aynı ölçüt (`ReportLifecycle.canAnswerClosing`: "… dendi" ve bu kişi
     /// kapatan değil, onaylayabilir ya da itiraz edebilir). Yanıt veremeyene sorulmaz; işaret de onun
-    /// haritasında yanıt beklemeden başkalarınınki gibi görünür.
+    /// haritasında yanıt beklemeden başkalarınınki gibi görünür. Kişinin gizlediği işaret sorulmaz.
     private func needsFollowUp(_ report: Report, userID: String, at now: Date) -> Bool {
         report.isActive(at: now)
+            && !device.isHidden(report.id)
             && ReportLifecycle.canAnswerClosing(report, by: userID)
             && !watched.isAnswered(report)
     }
 
-    /// Sıradaki soruyu gösterir; işaretleme sürerken ya da başka soru açıkken bekler.
+    /// Sıradaki soruyu gösterir; işaretleme sürerken, başka soru açıkken, kurallar kabul edilmemişken ya da
+    /// güncelleme gerekiyorsa bekler.
     private func showNextFollowUp() {
-        guard followUp == nil, mode == .browsing, let userID else { return }
+        guard followUp == nil, mode == .browsing, !needsOnboarding, !requiresUpdate, let userID else { return }
         let now = Date()
         while !followUpQueue.isEmpty {
             let queued = followUpQueue.removeFirst()

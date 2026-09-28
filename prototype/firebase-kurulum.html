@@ -91,12 +91,15 @@
 // Her işaret (report) küçük bir durum makinesidir:
 //
 //   open ──İlgileniyorum──▶ claimed ──Vazgeç / 3 sa doldu──▶ open
-//   open|claimed ──Çözüldü / Artık yok (koyan; başka gören yoksa)──▶ closed
-//   open|claimed ──Çözüldü / Artık yok (diğerleri)──▶ closing (&quot;… dendi&quot;; ömrü kısalmaz)
+//   open ──Düzenle (koyan; kimse dokunmadan, 30 dk içinde, en fazla 3 kez)──▶ open
+//   open|claimed ──Çözüldü / Artık yok / Yardım gerekmiyor (koyan; başka gören yoksa)──▶ closed
+//   open|claimed ──Çözüldü / Artık yok / Yardım gerekmiyor (diğerleri)──▶ closing (&quot;… dendi&quot;; ömrü kısalmaz)
 //   closing ──Hâlâ yardım gerekiyor (kapatan dışında herkes)──▶ open
 //   closing ──Evet, çözüldü (ikinci kişi)──▶ closed
 //   closing ──Geri al (kapatan, 10 dk içinde)──▶ claimed (sahiplik hâlâ geçerliyse) | open
 //   open|claimed|closing ──expiresAt geçti (herkes)──▶ closed
+//
+// &quot;Yardım gerekmiyor&quot; (hayvan orada ama iyi görünüyor) yalnızca &quot;Aç ve zayıf&quot; (food) işaretlerde var.
 //
 // Değişmez kural: koyandan başka biri hayvanı gördüyse, işareti süresi dolmadan tek bir kişi
 // kaldıramaz. &quot;Çözüldü dendi&quot; başkalarının haritasında yalnızca kanıtlıysa (closingCredible:
@@ -106,6 +109,11 @@
 // users/{uid}: hesap yaşı ve 24 saatlik haklar (yeni işaret, kanıtlı kapatma). Her harcama tek
 // bir işarete bağlıdır (createLast / closeLast: bu an + bu işaret); işaret kuralı bunu getAfter
 // ile doğrular, böylece bir toplu yazımdaki tek harcama iki işarete yetmez.
+//
+// flags/{reportId}_{uid}: &quot;Bu işareti bildir&quot;. İstemci yalnızca oluşturur, kimse okuyamaz; haritada
+// hiçbir etkisi yoktur, sahibi konsoldan inceler.
+// banned/{uid}: yalnızca konsoldan yazılır. Engellenen kimlik, süresi dolan işareti kapatmak dışında
+// hiçbir şey yazamaz.
 //
 // İstemci tarafındaki karşılığı: ios/Packages/AnimalKit/Sources/AnimalKit/ReportLifecycle.swift
 // Paylaşılan sabitler: shared/report-contract.json (testler iki tarafın uyumunu doğrular).
@@ -129,8 +137,7 @@ service cloud.firestore {
         &#x27;babies&#x27;: 72,
         &#x27;vet&#x27;: 48,
         &#x27;food&#x27;: 12,
-        &#x27;shelter&#x27;: 72,
-        &#x27;other&#x27;: 24
+        &#x27;shelter&#x27;: 72
       };
     }
     function lifetime(need) { return duration.value(lifetimeHours()[need], &#x27;h&#x27;); }
@@ -151,6 +158,14 @@ service cloud.firestore {
     function maxAge() { return duration.value(7, &#x27;d&#x27;); }
     // İtiraz alan en fazla kapatma önerisi; dolunca işareti yalnızca süresi kapatır.
     function maxDisputed() { return 10; }
+    // &quot;Düzenle&quot;: oluşturulduktan sonra bu süre içinde ve en fazla bu kadar kez. Konum her seferinde
+    // enlemde ve boylamda en fazla bu kadar derece (~200 m) kayar.
+    function editWindow() { return duration.value(30, &#x27;m&#x27;); }
+    function maxEdits() { return 3; }
+    function editMaxLatDelta() { return 0.0018; }
+    function editMaxLngDelta() { return 0.0024; }
+    // &quot;Yardım gerekmiyor&quot; denebilen (hafif) ihtiyaçlar.
+    function unneededNeeds() { return [&#x27;food&#x27;]; }
 
     // Bu yaştan genç hesap ilk gün daha az işaret koyar ve kanıtlı kapatamaz (kendi işareti hariç).
     function newAccountAge() { return duration.value(24, &#x27;h&#x27;); }
@@ -167,8 +182,7 @@ service cloud.firestore {
         &#x27;babies&#x27;: 2,
         &#x27;vet&#x27;: 2,
         &#x27;food&#x27;: 1,
-        &#x27;shelter&#x27;: 2,
-        &#x27;other&#x27;: 1
+        &#x27;shelter&#x27;: 2
       };
     }
     // Bundan fazla itiraz almış işarette kapatma kanıtlı sayılmaz.
@@ -181,6 +195,9 @@ service cloud.firestore {
 
     function userPath() { return /databases/$(database)/documents/users/$(me()); }
 
+    // Konsoldan engellenmiş kimlik değil. Süre dolumu dışındaki her yazım bunu ister (+1 okuma).
+    function notBanned() { return !exists(/databases/$(database)/documents/banned/$(me())); }
+
     // ---- Doküman şekli -----------------------------------------------------
 
     function reportKeys() {
@@ -192,8 +209,10 @@ service cloud.firestore {
     }
 
     function validShape(d) {
-      return d.keys().hasAll(reportKeys()) &amp;&amp; d.keys().hasOnly(reportKeys())
-        &amp;&amp; d.species in [&#x27;cat&#x27;, &#x27;dog&#x27;, &#x27;bird&#x27;, &#x27;other&#x27;]
+      // editCount bu sürümle geldi: yeni işaretler 0 yazar, daha önce konanlarda yoktur ve 0 sayılır.
+      let edits = d.get(&#x27;editCount&#x27;, 0);
+      return d.keys().hasAll(reportKeys()) &amp;&amp; d.keys().hasOnly(reportKeys().concat([&#x27;editCount&#x27;]))
+        &amp;&amp; d.species in [&#x27;cat&#x27;, &#x27;dog&#x27;]
         &amp;&amp; d.need in lifetimeHours()
         &amp;&amp; d.lat is number &amp;&amp; d.lat &gt;= -90 &amp;&amp; d.lat &lt;= 90
         &amp;&amp; d.lng is number &amp;&amp; d.lng &gt;= -180 &amp;&amp; d.lng &lt;= 180
@@ -203,6 +222,7 @@ service cloud.firestore {
         &amp;&amp; d.createdAt is timestamp
         &amp;&amp; d.lastSeenAt is timestamp
         &amp;&amp; d.expiresAt is timestamp
+        &amp;&amp; edits is int &amp;&amp; edits &gt;= 0 &amp;&amp; edits &lt;= maxEdits()
         &amp;&amp; d.goneReports is list &amp;&amp; d.goneReports.size() &lt;= 20
         // Hayvanı gören farklı kullanıcılar: önce bildiren, sonra &quot;Hâlâ orada&quot; diyenler.
         &amp;&amp; d.seenBy is list &amp;&amp; d.seenBy.size() &gt;= 1 &amp;&amp; d.seenBy.size() &lt;= maxSeenBy()
@@ -215,12 +235,12 @@ service cloud.firestore {
         // Kapatma önerisi: dördü birlikte dolu ya da boş; closed&#x27;da geçmiş olarak kalır.
         &amp;&amp; ((d.closingReason == null &amp;&amp; d.closingBy == null &amp;&amp; d.closingAt == null
                &amp;&amp; d.closingCredible == null)
-            || (d.closingReason in [&#x27;resolved&#x27;, &#x27;gone&#x27;] &amp;&amp; d.closingBy is string
+            || (d.closingReason in [&#x27;resolved&#x27;, &#x27;gone&#x27;, &#x27;unneeded&#x27;] &amp;&amp; d.closingBy is string
                &amp;&amp; d.closingAt is timestamp &amp;&amp; d.closingCredible is bool))
         &amp;&amp; (d.status != &#x27;closing&#x27; || d.closingReason != null)
         &amp;&amp; (d.status in [&#x27;closing&#x27;, &#x27;closed&#x27;] || d.closingReason == null)
         &amp;&amp; ((d.status == &#x27;closed&#x27;
-              &amp;&amp; d.closedReason in [&#x27;resolved&#x27;, &#x27;gone&#x27;, &#x27;expired&#x27;]
+              &amp;&amp; d.closedReason in [&#x27;resolved&#x27;, &#x27;gone&#x27;, &#x27;expired&#x27;, &#x27;unneeded&#x27;]
               &amp;&amp; d.closedAt is timestamp
               &amp;&amp; d.purgeAt is timestamp)
             || (d.status != &#x27;closed&#x27;
@@ -245,7 +265,7 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
 
-    // Hayvanın kim/ne/nerede bilgisi oluşturulduktan sonra değişmez.
+    // Hayvanın kim/ne/nerede bilgisi oluşturulduktan sonra yalnızca &quot;Düzenle&quot; ile değişir.
     function identityUnchanged() {
       return !changedKeys().hasAny([&#x27;species&#x27;, &#x27;need&#x27;, &#x27;lat&#x27;, &#x27;lng&#x27;, &#x27;geohash&#x27;,
                                     &#x27;reporterId&#x27;, &#x27;createdAt&#x27;]);
@@ -328,6 +348,7 @@ service cloud.firestore {
         &amp;&amp; d.objectors == []
         &amp;&amp; d.disputed == []
         &amp;&amp; d.seenBy == [me()]
+        &amp;&amp; d.editCount == 0
         // Çevrimdışı işaretlenip sonradan senkronlanan kayıtlara izin ver.
         &amp;&amp; d.createdAt &lt; request.time + skew()
         &amp;&amp; d.createdAt &gt; request.time - maxBackdate()
@@ -335,6 +356,38 @@ service cloud.firestore {
         &amp;&amp; d.expiresAt &gt; d.createdAt
         &amp;&amp; d.expiresAt &lt;= d.createdAt + lifetime(d.need) + rounding()
         &amp;&amp; paidCreate(reportId);
+    }
+
+    // ---- Düzenleme (yalnızca koyan) ----------------------------------------
+
+    // &quot;Düzenle&quot;: yanlış seçilen tür, ihtiyaç ya da konum, kimse işarete dokunmadan düzeltilir.
+    // geohash&#x27;i istemci yeni konumdan hesaplar. İhtiyaç değişirse ömür yeni ihtiyaca göre şimdiden
+    // yeniden sayılır; değişmezse expiresAt aynı kalır. &quot;Şimdi&quot;yi istemci saati belirler: isClaim gibi
+    // skew() kadar ileri saate izin verilir (her ihtiyaç değişikliği ömrü en fazla 15 dk uzatabilir).
+    function isEdit() {
+      let before = resource.data;
+      let after = request.resource.data;
+      let edits = before.get(&#x27;editCount&#x27;, 0);
+      return changedKeys().hasOnly([&#x27;species&#x27;, &#x27;need&#x27;, &#x27;lat&#x27;, &#x27;lng&#x27;, &#x27;geohash&#x27;, &#x27;expiresAt&#x27;,
+                                    &#x27;editCount&#x27;])
+        &amp;&amp; isReporter(before)
+        &amp;&amp; before.status == &#x27;open&#x27;
+        &amp;&amp; before.seenBy == [me()]
+        &amp;&amp; before.goneReports == []
+        &amp;&amp; before.objectors == []
+        &amp;&amp; before.disputed == []
+        &amp;&amp; isLive(before)
+        &amp;&amp; request.time &lt; before.createdAt + editWindow()
+        &amp;&amp; edits &lt; maxEdits()
+        &amp;&amp; after.editCount == edits + 1
+        &amp;&amp; math.abs(after.lat - before.lat) &lt;= editMaxLatDelta()
+        &amp;&amp; math.abs(after.lng - before.lng) &lt;= editMaxLngDelta()
+        &amp;&amp; ((after.need == before.need &amp;&amp; after.expiresAt == before.expiresAt)
+            || (after.need != before.need
+                &amp;&amp; after.expiresAt &gt; request.time
+                &amp;&amp; after.expiresAt &lt;= request.time + lifetime(after.need) + skew()
+                &amp;&amp; after.expiresAt &lt;= before.createdAt + maxAge()))
+        &amp;&amp; notBanned();
     }
 
     // ---- open|claimed üzerindeki eylemler --------------------------------
@@ -367,15 +420,25 @@ service cloud.firestore {
         &amp;&amp; after.claimedBy == null;
     }
 
-    // &quot;Çözüldü&quot;: koyan tek tanıksa hemen kapanır; diğer her durumda &quot;Çözüldü dendi&quot;.
-    function isResolve(reportId) {
+    // Kapatma önerisi (`reason` ile): koyan tek tanıksa işaret hemen kapanır; diğer her durumda
+    // &quot;… dendi&quot; olur.
+    function proposesClose(reason, reportId) {
       return (reporterAlone(resource.data)
               &amp;&amp; changedKeys().hasOnly([&#x27;status&#x27;, &#x27;closedReason&#x27;, &#x27;closedAt&#x27;, &#x27;purgeAt&#x27;])
-              &amp;&amp; closesAs(&#x27;resolved&#x27;))
+              &amp;&amp; closesAs(reason))
         || (mayPropose(resource.data)
               &amp;&amp; changedKeys().hasOnly([&#x27;status&#x27;, &#x27;closingReason&#x27;, &#x27;closingBy&#x27;, &#x27;closingAt&#x27;,
                                         &#x27;closingCredible&#x27;])
-              &amp;&amp; startsClosing(&#x27;resolved&#x27;, reportId));
+              &amp;&amp; startsClosing(reason, reportId));
+    }
+
+    // &quot;Çözüldü&quot;.
+    function isResolve(reportId) { return proposesClose(&#x27;resolved&#x27;, reportId); }
+
+    // &quot;Yardım gerekmiyor&quot; (hayvan orada ama iyi görünüyor): &quot;Çözüldü&quot; ile aynı yol, yalnızca hafif
+    // ihtiyaçta. Ağır ihtiyaçta closing, itiraz gelene kadar İlgileniyorum&#x27;u kapatır; bu çok pahalı.
+    function isUnneeded(reportId) {
+      return resource.data.need in unneededNeeds() &amp;&amp; proposesClose(&#x27;unneeded&#x27;, reportId);
     }
 
     // &quot;Hâlâ orada&quot;: herkes ömrü ihtiyaca göre uzatabilir ve eski &quot;Artık yok&quot; oylarını sıfırlayabilir.
@@ -543,31 +606,60 @@ service cloud.firestore {
         &amp;&amp; after.closeUsed &lt;= closePoints();
     }
 
+    // ---- flags/{reportId}_{uid}: &quot;Bu işareti bildir&quot; -------------------------
+
+    // Kişi başına işaret başına bir bildirim: kimlik işaretle ve bildirenle belirlenir.
+    function validFlag(flagId, d) {
+      return d.keys().hasAll([&#x27;reportId&#x27;, &#x27;reason&#x27;, &#x27;at&#x27;])
+        &amp;&amp; d.keys().hasOnly([&#x27;reportId&#x27;, &#x27;reason&#x27;, &#x27;at&#x27;])
+        &amp;&amp; d.reportId is string
+        &amp;&amp; flagId == d.reportId + &#x27;_&#x27; + me()
+        &amp;&amp; d.reason in [&#x27;fake&#x27;, &#x27;unsafe&#x27;, &#x27;misuse&#x27;]
+        &amp;&amp; d.at == request.time
+        &amp;&amp; exists(/databases/$(database)/documents/reports/$(d.reportId));
+    }
+
     // ---- Koleksiyonlar -----------------------------------------------------
 
     match /reports/{reportId} {
       allow read: if signedIn();
-      allow create: if signedIn() &amp;&amp; validCreate(request.resource.data, reportId);
+      allow create: if signedIn() &amp;&amp; validCreate(request.resource.data, reportId) &amp;&amp; notBanned();
+      // Süresi dolanı kapatmak (isExpire) engellenen kimliğe de açık: harita temiz kalsın.
       allow update: if signedIn()
         &amp;&amp; validShape(request.resource.data)
-        &amp;&amp; identityUnchanged()
-        &amp;&amp; ((isWaiting(resource.data) &amp;&amp; isLive(resource.data)
-              &amp;&amp; (isClaim() || isRelease() || isResolve(reportId) || isConfirm()
-                  || isGoneReport(reportId)))
-            || (resource.data.status == &#x27;closing&#x27; &amp;&amp; isLive(resource.data)
-              &amp;&amp; (isObjection() || isAgree() || isUndo()))
-            || isExpire());
-      allow delete: if signedIn() &amp;&amp; canRetract(resource.data);
+        &amp;&amp; ((identityUnchanged()
+              &amp;&amp; ((isWaiting(resource.data) &amp;&amp; isLive(resource.data)
+                    &amp;&amp; (isClaim() || isRelease() || isResolve(reportId) || isConfirm()
+                        || isGoneReport(reportId) || isUnneeded(reportId))
+                    &amp;&amp; notBanned())
+                  || (resource.data.status == &#x27;closing&#x27; &amp;&amp; isLive(resource.data)
+                    &amp;&amp; (isObjection() || isAgree() || isUndo())
+                    &amp;&amp; notBanned())
+                  || isExpire()))
+            || isEdit());
+      allow delete: if signedIn() &amp;&amp; canRetract(resource.data) &amp;&amp; notBanned();
     }
 
     // Yalnızca sahibi okur; listelenemez, silinemez (hesap yaşı sıfırlanamasın).
     match /users/{uid} {
       allow get: if signedIn() &amp;&amp; me() == uid;
       allow create: if signedIn() &amp;&amp; me() == uid &amp;&amp; validUserCreate(request.resource.data);
-      allow update: if signedIn() &amp;&amp; me() == uid &amp;&amp; (isCreateSpend() || isCloseSpend());
+      allow update: if signedIn() &amp;&amp; me() == uid &amp;&amp; (isCreateSpend() || isCloseSpend())
+        &amp;&amp; notBanned();
     }
 
-    // Uzaktan ayarlar (ör. config/public.closingMode); yalnızca konsoldan yazılır.
+    // Yalnızca oluşturulur: okunamaz, değiştirilemez, silinemez. Aynı işarete ikinci bildirim
+    // reddedilir (uygulama bunu başarı sayar).
+    match /flags/{flagId} {
+      allow create: if signedIn() &amp;&amp; validFlag(flagId, request.resource.data) &amp;&amp; notBanned();
+    }
+
+    // Engellenen kimlikler; yalnızca konsoldan yazılır. Kişi yalnızca kendi kaydını okuyabilir.
+    match /banned/{uid} {
+      allow get: if signedIn() &amp;&amp; me() == uid;
+    }
+
+    // Uzaktan ayarlar (ör. config/public.closingMode, minBuild); yalnızca konsoldan yazılır.
     match /config/{doc} {
       allow get: if signedIn();
     }

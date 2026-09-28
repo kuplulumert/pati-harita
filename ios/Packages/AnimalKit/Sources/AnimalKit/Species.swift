@@ -1,9 +1,8 @@
-/// Hayvan türü. Bilerek kısa tutuldu: işaretleme birkaç saniye sürmeli.
+/// Hayvan türü. Bilerek kısa tutuldu: işaretleme birkaç saniye sürmeli. Şimdilik yalnızca kedi ve köpek;
+/// ham değerler shared/report-contract.json ve firestore.rules ile aynı olmalıdır.
 public enum Species: String, CaseIterable, Identifiable, Sendable {
     case cat
     case dog
-    case bird
-    case other
 
     public var id: String { rawValue }
 
@@ -11,8 +10,6 @@ public enum Species: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .cat: "Kedi"
         case .dog: "Köpek"
-        case .bird: "Kuş"
-        case .other: "Diğer"
         }
     }
 
@@ -20,8 +17,6 @@ public enum Species: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .cat: "🐈"
         case .dog: "🐕"
-        case .bird: "🐦"
-        case .other: "🐾"
         }
     }
 }

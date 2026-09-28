@@ -210,7 +210,7 @@ final class ClosingLifecycleTests: ReportTestCase {
 
     func testActionsRequireTheirStatus() throws {
         let proposed = try proposedByBob()
-        let waitingActions: [ReportAction] = [.claim, .release, .resolve, .confirmStillThere, .reportGone]
+        let waitingActions: [ReportAction] = [.claim, .release, .resolve, .confirmStillThere, .reportGone, .reportUnneeded]
         for action in waitingActions {
             XCTAssertThrowsError(try ReportLifecycle.apply(action, to: proposed, by: cara, at: minutes(31)), "\(action)") {
                 XCTAssertEqual($0 as? ReportError, .statusChanged)
@@ -309,30 +309,66 @@ final class ClosingLifecycleTests: ReportTestCase {
     // MARK: Değişmez kural
 
     /// Başkasının da gördüğü işareti tek bir kişi (bob) hangi sırayla ne yaparsa yapsın
-    /// süresinden önce kapatamaz, ömrünü kısaltamaz, silemez.
+    /// süresinden önce kapatamaz, ömrünü kısaltamaz, silemez, düzeltemez. Mama işaretinde
+    /// "Yardım gerekmiyor" da buna dahildir.
     func testNoSinglePersonRemovesAConfirmedReport() throws {
-        let seen = try seenReport()
-        let times = [minutes(2), minutes(20), minutes(70), hours(4), hours(10)]
-        var frontier: Set<Report> = [seen]
-        var reached = 0
-        for now in times {
-            var next = Set<Report>()
-            for report in frontier {
-                for action in ReportAction.allCases {
-                    for credible in [false, true] {
-                        guard let updated = try? ReportLifecycle.apply(action, to: report, by: bob, at: now, credible: credible) else {
-                            continue
+        for need in [Need.injured, .food] {
+            let seen = try seenReport(need: need)
+            // Mamanın ömrü (12 sa) kısa: son adım süresi dolmadan önce.
+            let times = [minutes(2), minutes(20), minutes(70), hours(4), hours(10)]
+            var frontier: Set<Report> = [seen]
+            var reached = 0
+            for now in times {
+                var next = Set<Report>()
+                for report in frontier {
+                    XCTAssertFalse(ReportLifecycle.canEdit(report, by: bob, at: now), "\(need)")
+                    for action in ReportAction.allCases {
+                        for credible in [false, true] {
+                            guard let updated = try? ReportLifecycle.apply(action, to: report, by: bob, at: now, credible: credible) else {
+                                continue
+                            }
+                            reached += 1
+                            XCTAssertNotEqual(updated.status, .closed, "\(need) \(action)")
+                            XCTAssertGreaterThanOrEqual(updated.expiresAt, seen.expiresAt, "\(need) \(action)")
+                            XCTAssertFalse(ReportLifecycle.canRetract(updated, by: bob))
+                            next.insert(updated)
                         }
-                        reached += 1
-                        XCTAssertNotEqual(updated.status, .closed, "\(action)")
-                        XCTAssertGreaterThanOrEqual(updated.expiresAt, seen.expiresAt, "\(action)")
-                        XCTAssertFalse(ReportLifecycle.canRetract(updated, by: bob))
-                        next.insert(updated)
                     }
                 }
+                frontier = frontier.union(next)
             }
-            frontier = frontier.union(next)
+            XCTAssertGreaterThan(reached, 20, "\(need)")
         }
-        XCTAssertGreaterThan(reached, 20)
+    }
+
+    // MARK: Tanınmayan öneri nedeni
+
+    /// Daha yeni bir sürümün yazdığı nedeni bu sürüm tanımaz: itiraz ve "Geri al" çalışır, onay ve süre
+    /// dolumu (kurallar kapanışta aynı nedeni ister) bu sürümde denenmez.
+    func testUnrecognizedClosingCanOnlyBeDisputedOrUndone() throws {
+        var report = try proposedByBob()
+        report.closing?.unrecognizedReason = "future"
+
+        XCTAssertFalse(ReportLifecycle.canConfirmClosing(report, by: alice))
+        XCTAssertThrowsError(try ReportLifecycle.apply(.confirmClosing, to: report, by: alice, at: minutes(35))) {
+            XCTAssertEqual($0 as? ReportError, .notAllowed)
+        }
+        XCTAssertEqual(ReportLifecycle.availableActions(for: report, userID: alice, at: minutes(35)), [.dispute])
+        XCTAssertEqual(ReportLifecycle.availableActions(for: report, userID: bob, at: minutes(35)), [.undoClosing])
+        XCTAssertTrue(ReportLifecycle.canAnswerClosing(report, by: alice))
+
+        let disputed = try ReportLifecycle.apply(.dispute, to: report, by: alice, at: minutes(35))
+        XCTAssertEqual(disputed.status, .open)
+        XCTAssertNil(disputed.closing)
+        XCTAssertEqual(try ReportLifecycle.apply(.undoClosing, to: report, by: bob, at: minutes(35)).status, .open)
+
+        XCTAssertFalse(ReportLifecycle.isDue(report, at: report.expiresAt))
+        XCTAssertEqual(report.phase(for: cara, at: report.expiresAt), .closed(.resolved))
+        XCTAssertThrowsError(try ReportLifecycle.apply(.expire, to: report, by: eve, at: report.expiresAt)) {
+            XCTAssertEqual($0 as? ReportError, .notAllowed)
+        }
+        XCTAssertThrowsError(try ReportLifecycle.apply(.expire, to: report, by: eve, at: minutes(35))) {
+            XCTAssertEqual($0 as? ReportError, .notExpired)
+        }
     }
 }

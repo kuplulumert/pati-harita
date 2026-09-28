@@ -3,15 +3,18 @@ import Foundation
 
 /// "… dendi" işaretinin kartta, takip sorusunda ve sesli okumada söylenen metinleri. Hüküm vermez, olgu söyler
 /// (kim, ne zaman, kaç kişi); görünüş (`ClosingLook`) kişiye ve moda göre değişir.
+///
+/// Metinler nedeni `Closing`ten okur: daha yeni bir sürümün yazdığı, bu sürümün tanımadığı neden genel
+/// "… dendi" olur (`Messages.verb(_: Closing)`).
 enum ClosingText {
     /// Kartın durum satırı: "Çözüldü dendi · 20 dk önce · doğrulanmadı", "… · Haritadan kalkış: 14.20",
     /// "… · haritadan kalktı". Öneriyi yapana: "'Çözüldü' dedin · 2 dk önce".
     static func status(of closing: Closing, viewer: String?, look: ClosingLook?, now: Date) -> String {
         let ago = Formatting.timeAgo(closing.at, now: now)
         if let viewer, closing.userID == viewer {
-            return "'\(Messages.verb(closing.reason))' dedin · \(ago)"
+            return "'\(Messages.verb(closing))' dedin · \(ago)"
         }
-        var parts = [Messages.saidLabel(closing.reason), ago]
+        var parts = [Messages.saidLabel(closing), ago]
         if let look {
             switch look {
             case .unverified:
@@ -31,9 +34,9 @@ enum ClosingText {
     }
 
     /// Öneriyi kimin yaptığı: "İşareti koyan 'Çözüldü' dedi." / "İlgilenmeye başlayan kişi 40 dk sonra 'Çözüldü' dedi." /
-    /// "'İlgileniyorum' demeyen biri 'Çözüldü' dedi."
+    /// "'İlgileniyorum' demeyen biri 'Yardım gerekmiyor' dedi."
     static func proposer(of report: Report, closing: Closing) -> String {
-        let said = "'\(Messages.verb(closing.reason))'"
+        let said = "'\(Messages.verb(closing))'"
         if closing.userID == report.reporterID {
             return "İşareti koyan \(said) dedi."
         }
@@ -51,9 +54,9 @@ enum ClosingText {
     }
 
     /// Haritadaki işaretin sesli okunan değerine eklenir: "Çözüldü dendi, doğrulanmadı" /
-    /// "Çözüldü dendi, birazdan kalkacak" / "Çözüldü dendi, haritadan kalktı".
-    static func accessibilityValue(_ look: ClosingLook, reason: ClosedReason, now: Date) -> String {
-        let said = Messages.saidLabel(reason)
+    /// "Yardım gerekmiyor dendi, birazdan kalkacak" / "Çözüldü dendi, haritadan kalktı".
+    static func accessibilityValue(_ look: ClosingLook, closing: Closing, now: Date) -> String {
+        let said = Messages.saidLabel(closing)
         switch look {
         case .unverified:
             return "\(said), doğrulanmadı"

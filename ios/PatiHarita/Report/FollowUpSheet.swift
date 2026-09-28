@@ -1,8 +1,9 @@
 import AnimalKit
 import SwiftUI
 
-/// A7 takip sorusu: kişinin koyduğu, gördüğü ya da ilgilendiği işaret için başkası "Çözüldü" / "Artık yok"
-/// dedi. Zaman çizelgesi gösterilir ve "Bilmiyorum" varsayılandır: tanımadığı birinin sözüyle "Evet" denmesin.
+/// A7 takip sorusu: kişinin koyduğu, gördüğü ya da ilgilendiği işaret için başkası "Çözüldü" / "Artık yok" /
+/// "Yardım gerekmiyor" dedi. Zaman çizelgesi gösterilir ve "Bilmiyorum" varsayılandır: tanımadığı birinin sözüyle
+/// "Evet" denmesin.
 /// "Bilmiyorum" (ve sayfayı kaydırıp kapatmak) hemen "yanıtlandı" sayılır; diğer yanıtlar eylem yapılınca.
 struct FollowUpSheet: View {
     let followUp: MapViewModel.FollowUp
@@ -69,7 +70,7 @@ struct FollowUpSheet: View {
         }
         steps.append(Step(
             symbol: "questionmark.circle.fill",
-            text: "\(Messages.saidLabel(closing.reason)) · \(Formatting.timeAgo(closing.at, now: now))"
+            text: "\(Messages.saidLabel(closing)) · \(Formatting.timeAgo(closing.at, now: now))"
         ))
         steps.append(Step(symbol: "person.fill", text: ClosingText.proposer(of: report, closing: closing)))
         if let votes = ClosingText.goneVotes(report) {
@@ -141,6 +142,30 @@ struct FollowUpSheet: View {
         message: Messages.followUp(report, viewer: "me", leavesAt: nil, now: now),
         options: [
             MapViewModel.FollowUp.Option(answer: .confirm, title: Messages.confirmClosingTitle(.resolved)),
+            MapViewModel.FollowUp.Option(answer: .dispute, title: "Hayır, hâlâ yardım gerekiyor"),
+            MapViewModel.FollowUp.Option(answer: .dontKnow, title: "Bilmiyorum"),
+        ]
+    )
+    return FollowUpSheet(followUp: followUp, now: now, isBusy: false) { _ in }
+}
+
+#Preview("Yardım gerekmiyor dendi") {
+    let now = Date()
+    var report = ReportLifecycle.makeReport(
+        id: "preview-food",
+        species: .cat,
+        need: .food,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "me",
+        now: now.addingTimeInterval(-3 * 3600)
+    )
+    report = (try? ReportLifecycle.apply(.confirmStillThere, to: report, by: "passer-by", at: now.addingTimeInterval(-2 * 3600))) ?? report
+    report = (try? ReportLifecycle.apply(.reportUnneeded, to: report, by: "passer-by", at: now.addingTimeInterval(-20 * 60))) ?? report
+    let followUp = MapViewModel.FollowUp(
+        report: report,
+        message: Messages.followUp(report, viewer: "me", leavesAt: nil, now: now),
+        options: [
+            MapViewModel.FollowUp.Option(answer: .confirm, title: Messages.confirmClosingTitle(.unneeded)),
             MapViewModel.FollowUp.Option(answer: .dispute, title: "Hayır, hâlâ yardım gerekiyor"),
             MapViewModel.FollowUp.Option(answer: .dontKnow, title: "Bilmiyorum"),
         ]

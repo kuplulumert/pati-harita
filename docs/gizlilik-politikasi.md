@@ -7,38 +7,54 @@
 Son güncelleme: [tarih]
 
 Pati Harita, sokakta yardıma ihtiyacı olan hayvanları haritada işaretlemeye yarayan bir uygulamadır.
-Uygulama **hesap, ad, e-posta, telefon numarası, fotoğraf ya da açıklama istemez.**
+Uygulama **hesap, ad, e-posta, telefon numarası, fotoğraf ya da açıklama istemez.** Kullanım kuralları:
+[Kullanım Koşulları](kullanim-kosullari.md).
 
 ## Hangi verileri işliyoruz?
 
 | Veri | Ne zaman | Neden |
 | --- | --- | --- |
-| **Hayvanın işaretlendiği nokta** (enlem/boylam) | Bir işaret koyduğunuzda | İşaretin haritada gösterilmesi |
-| İşaretin türü ve ihtiyacı (ör. "Kedi · Mama / su") | Bir işaret koyduğunuzda | Yardım edeceklerin ne gerektiğini bilmesi |
-| **Rastgele anonim kimlik** | Uygulamayı ilk açtığınızda otomatik | "İşareti kim koydu / kim ilgileniyor" ayrımı; ör. yalnızca ilgilenen kişinin "Çözüldü" diyebilmesi |
-| Yaptığınız eylemler (İlgileniyorum, Hâlâ orada, Artık yok, Çözüldü) ve zamanları | Bu düğmelere bastığınızda | İşaretin durumunun güncel tutulması |
+| **İşaretin konumu** (enlem/boylam) | Bir işaret koyduğunuzda ya da düzelttiğinizde | İşaretin haritada gösterilmesi |
+| İşaretin türü ve ihtiyacı (ör. "Kedi · Aç ve zayıf") | Bir işaret koyduğunuzda ya da düzelttiğinizde | Yardım edeceklerin ne gerektiğini bilmesi |
+| **Rastgele anonim kimlik** | Uygulamayı ilk açtığınızda otomatik | "İşareti kim koydu / kim ilgileniyor" ayrımı; ör. yalnızca işareti koyanın düzeltebilmesi, günlük işaret hakkı |
+| Yaptığınız eylemler (İlgileniyorum, Hâlâ orada, Artık yok, Çözüldü, Yardım gerekmiyor, itiraz) ve zamanları | Bu düğmelere bastığınızda | İşaretin durumunun güncel tutulması |
+| Bildirdiğiniz işaretler (hangi işaret, seçtiğiniz neden, zaman ve anonim kimliğiniz) | "Bu işareti bildir" dediğinizde | Kurallara aykırı işaretleri incelemek |
+| Günlük haklarınızın sayaçları (hesap yaşı, son 24 saatte konan ve kapatılan işaretler) | İşaret koyduğunuzda ya da kapattığınızda | Kötüye kullanımı sınırlamak |
 | Cihaz bütünlüğü doğrulaması (Apple DeviceCheck / App Check) | Sunucuya her istekte | Sahte istemcileri ve botları engellemek |
 
-**Konumunuz saklanmaz.** Konum izni yalnızca haritayı bulunduğunuz yere getirmek, işaretleme iğnesini oraya
-yerleştirmek ve işaretlere uzaklığı göstermek için cihazınızda kullanılır. Sunucuya yalnızca sizin seçtiğiniz
-işaret noktası gönderilir. Bu nokta çoğu zaman bulunduğunuz yere yakın olduğundan, işaret koymadan önce
-iğneyi dilediğiniz yere kaydırabilirsiniz.
+**İşaretin konumu anonim kimliğinizle birlikte saklanır.** İşaret iğnesi varsayılan olarak bulunduğunuz yere konur;
+bu yüzden saklanan nokta çoğu zaman o anda bulunduğunuz yere yakındır. İşaret koymadan önce iğneyi hayvanın olduğu
+yere kaydırabilirsiniz. Bunun dışında konum izni yalnızca cihazınızda kullanılır: haritayı bulunduğunuz yere getirmek,
+işaretlere uzaklığı göstermek ve iğne bulunduğunuz yerden çok uzaksa bunu sormak için. Sürekli konumunuz sunucuya
+gönderilmez ve saklanmaz.
 
 Anonim kimlik adınızla, e-postanızla ya da cihazınızın reklam kimliğiyle ilişkilendirilmez. Uygulama
 reklam, analitik ya da izleme (tracking) aracı içermez.
 
+Şu bilgiler **yalnızca cihazınızda** tutulur ve sunucuya gönderilmez: kuralları kabul ettiğiniz sürüm, son işaretlerinizin
+sayısı ("Yardıma ihtiyacı var mı?" sorusu için), gizlediğiniz ya da bildirdiğiniz işaretlerin listesi ve gece güvenlik
+hatırlatmasının en son ne zaman gösterildiği.
+
 ## Kimler görebilir?
 
 - İşaretler (nokta, tür, ihtiyaç, durum ve zamanlar) **uygulamayı kullanan herkese açıktır**; amacı budur.
-- Anonim kimlik diğer kullanıcılara gösterilmez; uygulama yalnızca "Sen ilgileniyorsun" / "Biri ilgileniyor"
-  gibi ayrımlar için kullanır.
+- İşaretle birlikte saklanan **anonim kimlikler** (işareti koyan, ilgilenen, "Hâlâ orada", "Artık yok" ya da benzerlerini
+  diyenler) de işaret verisinin parçasıdır ve uygulamayı kullanan diğer kişilerin erişebildiği veride yer alır. Uygulama
+  bu kimlikleri ekranda göstermez; yalnızca "Sen ilgileniyorsun" / "Biri ilgileniyor" gibi ayrımlar için kullanır. Kimlik
+  sizi doğrudan tanımlamaz, ancak aynı kimlikle yapılan işaretler ve eylemler birbirine bağlanabilir.
+- Bildirimler ("Bu işareti bildir") yalnızca uygulamanın sahibi tarafından görülür; diğer kullanıcılar göremez ve
+  haritada hiçbir etkisi yoktur.
 
 ## Ne kadar süre saklanır?
 
-- Her işaretin ihtiyaca göre bir ömrü vardır (12–72 saat). Süre dolunca, çözüldüğünde ya da "Artık yok"
-  denildiğinde işaret haritadan kalkar.
-- Kapanan işaretler **30 gün sonra otomatik olarak silinir.**
-- Anonim kimlik uygulamayı sildiğinizde cihazınızdan kaldırılır. Uygulamayı yeniden kurduğunuzda yeni bir kimlik oluşur.
+- Her işaretin ihtiyaca göre bir ömrü vardır (12–72 saat, en fazla 7 gün). Süre dolunca, çözüldüğünde ya da "Artık yok"
+  / "Yardım gerekmiyor" denildiğinde işaret haritadan kalkar.
+- Kapanan işaretler, otomatik silme etkinleştirildiğinde **en fazla 30 gün** saklanır ve sonra silinir. Otomatik silme
+  etkinleştirilene kadar kapanan işaretler talep üzerine elle silinir.
+- Bildirimler inceleme için [süre] saklanır.
+- Kurallara aykırı kullanım nedeniyle engellenen anonim kimlikler engel listesinde tutulur.
+- Anonim kimlik cihazın anahtar zincirinde (Keychain) saklanır; uygulamayı silip yeniden kurduğunuzda aynı kimlik
+  kullanılmaya devam edebilir. Kimliğinizle ilişkili işaretlerin silinmesini istemek için bize yazabilirsiniz.
 
 ## Hizmet sağlayıcılar
 
@@ -51,11 +67,15 @@ Veriler aşağıdaki hizmet sağlayıcıların altyapısında işlenir:
   https://www.apple.com/legal/privacy/
 - **Apple DeviceCheck**: cihaz bütünlüğü doğrulaması.
 
+"Konumu paylaş" düğmesini kullanırsanız, seçtiğiniz uygulama ve kişiyle yalnızca işaretin konum bağlantısı paylaşılır;
+bu paylaşım sizin kontrolünüzdedir.
+
 ## Haklarınız
 
 KVKK ve GDPR kapsamında verilerinize erişme, düzeltilmesini ya da silinmesini isteme haklarınız vardır.
-Uygulama sizi tanımlayan bir bilgi tutmadığından, bir işaretin kaldırılmasını istiyorsanız işaretin konumunu ve
-yaklaşık zamanını bize yazmanız yeterlidir.
+Uygulama adınızı ya da iletişim bilginizi tutmadığından, bir işaretin kaldırılmasını istiyorsanız işaretin konumunu ve
+yaklaşık zamanını bize yazmanız yeterlidir. Açıklama ekranının altında görünen kimlik başlangıcını da eklerseniz
+kayıtlarınızı daha kolay buluruz.
 
 ## Çocuklar
 

@@ -44,6 +44,21 @@ struct ReportContract: Decodable {
         let defaultMode: String
     }
 
+    struct EditContract: Decodable {
+        let windowMinutes: Int
+        let maxEdits: Int
+        let maxLatDelta: Double
+        let maxLngDelta: Double
+    }
+
+    struct CollectionsContract: Decodable {
+        let flags: String
+        let banned: String
+        let config: String
+    }
+
+    let collection: String
+    let usersCollection: String
     let species: [String]
     let statuses: [String]
     let needs: [String: NeedContract]
@@ -62,6 +77,13 @@ struct ReportContract: Decodable {
     let createQuota: CreateQuotaContract
     let closeBudget: CloseBudgetContract
     let closingDisplay: ClosingDisplayContract
+    let closingReasons: [String]
+    let closedReasons: [String]
+    let unneededNeeds: [String]
+    let gentleCheckNeeds: [String]
+    let edit: EditContract
+    let flagReasons: [String]
+    let collections: CollectionsContract
 }
 
 struct GeohashVectors: Decodable {

@@ -64,4 +64,36 @@ final class ContractTests: XCTestCase {
         XCTAssertEqual(ClosingMode.allCases.map(\.rawValue), display.modes)
         XCTAssertEqual(ClosingMode.fallback.rawValue, display.defaultMode)
     }
+
+    func testClosingAndClosedReasonsMatchContract() {
+        XCTAssertEqual(Set(ClosedReason.allCases.map(\.rawValue)), Set(contract.closedReasons))
+        XCTAssertEqual(
+            Set(ClosedReason.allCases.filter(\.canBeProposed).map(\.rawValue)),
+            Set(contract.closingReasons)
+        )
+    }
+
+    func testNeedSetsMatchContract() {
+        XCTAssertEqual(Set(Need.allCases.filter(\.allowsUnneeded).map(\.rawValue)), Set(contract.unneededNeeds))
+        XCTAssertEqual(Set(Need.allCases.filter(\.needsGentleCheck).map(\.rawValue)), Set(contract.gentleCheckNeeds))
+    }
+
+    func testEditConstantsMatchContract() {
+        XCTAssertEqual(ReportLifecycle.editWindow, TimeInterval(contract.edit.windowMinutes) * 60)
+        XCTAssertEqual(ReportLifecycle.maxEdits, contract.edit.maxEdits)
+        XCTAssertEqual(ReportLifecycle.editMaxLatDelta, contract.edit.maxLatDelta, accuracy: 1e-12)
+        XCTAssertEqual(ReportLifecycle.editMaxLngDelta, contract.edit.maxLngDelta, accuracy: 1e-12)
+    }
+
+    func testFlagReasonsMatchContract() {
+        XCTAssertEqual(Set(FlagReason.allCases.map(\.rawValue)), Set(contract.flagReasons))
+    }
+
+    func testCollectionNamesMatchContract() {
+        XCTAssertEqual(CollectionName.reports, contract.collection)
+        XCTAssertEqual(CollectionName.users, contract.usersCollection)
+        XCTAssertEqual(CollectionName.flags, contract.collections.flags)
+        XCTAssertEqual(CollectionName.banned, contract.collections.banned)
+        XCTAssertEqual(CollectionName.config, contract.collections.config)
+    }
 }

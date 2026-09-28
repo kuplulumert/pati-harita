@@ -48,14 +48,20 @@ enum MarkerIcon: Hashable {
 
 /// Harita işareti: renk + simge ihtiyacı, köşedeki emoji türü, sol üstteki rozet
 /// durumu (ilgilenen, haber vermeyen ilgilenen, "… dendi"), sağ alttaki sayı hayvanı kaç kişinin
-/// bildirdiğini gösterir. Acil işaretler daha büyük ve haleli çizilir.
+/// bildirdiğini gösterir. Acil işaretler daha büyük ve haleli, hafif ihtiyaçlar ("Aç ve zayıf") daha küçük çizilir.
 ///
 /// Görünümün alt-orta noktası iğnenin ucudur (`ReportMapView` işareti bu noktadan konumlar).
 struct MarkerPin: View {
     let style: MarkerStyle
 
+    /// Başın çapı (seçili değilken): acil 46, ağır ihtiyaçlar 40, hafifler 32.
+    static func baseDiameter(for need: Need) -> CGFloat {
+        if need.isUrgent { return 46 }
+        return need.isSerious ? 40 : 32
+    }
+
     private var diameter: CGFloat {
-        (style.need.isUrgent ? 46 : 40) * (style.isSelected ? 1.2 : 1)
+        Self.baseDiameter(for: style.need) * (style.isSelected ? 1.2 : 1)
     }
 
     /// Acil işaretin halesinin daireden her yana taşan kısmı.
@@ -63,12 +69,17 @@ struct MarkerPin: View {
         style.need.isUrgent ? 6 : 0
     }
 
+    /// Köşe rozetleri (tür, durum); küçük başta biraz küçülür ki simgeyi örtmesin.
+    private var cornerBadgeSize: CGFloat {
+        style.need.isSerious ? 20 : 18
+    }
+
     var body: some View {
         VStack(spacing: -2) {
             head
             PinTail()
                 .fill(style.need.color)
-                .frame(width: 14, height: 9)
+                .frame(width: style.need.isSerious ? 14 : 12, height: style.need.isSerious ? 9 : 8)
         }
         // Kuyruğun da üstünde çizilsin diye tüm iğneye eklenir. Kaplama yerleşimi (boyut, uç noktası)
         // değiştirmez; rozet dairenin sağ alt köşesinden biraz taşar ama kenar boşluğunun içinde kalır.
@@ -100,8 +111,8 @@ struct MarkerPin: View {
         }
         .overlay(alignment: .topTrailing) {
             Text(style.species.emoji)
-                .font(.system(size: 12))
-                .frame(width: 20, height: 20)
+                .font(.system(size: cornerBadgeSize * 0.6))
+                .frame(width: cornerBadgeSize, height: cornerBadgeSize)
                 .background(Circle().fill(.white))
                 .shadow(color: .black.opacity(0.2), radius: 1)
                 .offset(x: 4, y: -4)
@@ -111,7 +122,7 @@ struct MarkerPin: View {
                 Image(systemName: badge.symbolName)
                     .font(.system(size: badge == .closing ? 11 : 10, weight: badge == .closing ? .heavy : .bold))
                     .foregroundStyle(.white)
-                    .frame(width: 20, height: 20)
+                    .frame(width: cornerBadgeSize, height: cornerBadgeSize)
                     .background(Circle().fill(badge.color))
                     .overlay(Circle().stroke(.white, lineWidth: 1.5))
                     .offset(x: -4, y: -4)
@@ -198,7 +209,7 @@ struct PlacementPin: View {
         }
         HStack(alignment: .bottom) {
             MarkerPin(style: MarkerStyle(need: .injured, species: .dog, badge: .helping, isSelected: false, seenBadge: "3"))
-            MarkerPin(style: MarkerStyle(need: .food, species: .bird, badge: nil, isSelected: true, seenBadge: "12"))
+            MarkerPin(style: MarkerStyle(need: .food, species: .cat, badge: nil, isSelected: true, seenBadge: "12"))
             MarkerPin(style: MarkerStyle(need: .emergency, species: .dog, badge: nil, isSelected: false, seenBadge: "99+"))
             PlacementPin(species: nil, isLifted: false)
             PlacementPin(species: .cat, isLifted: true)
@@ -208,7 +219,7 @@ struct PlacementPin: View {
             MarkerPin(style: MarkerStyle(need: .injured, species: .cat, badge: .closing, isSelected: false, seenBadge: "2"))
             MarkerPin(style: MarkerStyle(need: .food, species: .dog, badge: .closing, isSelected: false, seenBadge: nil))
                 .opacity(0.6)
-            MarkerPin(style: MarkerStyle(need: .vet, species: .bird, badge: .helpingStale, isSelected: false, seenBadge: nil))
+            MarkerPin(style: MarkerStyle(need: .vet, species: .dog, badge: .helpingStale, isSelected: false, seenBadge: nil))
             StreetDot()
             StreetDot(isSelected: true)
         }

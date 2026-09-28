@@ -5,12 +5,15 @@ import Foundation
 /// `Report` / `UserRecord` <-> Firestore dokümanı. Alan adları firestore.rules'taki `reportKeys()` ve
 /// `userKeys()` ile aynıdır. Kurallar tüm alanların her zaman bulunmasını ister; boş değerler `null` yazılır.
 enum FirestoreReportMapper {
-    static let collection = "reports"
-    static let usersCollection = "users"
-    static let configCollection = "config"
+    static let collection = CollectionName.reports
+    static let usersCollection = CollectionName.users
+    static let configCollection = CollectionName.config
+    static let flagsCollection = CollectionName.flags
+    static let bannedCollection = CollectionName.banned
     /// `config/public`: yalnızca konsoldan yazılır.
     static let publicConfigDocument = "public"
     static let closingModeField = "closingMode"
+    static let minBuildField = "minBuild"
 
     enum Field {
         static let species = "species"
@@ -37,6 +40,15 @@ enum FirestoreReportMapper {
         static let closingCredible = "closingCredible"
         static let objectors = "objectors"
         static let disputed = "disputed"
+        /// Bu alanın eklenmesinden önce konan işaretlerde yoktur; 0 sayılır (kurallar da öyle sayar).
+        static let editCount = "editCount"
+    }
+
+    /// `flags/{reportId}_{uid}`: tam bu üç alan (kurallardaki `validFlag`).
+    enum FlagField {
+        static let reportID = "reportId"
+        static let reason = "reason"
+        static let at = "at"
     }
 
     enum UserField {
@@ -81,10 +93,12 @@ enum FirestoreReportMapper {
             Field.closingCredible: nullable(report.closing?.credible),
             Field.objectors: report.objectors,
             Field.disputed: report.disputed,
+            Field.editCount: report.editCount,
         ]
     }
 
-    /// Bir eylemden sonra yalnızca değişen alanlar. Değişmemiş zaman damgalarını geri yazmak
+    /// Bir eylemden ya da düzeltmeden sonra yalnızca değişen alanlar (düzeltmede tür, ihtiyaç, `lat`, `lng`,
+    /// `geohash`, `editCount` ve gerekirse `expiresAt`). Değişmemiş zaman damgalarını geri yazmak
     /// (Date'e çevirip tekrar Timestamp yapmak) mikro saniye kaydırıp kuralları bozardı.
     static func changes(from old: Report, to updated: Report) -> [String: Any] {
         let changed = Set(updated.changedFields(from: old).map(\.rawValue))
@@ -100,7 +114,10 @@ enum FirestoreReportMapper {
         return fields
     }
 
-    /// Tanınmayan ya da eksik alanlı dokümanlar (ör. eski sürüm) `nil` döner ve haritada gösterilmez.
+    /// Eksik alanlı ya da bu sürümün tanımadığı tür veya ihtiyaçlı dokümanlar `nil` döner ve gösterilmez
+    /// (eylemler yanlış kurallarla hesaplanırdı). Daha yeni bir sürümün yazdığı kapatma nedenleri ise
+    /// düşürülmez: tanınmayan öneri nedeni genel bir "… dendi" olur (`Closing.unrecognizedReason`),
+    /// tanınmayan kapanış nedeni (ör. sahibin konsoldan yazdığı 'removed') `closedReason: nil` ile kapalıdır.
     static func report(id: String, data: [String: Any]) -> Report? {
         guard
             let species = (data[Field.species] as? String).flatMap(Species.init(rawValue:)),
@@ -136,6 +153,7 @@ enum FirestoreReportMapper {
             reporterID: reporterID,
             createdAt: createdAt,
             status: status,
+            // Tanınmayan neden `nil` okunur; `status` yine kapalıdır.
             closedReason: (data[Field.closedReason] as? String).flatMap(ClosedReason.init(rawValue:)),
             lastSeenAt: lastSeenAt,
             expiresAt: expiresAt,
@@ -147,19 +165,26 @@ enum FirestoreReportMapper {
             purgeAt: date(data[Field.purgeAt]),
             closing: closing,
             objectors: data[Field.objectors] as? [String] ?? [],
-            disputed: data[Field.disputed] as? [String] ?? []
+            disputed: data[Field.disputed] as? [String] ?? [],
+            // Düzeltmeden önce konan işaretlerde alan yok. Yanlış okunursa sonraki düzeltme reddedilirdi
+            // (kurallar tam bir artış ister).
+            editCount: int(data[Field.editCount]) ?? 0
         )
     }
 
     /// Öneri dörtlüsü: ya hepsi dolu ya hepsi boş (kurallardaki `validShape`).
     private static func closing(from data: [String: Any]) -> Closing? {
         guard
-            let reason = (data[Field.closingReason] as? String).flatMap(ClosedReason.init(rawValue:)),
-            reason != .expired,
+            let rawReason = data[Field.closingReason] as? String,
             let userID = data[Field.closingBy] as? String,
             let at = date(data[Field.closingAt]),
             let credible = data[Field.closingCredible] as? Bool
         else { return nil }
+        guard let reason = ClosedReason(rawValue: rawReason), reason.canBeProposed else {
+            // Daha yeni bir sürümün nedeni: işaret yine görünür ve itiraz edilebilir; `reason` yalnızca yer
+            // tutucudur, bu sürüm öneriyi onaylamaz ve süresi dolunca kapatmaz (bkz. `Closing.unrecognizedReason`).
+            return Closing(reason: .resolved, userID: userID, at: at, credible: credible, unrecognizedReason: rawReason)
+        }
         return Closing(reason: reason, userID: userID, at: at, credible: credible)
     }
 
@@ -233,10 +258,26 @@ enum FirestoreReportMapper {
         )
     }
 
+    // MARK: flags/{reportId}_{uid}
+
+    /// "Bu işareti bildir". Kurallar `at`in sunucu saati olmasını ister.
+    static func flagData(reportID: String, reason: FlagReason) -> [String: Any] {
+        [
+            FlagField.reportID: reportID,
+            FlagField.reason: reason.rawValue,
+            FlagField.at: FieldValue.serverTimestamp(),
+        ]
+    }
+
     // MARK: config/public
 
-    static func closingMode(data: [String: Any]?) -> ClosingMode {
-        (data?[closingModeField] as? String).flatMap(ClosingMode.init(rawValue:)) ?? .fallback
+    /// Tanınmayan gösterim modu `ClosingMode.fallback`; `minBuild` konsolda sayı ya da yazı olarak girilebilir.
+    static func publicConfig(data: [String: Any]?) -> PublicConfig {
+        let minBuild = data?[minBuildField]
+        return PublicConfig(
+            closingMode: (data?[closingModeField] as? String).flatMap(ClosingMode.init(rawValue:)) ?? .fallback,
+            minBuild: int(minBuild) ?? (minBuild as? String).flatMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        )
     }
 
     // MARK: Yardımcılar

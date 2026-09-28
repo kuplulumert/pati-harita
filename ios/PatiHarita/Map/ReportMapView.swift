@@ -15,7 +15,7 @@ struct CameraRequest: Equatable {
 struct ReportMapView: UIViewRepresentable {
     static let defaultCenter = Coordinate(latitude: 41.0082, longitude: 28.9784) // İstanbul
     static let defaultZoom: Double = 13
-    /// "Çözüldü dendi" iken hafif ihtiyaçların (mama, diğer) en fazla opaklığı; ağır ihtiyaçlar solmaz.
+    /// "… dendi" iken hafif ihtiyacın ("Aç ve zayıf") en fazla opaklığı; ağır ihtiyaçlar solmaz.
     static let fadingAlpha: CGFloat = 0.6
     /// Gri noktanın görüntüsü küçük; dokunma alanı her yana bu kadar genişletilir.
     static let dotTouchPadding: CGFloat = 12
@@ -207,6 +207,11 @@ struct ReportMapView: UIViewRepresentable {
                 let annotation: ReportAnnotation
                 if let existing = annotations[marker.report.id] {
                     annotation = existing
+                    // İşareti koyan konumu düzeltmiş olabilir; MapKit `coordinate`'i gözler ve iğneyi taşır.
+                    let target = CLLocationCoordinate2D(marker.report.coordinate)
+                    if existing.coordinate.latitude != target.latitude || existing.coordinate.longitude != target.longitude {
+                        existing.coordinate = target
+                    }
                 } else {
                     annotation = ReportAnnotation(
                         reportID: marker.report.id,
@@ -255,15 +260,16 @@ struct ReportMapView: UIViewRepresentable {
                 spoken.append(seen)
             }
             if let look, let closing = report.closing {
-                spoken.append(ClosingText.accessibilityValue(look, reason: closing.reason, now: parent.now))
+                spoken.append(ClosingText.accessibilityValue(look, closing: closing, now: parent.now))
             }
             annotation.spokenValue = spoken.isEmpty ? nil : spoken.joined(separator: ", ")
 
             if isDot {
-                // Nokta hiçbir iğnenin önüne geçmez; çakışınca MapKit onu gizleyebilir.
+                // Nokta hiçbir iğnenin önüne geçmez; iğneler `.required` olduğundan çakışınca MapKit noktayı gizler,
+                // iğne kalır.
                 annotation.alpha = 1
                 annotation.zPriority = .min
-                annotation.displayPriority = .defaultLow
+                annotation.displayPriority = MKFeatureDisplayPriority(rawValue: MKFeatureDisplayPriority.defaultLow.rawValue - 1)
                 annotation.touchPadding = ReportMapView.dotTouchPadding
             } else {
                 // Eski işaretler soluklaşır: hâlâ geçerli mi bilinmiyor. Kalkmak üzere olan hafif "… dendi"
@@ -273,11 +279,16 @@ struct ReportMapView: UIViewRepresentable {
                     alpha = min(alpha, ReportMapView.fadingAlpha)
                 }
                 annotation.alpha = alpha
-                // Üst üste binen işaretlerde acil (ve seçili) olan üstte çizilir.
+                // Üst üste binen işaretlerde acil (ve seçili) olan üstte, hafif ihtiyaç ("Aç ve zayıf") en altta
+                // çizilir (`Need.priority`).
                 annotation.zPriority = MKAnnotationViewZPriority(
                     rawValue: MKAnnotationViewZPriority.defaultUnselected.rawValue
                         + Float(report.need.priority + (isSelected ? 100 : 0))
                 )
+                // Her iğne `.required`: MapKit çakışan iğneleri gizlemez. `.required`'ın altındaki öncelikte hafif
+                // iğneler hem ağır iğnelerin hem de birbirlerinin yüzünden kaybolur, uzaklaştıkça çoğu görünmezdi
+                // (besleyenler aç hayvanları varsayılan yakınlıkta da görmeli). Hafif iğne küçüktür ve yukarıdaki
+                // `zPriority` ile ağır iğnelerin altında çizilir; çakışınca altta kalır ama gizlenmez.
                 annotation.displayPriority = .required
                 annotation.touchPadding = 0
             }
@@ -315,7 +326,7 @@ struct ReportMapView: UIViewRepresentable {
             // kalırdı.
             view.displayPriority = annotation.displayPriority
             (view as? ReportAnnotationView)?.touchPadding = annotation.touchPadding
-            // VoiceOver ve arayüz testi işareti "Mama / su, Kedi" gibi okur; ardından değer olarak "3 kişi bildirdi"
+            // VoiceOver ve arayüz testi işareti "Aç ve zayıf, Kedi" gibi okur; ardından değer olarak "3 kişi bildirdi"
             // ve "… dendi" görünüşü gelir (etiket değişmez, test onu birebir arar). Gri nokta da aynı etiketi taşır.
             view.isAccessibilityElement = true
             view.accessibilityTraits = .button
@@ -437,6 +448,11 @@ struct ReportMapView: UIViewRepresentable {
 
         nonisolated func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
             MainActor.assumeIsolated {
+                for view in views where view.annotation is MKUserLocation {
+                    // Mavi konum noktası çakışmaya katılmaz: kişinin bulunduğu yerdeki gri nokta (`.required`'ın
+                    // altında) mavi noktayla çakıştığı için gizlenmesin.
+                    view.collisionMode = .none
+                }
                 for view in views {
                     // Yeni işaret "belirir"; kaydırınca yeniden görünen işaretler canlandırılmaz.
                     guard let annotation = view.annotation as? ReportAnnotation, !annotation.hasAppeared else { continue }
@@ -481,11 +497,13 @@ final class ReportAnnotationView: MKAnnotationView {
     }
 }
 
-/// Haritadaki bir işaret. Konumu değişmez (kurallar izin vermez); görünümü her güncellemede yenilenir.
+/// Haritadaki bir işaret; görünümü her güncellemede yenilenir. Konum yalnızca işareti koyanın düzeltmesiyle
+/// değişir (en fazla ~200 m).
 final class ReportAnnotation: NSObject, MKAnnotation {
     let reportID: String
-    let coordinate: CLLocationCoordinate2D
-    /// Erişilebilirlik etiketi ("Mama / su, Kedi"); `canShowCallout` kapalı olduğu için ekranda görünmez.
+    /// MapKit değişikliği KVO ile izleyip iğneyi taşır; bu yüzden `dynamic`.
+    @objc dynamic var coordinate: CLLocationCoordinate2D
+    /// Erişilebilirlik etiketi ("Aç ve zayıf, Kedi"); `canShowCallout` kapalı olduğu için ekranda görünmez.
     var title: String?
     /// Erişilebilirlik değeri ("3 kişi bildirdi, Çözüldü dendi, doğrulanmadı"); söylenecek bir şey yoksa `nil`.
     /// (`accessibilityValue` adı NSObject'te zaten var.)

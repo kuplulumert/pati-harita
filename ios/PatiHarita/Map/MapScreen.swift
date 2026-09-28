@@ -20,6 +20,21 @@ struct MapScreen: View {
             ZStack {
                 map(safeArea: proxy.safeAreaInsets)
                     .ignoresSafeArea()
+                    // Gece yardıma giderken; "Devam et" bekleyen işi (İlgileniyorum ya da yol tarifi) yapar.
+                    .alert(
+                        MapViewModel.nightReminderTitle,
+                        isPresented: Binding(
+                            get: { viewModel.nightReminder != nil },
+                            set: { if !$0 { viewModel.dismissNightReminder() } }
+                        ),
+                        presenting: viewModel.nightReminder
+                    ) { reminder in
+                        Button(MapViewModel.nightReminderContinueTitle) {
+                            if let url = viewModel.continueAfterNightReminder(reminder) { openURL(url) }
+                        }
+                    } message: { _ in
+                        Text(MapViewModel.nightReminderMessage)
+                    }
 
                 if viewModel.isPlacing {
                     placementPin
@@ -27,6 +42,17 @@ struct MapScreen: View {
 
                 VStack(spacing: 10) {
                     topBar
+                        // Takip sorusu ve açıklama sayfasından ayrı bir görünüme bağlı (bkz. `followUpBinding`).
+                        .sheet(item: blockingSheet) { sheet in
+                            switch sheet {
+                            case .update:
+                                UpdateRequiredSheet()
+                                    .interactiveDismissDisabled()
+                            case .onboarding:
+                                OnboardingSheet(onAccept: { viewModel.acceptTerms() })
+                                    .interactiveDismissDisabled()
+                            }
+                        }
                     Spacer(minLength: 0)
                     if let toast = viewModel.toast {
                         ToastView(toast: toast) { viewModel.undo(toast) }
@@ -42,6 +68,23 @@ struct MapScreen: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+                // Mamada "Yardım gerekmiyor". Onay ve seçimlerin hepsinde düğmeler, soru açıldığı andaki
+                // işaretle çalışır (`presenting`).
+                .confirmationDialog(
+                    MapViewModel.unneededQuestion,
+                    isPresented: Binding(
+                        get: { viewModel.unneededCandidate != nil },
+                        set: { if !$0 { viewModel.cancelUnneeded() } }
+                    ),
+                    titleVisibility: .visible,
+                    presenting: viewModel.unneededCandidate
+                ) { report in
+                    ForEach(viewModel.unneededChoices(for: report)) { action in
+                        Button(Messages.unneededChoiceTitle(action)) { viewModel.chooseUnneeded(action, on: report) }
+                            .accessibilityIdentifier(action == .reportUnneeded ? "unneeded-fine" : "unneeded-gone")
+                    }
+                    Button(MapViewModel.unneededCancelTitle, role: .cancel) { viewModel.cancelUnneeded() }
+                }
             }
             // Açıklama sayfasıyla aynı görünüme bağlanmasın diye burada (iki `.sheet` bir arada sorun çıkarabiliyor).
             .sheet(item: followUpBinding) { followUp in
@@ -52,10 +95,29 @@ struct MapScreen: View {
                 .presentationDragIndicator(.visible)
                 .onAppear { presentedFollowUpID = followUp.id }
             }
+            // "⋯" → "Bu işareti bildir": neden sabit listeden seçilir, serbest metin yok.
+            .confirmationDialog(
+                MapViewModel.flagQuestion,
+                isPresented: Binding(
+                    get: { viewModel.flagCandidate != nil },
+                    set: { if !$0 { viewModel.cancelFlag() } }
+                ),
+                titleVisibility: .visible,
+                presenting: viewModel.flagCandidate
+            ) { report in
+                ForEach(FlagReason.allCases) { reason in
+                    Button(reason.title) { viewModel.flag(report, reason: reason) }
+                        .accessibilityIdentifier("flag-\(reason.rawValue)")
+                }
+                Button(MapViewModel.flagCancelTitle, role: .cancel) { viewModel.cancelFlag() }
+            } message: { _ in
+                Text(MapViewModel.flagMessage)
+            }
         }
         .animation(.snappy(duration: 0.3), value: viewModel.mode)
         .animation(.snappy(duration: 0.3), value: viewModel.selectedReportID)
         .animation(.snappy(duration: 0.3), value: viewModel.duplicateCandidateID)
+        .animation(.snappy(duration: 0.3), value: viewModel.pendingReport)
         .animation(.snappy(duration: 0.3), value: viewModel.toast)
         .sensoryFeedback(.success, trigger: viewModel.reportsCreated)
         .sheet(isPresented: $showsLegend) {
@@ -75,6 +137,19 @@ struct MapScreen: View {
             Button(MapViewModel.disputeConfirmTitle) { viewModel.confirmDispute(report) }
             Button(MapViewModel.disputeCancelTitle, role: .cancel) { viewModel.cancelDispute() }
         }
+        // Düzeltme panelindeki "İşareti sil".
+        .confirmationDialog(
+            MapViewModel.retractQuestion,
+            isPresented: Binding(
+                get: { viewModel.retractCandidate != nil },
+                set: { if !$0 { viewModel.cancelRetract() } }
+            ),
+            titleVisibility: .visible,
+            presenting: viewModel.retractCandidate
+        ) { report in
+            Button(MapViewModel.retractConfirmTitle, role: .destructive) { viewModel.confirmRetract(report) }
+            Button(MapViewModel.retractCancelTitle, role: .cancel) { viewModel.cancelRetract() }
+        }
         .task { await viewModel.run() }
         // Öne gelince takip edilen işaretler (en fazla 10 dk'da bir) yeniden okunur.
         .onChange(of: scenePhase) { _, phase in
@@ -89,13 +164,38 @@ struct MapScreen: View {
         }
     }
 
+    /// Kaydırarak kapatılamayan sayfalar. Önce güncelleme (desteklenmeyen sürüm hiçbir şey yazmamalı), sonra ilk
+    /// açılıştaki kurallar; harita arkada yüklenir.
+    private enum BlockingSheet: String, Identifiable {
+        case update
+        case onboarding
+
+        var id: String { rawValue }
+    }
+
+    private var blockingSheet: Binding<BlockingSheet?> {
+        Binding(
+            get: {
+                if viewModel.requiresUpdate { return .update }
+                if viewModel.needsOnboarding { return .onboarding }
+                return nil
+            },
+            // Yalnızca durum değişince kapanır ("Kabul ediyorum, başla" ya da yeni `minBuild`).
+            set: { _ in }
+        )
+    }
+
     /// Takip sorusu sayfası. Kullanıcı sayfayı kaydırıp kapatınca "Bilmiyorum" sayılır. Yanıt verilince
     /// sıradaki soru hemen gelebilir; o sırada gelen `nil`, henüz gösterilmemiş sıradakini yanıtlamasın.
     private var followUpBinding: Binding<MapViewModel.FollowUp?> {
         Binding(
-            // Açıklama sayfası ya da itiraz onayı açıkken ikinci bir sayfa açılamaz: SwiftUI onu atlar ve `followUp` takılı
-            // kalıp sonraki soruları da engellerdi. Onlar kapanınca gösterilir.
-            get: { (showsLegend || viewModel.disputeCandidate != nil) ? nil : viewModel.followUp },
+            // Açıklama sayfası, kurallar ya da güncelleme sayfası, onay ya da seçim açıkken ikinci bir sayfa açılamaz:
+            // SwiftUI onu atlar ve `followUp` takılı kalıp sonraki soruları da engellerdi. Onlar kapanınca gösterilir.
+            get: {
+                let blocked = showsLegend || viewModel.isShowingPrompt
+                    || viewModel.needsOnboarding || viewModel.requiresUpdate
+                return blocked ? nil : viewModel.followUp
+            },
             set: { newValue in
                 guard newValue == nil, let shown = presentedFollowUpID, viewModel.followUp?.id == shown else { return }
                 viewModel.dismissFollowUp()
@@ -107,7 +207,8 @@ struct MapScreen: View {
 
     private func map(safeArea: EdgeInsets) -> some View {
         ReportMapView(
-            reports: viewModel.visibleReports,
+            // Düzeltilen işaret yerine ortadaki iğne gösterilir (iki iğne üst üste binmesin).
+            reports: viewModel.visibleReports.filter { $0.id != viewModel.editingReportID },
             streetDots: viewModel.streetDotReports,
             closingLooks: viewModel.closingLooks,
             selectedID: viewModel.selectedReportID,
@@ -127,6 +228,9 @@ struct MapScreen: View {
             onMapTap: { viewModel.mapTapped() },
             onLongPress: { viewModel.mapLongPressed(at: $0) }
         )
+        // Kaydetmeden önceki soru, ihtiyaca dokunulduğu andaki noktayı sorar: yanıtlanana kadar iğne sabit kalır
+        // ("İğneyi düzelt" haritayı yeniden açar).
+        .allowsHitTesting(viewModel.pendingReport == nil)
     }
 
     /// Haritanın görünen kısmının tam ortasında duran iğne; ucu kamera hedefini gösterir.
@@ -136,7 +240,7 @@ struct MapScreen: View {
                 Ellipse()
                     .fill(.black.opacity(0.25))
                     .frame(width: 14, height: 6)
-                PlacementPin(species: viewModel.mode.species, isLifted: viewModel.isCameraMoving)
+                PlacementPin(species: viewModel.placementSpecies, isLifted: viewModel.isCameraMoving)
                     .alignmentGuide(VerticalAlignment.center) { $0[.bottom] }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -166,16 +270,16 @@ struct MapScreen: View {
 
     private var statusText: String {
         if let warning = viewModel.environment.setupWarning { return warning }
+        // Engellenen kimlik: kalıcı olarak söylenir.
+        if viewModel.isBanned { return Messages.banned }
         if viewModel.userID == nil { return "Bağlanıyor…" }
         if viewModel.isZoomedTooFarOut { return "İşaretleri görmek için yakınlaştır" }
-        switch viewModel.waitingCount {
-        case 0: return "Yakında yardım bekleyen yok"
-        case let count: return "\(count) hayvan yardım bekliyor"
-        }
+        return Messages.waitingHeadline(viewModel.waitingCounts)
     }
 
     private var statusSymbol: String {
         if viewModel.environment.setupWarning != nil { return "exclamationmark.triangle.fill" }
+        if viewModel.isBanned { return "nosign" }
         if viewModel.userID == nil { return "antenna.radiowaves.left.and.right" }
         return "pawprint.fill"
     }
@@ -185,16 +289,24 @@ struct MapScreen: View {
     @ViewBuilder
     private var bottomPanel: some View {
         switch viewModel.mode {
-        case .choosingSpecies, .choosingNeed:
+        case .choosingSpecies, .choosingNeed, .editing:
             ReportPanel(
                 mode: viewModel.mode,
                 duplicate: viewModel.duplicateCandidate,
                 duplicatePrompt: viewModel.duplicatePrompt,
                 allowanceText: viewModel.createAllowanceText,
+                pendingReport: viewModel.pendingReport,
+                editingReport: viewModel.editingReport,
+                isSavingEdit: viewModel.isSavingEdit,
+                isEditTargetTooFar: viewModel.isEditTargetTooFar,
+                canRetract: viewModel.canRetractEditing,
                 onSpecies: { viewModel.choose($0) },
                 onNeed: { viewModel.choose($0) },
                 onDuplicate: { viewModel.confirmDuplicate($0) },
                 onDismissDuplicate: { viewModel.dismissDuplicate() },
+                onConfirmPending: { viewModel.confirmPendingReport() },
+                onCancelPending: { viewModel.cancelPendingReport() },
+                onRetract: { viewModel.requestRetract() },
                 onBack: { viewModel.backToSpecies() },
                 onCancel: { viewModel.cancelPlacing() }
             )
@@ -208,10 +320,19 @@ struct MapScreen: View {
                     distance: viewModel.distance(to: report),
                     look: viewModel.look(for: report),
                     closingMode: viewModel.closingMode,
+                    actions: viewModel.cardActions(for: report),
                     busyAction: viewModel.busyAction,
+                    canEdit: viewModel.canEdit(report),
+                    canFlag: viewModel.canFlag(report),
+                    flagMailURL: viewModel.flagMailURL(for: report),
+                    shareLocationText: viewModel.shareLocationText(for: report),
                     onAction: { action in viewModel.handle(action, on: report) },
+                    onEdit: { viewModel.startEditing(report) },
+                    onFlag: { viewModel.requestFlag(report) },
+                    onHide: { viewModel.hide(report) },
                     onDirections: {
-                        if let url = viewModel.directionsURL(for: report) { openURL(url) }
+                        // Gece hatırlatması gösterilecekse bağlantı "Devam et"ten sonra açılır.
+                        if let url = viewModel.requestDirections(for: report) { openURL(url) }
                     },
                     onClose: { viewModel.closeCard() }
                 )
@@ -227,21 +348,26 @@ struct MapScreen: View {
     private var browsingControls: some View {
         HStack(alignment: .center) {
             Color.clear.frame(width: 52, height: 52)
-            Spacer()
+            Spacer(minLength: 8)
+            // "Hayvan gördüm" her sokak kedisi için basılıyordu; düğme yardım ihtiyacını sorar.
             Button {
                 viewModel.startPlacing()
             } label: {
-                Label("Hayvan gördüm", systemImage: "plus")
+                Label("Yardım gereken hayvan", systemImage: "plus")
                     .font(.headline)
-                    .padding(.horizontal, 28)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
+                    .padding(.horizontal, 20)
                     .frame(height: 60)
                     .foregroundStyle(Color(.systemBackground))
                     .background(Color.accentColor, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 10, y: 4)
             }
             .buttonStyle(.plain)
+            .layoutPriority(1)
             .accessibilityHint("Bulunduğun noktayı işaretler. Haritaya uzun basarak başka bir nokta da seçebilirsin.")
-            Spacer()
+            .accessibilityIdentifier("report-button")
+            Spacer(minLength: 8)
             Button {
                 viewModel.recenterOnUser()
             } label: {
@@ -253,13 +379,6 @@ struct MapScreen: View {
             .background(.regularMaterial, in: Circle())
             .accessibilityLabel("Konumuma git")
         }
-    }
-}
-
-private extension MapViewModel.Mode {
-    var species: Species? {
-        if case .choosingNeed(let species) = self { return species }
-        return nil
     }
 }
 

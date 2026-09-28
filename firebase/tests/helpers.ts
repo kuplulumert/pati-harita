@@ -13,8 +13,9 @@ import {
 
 export const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
-export type Need = "emergency" | "injured" | "babies" | "vet" | "food" | "shelter" | "other";
-export type ClosingReason = "resolved" | "gone";
+export type Need = "emergency" | "injured" | "babies" | "vet" | "food" | "shelter";
+export type ClosingReason = "resolved" | "gone" | "unneeded";
+export type FlagReason = "fake" | "unsafe" | "misuse";
 
 export const contract = JSON.parse(
   readFileSync(resolve(ROOT, "shared", "report-contract.json"), "utf8"),
@@ -48,6 +49,13 @@ export const contract = JSON.parse(
     modes: string[];
     defaultMode: string;
   };
+  closingReasons: ClosingReason[];
+  closedReasons: string[];
+  unneededNeeds: Need[];
+  gentleCheckNeeds: Need[];
+  edit: { windowMinutes: number; maxEdits: number; maxLatDelta: number; maxLngDelta: number };
+  flagReasons: FlagReason[];
+  collections: { flags: string; banned: string; config: string };
 };
 
 export const MINUTE = 60_000;
@@ -91,6 +99,7 @@ export function openReport(overrides: Record<string, unknown> = {}) {
     closingCredible: null,
     objectors: [],
     disputed: [],
+    editCount: 0,
     ...overrides,
   };
 }
@@ -107,7 +116,7 @@ export function claimedReport(userId: string, overrides: Record<string, unknown>
   });
 }
 
-/** `by`'ın `minutesAgo` dakika önce önerdiği "Çözüldü dendi" / "Artık yok dendi" işaret. */
+/** `by`'ın `minutesAgo` dakika önce önerdiği "Çözüldü dendi" / "Artık yok dendi" / "Yardım gerekmiyor dendi" işaret. */
 export function closingReport(
   by: string,
   reason: ClosingReason = "resolved",
@@ -164,6 +173,21 @@ export const clearedClosing = {
 };
 
 export const clearedClaim = { claimedBy: null, claimedAt: null, claimExpiresAt: null };
+
+/** Koyanın "Düzenle" yazımı: değişen kimlik alanları + bir artan editCount (expiresAt gerekirse `fields` içinde). */
+export function editFields(before: Record<string, unknown>, fields: Record<string, unknown>) {
+  return { ...fields, editCount: ((before.editCount as number | undefined) ?? 0) + 1 };
+}
+
+// ---- flags/{reportId}_{uid} ------------------------------------------------
+
+/** "Bu işareti bildir" dokümanının kimliği: işaret + bildiren. */
+export const flagId = (reportId: string, uid: string) => `${reportId}_${uid}`;
+
+/** Uygulamanın yazdığı bildirim; `at` sunucu saatidir. */
+export function flagFields(reportId: string, reason: FlagReason = "fake") {
+  return { reportId, reason, at: serverTimestamp() };
+}
 
 // ---- users/{uid} -----------------------------------------------------------
 

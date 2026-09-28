@@ -127,8 +127,8 @@ final class UserBudgetTests: XCTestCase {
 
     func testCloseBudgetSpendsNeedCost() {
         var user = record(createdAt: hours(-72), closeWindow: hours(1))
-        // 3 ağır (6 puan) + 2 hafif = 8 puan.
-        let steps: [(need: Need, used: Int)] = [(.injured, 2), (.babies, 4), (.vet, 6), (.food, 7), (.other, 8)]
+        // 3 ağır (6 puan) + 2 hafif (mama) = 8 puan.
+        let steps: [(need: Need, used: Int)] = [(.injured, 2), (.shelter, 4), (.vet, 6), (.food, 7), (.food, 8)]
         for step in steps {
             guard let spent = Budget.spendClose(user, cost: step.need.closeCost, at: hours(2)) else {
                 return XCTFail(step.need.rawValue)

@@ -31,6 +31,41 @@
       "fieldPath": "purgeAt",
       "ttl": true,
       "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "reporterId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "claimedBy",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "closingBy",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "seenBy",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "goneReports",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "objectors",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "disputed",
+      "indexes": []
     }
   ]
 }

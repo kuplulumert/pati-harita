@@ -43,7 +43,7 @@ final class ClosingDisplayTests: XCTestCase {
             (6 * 60 + 59, .food, 8 * 60),
             // Sınırlar: gündüz tam 07.00'de başlar, gece yarısında biter.
             (7 * 60, .emergency, 9 * 60),
-            (23 * 60, .other, 24 * 60),
+            (23 * 60, .food, 24 * 60),
             (23 * 60, .shelter, 24 * 60 + 8 * 60),
         ]
         for row in table {
@@ -194,5 +194,31 @@ final class ClosingDisplayTests: XCTestCase {
         XCTAssertFalse(ClosingDisplay.countsAsWaiting(credible, viewer: dan, mode: .demote, at: at(12 * 60 + 5)))
         XCTAssertFalse(ClosingDisplay.countsAsWaiting(credible, viewer: dan, mode: .label, at: at(12 * 60 + 5)))
         XCTAssertTrue(ClosingDisplay.countsAsWaiting(credible, viewer: dan, mode: .strict, at: at(12 * 60 + 5)))
+    }
+
+    /// Başlık: "2 hayvan yardım bekliyor · 2 düşük öncelikli". Ağır ihtiyaçlar ve mama ayrı sayılır;
+    /// sayılmayan işaret (kanıtlı öneri, süresi dolan) hiçbirine girmez.
+    func testWaitingCountsSplitSeriousAndLight() throws {
+        let now = at(12 * 60 + 5)
+        let credibleInjured = try proposed(need: .injured, credible: true) // label modunda sayılmaz
+        let unverifiedFood = try proposed(need: .food, credible: false) // "?" sayılır, hafif
+        let reports = [
+            openReport(need: .food),
+            openReport(need: .shelter),
+            openReport(need: .injured),
+            credibleInjured,
+            unverifiedFood,
+        ]
+        let counts = ClosingDisplay.waitingCounts(reports, viewer: dan, mode: .label, at: now)
+        XCTAssertEqual(counts, WaitingCounts(serious: 2, light: 2))
+        XCTAssertEqual(counts.total, 4)
+        // strict modda kanıtlı öneri de "?" olarak sayılır.
+        XCTAssertEqual(ClosingDisplay.waitingCounts(reports, viewer: dan, mode: .strict, at: now), WaitingCounts(serious: 3, light: 2))
+        // Mama 12 saat sonra düşer, ağır ihtiyaçlar kalır.
+        XCTAssertEqual(
+            ClosingDisplay.waitingCounts(reports.prefix(3), viewer: dan, mode: .label, at: at(22 * 60 + 1)),
+            WaitingCounts(serious: 2, light: 0)
+        )
+        XCTAssertEqual(ClosingDisplay.waitingCounts([Report](), viewer: dan, mode: .label, at: now), WaitingCounts())
     }
 }

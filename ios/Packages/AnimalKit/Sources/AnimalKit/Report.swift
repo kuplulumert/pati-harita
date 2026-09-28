@@ -5,20 +5,30 @@ public enum ReportStatus: String, CaseIterable, Sendable {
     case open
     /// Biri "İlgileniyorum" dedi.
     case claimed
-    /// Biri "Çözüldü" ya da "Artık yok" dedi ("… dendi"). Haritada kalır, ömrü kısalmaz;
+    /// Biri "Çözüldü", "Artık yok" ya da "Yardım gerekmiyor" dedi ("… dendi"). Haritada kalır, ömrü kısalmaz;
     /// ikinci bir kişi onaylayana, itiraz edilene, geri alınana ya da süresi dolana kadar (bkz. `Closing`).
     case closing
     /// Haritadan kalktı (bkz. `ClosedReason`).
     case closed
 }
 
-public enum ClosedReason: String, Sendable {
+public enum ClosedReason: String, CaseIterable, Sendable {
     /// Yardım edildi.
     case resolved
     /// Hayvan artık orada değil.
     case gone
     /// Kimse güncellemedi, süresi doldu.
     case expired
+    /// "Hayvan orada ama iyi görünüyor": yardım gerekmiyordu (yalnızca mama işaretleri; "Yanlış alarmdı").
+    case unneeded
+
+    /// "… dendi" önerisinin nedeni olabilir mi? `expired` yalnızca süre dolunca yazılır.
+    public var canBeProposed: Bool {
+        switch self {
+        case .resolved, .gone, .unneeded: true
+        case .expired: false
+        }
+    }
 }
 
 /// Bir kullanıcının işareti üstüne alması. Süresi dolunca kendiliğinden düşer.
@@ -34,11 +44,11 @@ public struct Claim: Hashable, Sendable {
     }
 }
 
-/// "Çözüldü dendi" / "Artık yok dendi": henüz doğrulanmamış kapatma önerisi.
+/// "Çözüldü dendi" / "Artık yok dendi" / "Yardım gerekmiyor dendi": henüz doğrulanmamış kapatma önerisi.
 ///
 /// İşaret kapanınca (`closed`) geçmiş olarak kalır; itiraz ya da "Geri al" ile silinir.
 public struct Closing: Hashable, Sendable {
-    /// `.resolved` ya da `.gone`.
+    /// `.resolved`, `.gone` ya da `.unneeded` (bkz. `ClosedReason.canBeProposed`).
     public var reason: ClosedReason
     /// Öneriyi yapan kullanıcı.
     public var userID: String
@@ -46,12 +56,17 @@ public struct Closing: Hashable, Sendable {
     public var at: Date
     /// Kapatanın günlük bütçesiyle desteklendi mi (bkz. `Budget`, `ClosingDisplay`).
     public var credible: Bool
+    /// Bu sürümün tanımadığı öneri nedeni (daha yeni bir sürüm yazdı); tanınıyorsa `nil`. Doluysa `reason`
+    /// yalnızca yer tutucudur: arayüz genel bir "… dendi" gösterir ve bu sürüm öneriyi onaylayamaz ya da
+    /// süresi dolunca kapatamaz (kurallar kapanışta aynı nedeni ister). İtiraz ve "Geri al" nedenden bağımsızdır.
+    public var unrecognizedReason: String?
 
-    public init(reason: ClosedReason, userID: String, at: Date, credible: Bool) {
+    public init(reason: ClosedReason, userID: String, at: Date, credible: Bool, unrecognizedReason: String? = nil) {
         self.reason = reason
         self.userID = userID
         self.at = at
         self.credible = credible
+        self.unrecognizedReason = unrecognizedReason
     }
 }
 
@@ -61,14 +76,18 @@ public struct Closing: Hashable, Sendable {
 /// Firestore güvenlik kurallarında da uygulanır.
 public struct Report: Identifiable, Hashable, Sendable {
     public let id: String
-    public let species: Species
-    public let need: Need
-    public let coordinate: Coordinate
-    public let geohash: String
+    /// Tür, ihtiyaç ve konum yalnızca işareti koyanın düzeltmesiyle değişir (`ReportLifecycle.edit`).
+    public internal(set) var species: Species
+    public internal(set) var need: Need
+    public internal(set) var coordinate: Coordinate
+    /// Konumla birlikte istemcide yeniden hesaplanır.
+    public internal(set) var geohash: String
     public let reporterID: String
     public let createdAt: Date
 
     public internal(set) var status: ReportStatus
+    /// `closed` iken dolu. Bu sürümün tanımadığı neden (ör. sahibin konsoldan yazdığı 'removed') `nil` okunur;
+    /// işaret yine kapalıdır.
     public internal(set) var closedReason: ClosedReason?
     /// En son "görüldüğü" an: oluşturma ya da "Hâlâ orada".
     public internal(set) var lastSeenAt: Date
@@ -90,6 +109,8 @@ public struct Report: Identifiable, Hashable, Sendable {
     public internal(set) var objectors: [String]
     /// Kapatma önerisine itiraz edilen kullanıcılar: bu işareti bir daha üstüne alamaz, kapatamazlar.
     public internal(set) var disputed: [String]
+    /// İşareti koyanın kaç kez düzelttiği (en fazla `ReportLifecycle.maxEdits`).
+    public internal(set) var editCount: Int
 
     public init(
         id: String,
@@ -110,7 +131,8 @@ public struct Report: Identifiable, Hashable, Sendable {
         purgeAt: Date?,
         closing: Closing? = nil,
         objectors: [String] = [],
-        disputed: [String] = []
+        disputed: [String] = [],
+        editCount: Int = 0
     ) {
         self.id = id
         self.species = species
@@ -131,15 +153,22 @@ public struct Report: Identifiable, Hashable, Sendable {
         self.closing = closing
         self.objectors = objectors
         self.disputed = disputed
+        self.editCount = editCount
     }
 }
 
 /// Oluşturulduktan sonra değişebilen alanlar. Ham değerler Firestore alan adlarıdır.
 ///
-/// Bir eylemden sonra yalnızca değişen alanlar yazılır: Firestore kuralları her eylem için
-/// hangi alanların değişebileceğini sınırlar ve zaman damgaları Date'e çevrilip geri yazıldığında
+/// Bir eylemden ya da düzeltmeden sonra yalnızca değişen alanlar yazılır: Firestore kuralları her eylem
+/// için hangi alanların değişebileceğini sınırlar ve zaman damgaları Date'e çevrilip geri yazıldığında
 /// mikro saniye düzeyinde kayabilir, bu da değişmemiş alanı "değişmiş" gösterirdi.
+/// Tür, ihtiyaç, konum (`lat`, `lng`, `geohash`) ve `editCount` yalnızca düzeltmede değişir.
 public enum ReportField: String, CaseIterable, Sendable {
+    case species
+    case need
+    case lat
+    case lng
+    case geohash
     case status
     case closedReason
     case lastSeenAt
@@ -157,6 +186,7 @@ public enum ReportField: String, CaseIterable, Sendable {
     case closingCredible
     case objectors
     case disputed
+    case editCount
 }
 
 /// Kullanıcıya gösterilen durum.
@@ -167,7 +197,8 @@ public enum ReportPhase: Hashable, Sendable {
     case helpedByMe(until: Date)
     /// "Biri ilgileniyor"
     case helpedByOther(since: Date)
-    /// "Çözüldü dendi" / "Artık yok dendi": haritada kalır. `byMe`: öneriyi bu kullanıcı yaptı.
+    /// "Çözüldü dendi" / "Artık yok dendi" / "Yardım gerekmiyor dendi": haritada kalır.
+    /// `byMe`: öneriyi bu kullanıcı yaptı.
     case closing(reason: ClosedReason, since: Date, byMe: Bool, credible: Bool)
     /// Haritada gösterilmez.
     case closed(ClosedReason)
@@ -223,6 +254,11 @@ extension Report {
     /// `old` hâlinden bu hâle gelirken değişen alanlar.
     public func changedFields(from old: Report) -> Set<ReportField> {
         var fields = Set<ReportField>()
+        if species != old.species { fields.insert(.species) }
+        if need != old.need { fields.insert(.need) }
+        if coordinate.latitude != old.coordinate.latitude { fields.insert(.lat) }
+        if coordinate.longitude != old.coordinate.longitude { fields.insert(.lng) }
+        if geohash != old.geohash { fields.insert(.geohash) }
         if status != old.status { fields.insert(.status) }
         if closedReason != old.closedReason { fields.insert(.closedReason) }
         if lastSeenAt != old.lastSeenAt { fields.insert(.lastSeenAt) }
@@ -240,6 +276,7 @@ extension Report {
         if closing?.credible != old.closing?.credible { fields.insert(.closingCredible) }
         if objectors != old.objectors { fields.insert(.objectors) }
         if disputed != old.disputed { fields.insert(.disputed) }
+        if editCount != old.editCount { fields.insert(.editCount) }
         return fields
     }
 

@@ -19,9 +19,9 @@ protocol ReportRepository: AnyObject {
         onChange: @escaping @MainActor (UserRecord?) -> Void
     ) -> ReportSubscription
 
-    /// `config/public.closingMode`: kanıtlı "Çözüldü dendi"nin başkalarının haritasında nasıl göründüğü.
-    /// Doküman yoksa ya da okunamazsa `ClosingMode.fallback`.
-    func observeClosingMode(onChange: @escaping @MainActor (ClosingMode) -> Void) -> ReportSubscription
+    /// `config/public`: kanıtlı "… dendi"nin başkalarının haritasında nasıl göründüğü ve desteklenen en eski
+    /// derleme. Doküman yoksa `PublicConfig.fallback`; okunamazsa son bilinen değer kalır.
+    func observePublicConfig(onChange: @escaping @MainActor (PublicConfig) -> Void) -> ReportSubscription
 
     /// Anonim girişten hemen sonra `users/{userID}` yoksa oluşturur (hesap yaşı buradan sayılır). Ağ gerekir.
     func ensureUserRecord(userID: String) async throws
@@ -35,16 +35,56 @@ protocol ReportRepository: AnyObject {
     /// yüzündense `CreateQuotaError.rejected`, işaret çok geç gönderildiyse `CreateQuotaError.tooLate` ile).
     func create(_ report: Report, onFailure: @escaping @MainActor (Error) -> Void) throws
 
-    /// "Geri al": az önce koyulan işareti siler. Bu arada biri işlem yaptıysa sunucu reddeder.
+    /// "Geri al" ya da "İşareti sil": koyanın, kimsenin dokunmadığı işaretini siler (`ReportLifecycle.canRetract`).
+    /// Beklemez; bu arada biri işlem yaptıysa sunucu reddeder ve `onFailure` çağrılır (kurallar reddettiyse
+    /// `RepositoryError.permissionDenied` ile).
     func retract(reportID: String, onFailure: @escaping @MainActor (Error) -> Void)
 
     /// Bir eylemi (İlgileniyorum, Çözüldü…) sunucudaki güncel hâl üzerine uygular. Eylem "… dendi"
     /// önerisi başlatıyorsa kanıtlılığı hesaplar; kanıtlıysa aynı yazımda kapatma bütçesinden harcar.
+    /// Kurallar reddederse `RepositoryError.permissionDenied`.
     func perform(_ action: ReportAction, onReportID reportID: String, by userID: String) async throws -> ActionOutcome
+
+    /// "Düzenle": işareti koyan yanlış seçtiği türü, ihtiyacı ya da konumu düzeltir (`ReportLifecycle.edit`).
+    /// Sunucudaki güncel hâl üzerine uygulanır: bu arada başkası dokunduysa ya da süre geçtiyse
+    /// `ReportError.notEditable`, konum çok uzaksa `ReportError.editTooFar`; kurallar reddederse
+    /// `RepositoryError.permissionDenied`. Ağ gerekir.
+    func edit(
+        reportID: String,
+        species: Species,
+        need: Need,
+        coordinate: Coordinate,
+        by userID: String
+    ) async throws -> Report
+
+    /// "Bu işareti bildir": `flags/{reportId}_{uid}`. Beklemez; çevrimdışıysa bağlantı gelince gönderilir.
+    /// Sunucu reddederse `onRejected` çağrılır: çoğunlukla bu kişi işareti zaten bildirmiştir (kurallar ikinci
+    /// bildirimi reddeder) ve uygulama bunu başarı sayar; ama kimlik engellenmiş de olabilir.
+    func flag(reportID: String, reason: FlagReason, by userID: String, onRejected: @escaping @MainActor () -> Void)
+
+    /// `banned/{userID}` var mı (kimlik konsoldan engellendi mi)? Okunamazsa `nil`.
+    func isBanned(userID: String) async -> Bool?
 
     /// Takip sorusu (A7) için işaretlerin güncel hâli; kapanmışlar da döner. Bulunamayan ya da
     /// okunamayanlar atlanır.
     func fetchReports(ids: [String]) async -> [Report]
+}
+
+/// `config/public`: yalnızca konsoldan yazılan uzaktan ayarlar.
+struct PublicConfig: Equatable, Sendable {
+    /// Kanıtlı "… dendi"nin başkalarının haritasında nasıl göründüğü.
+    var closingMode: ClosingMode
+    /// `minBuild`: bundan eski derlemeler (CFBundleVersion) "Güncelleme gerekli" der. Yoksa `nil`.
+    var minBuild: Int?
+
+    static let fallback = PublicConfig(closingMode: .fallback, minBuild: nil)
+}
+
+/// Depo hataları (AnimalKit'in `ReportError`ı dışında).
+enum RepositoryError: Error, Equatable {
+    /// Güvenlik kuralları yazımı reddetti: işaretin sunucudaki hâli istemcinin bildiğinden farklı ya da
+    /// kimlik engellenmiş (uygulama bu durumda `banned/{uid}`'e bir kez bakar).
+    case permissionDenied
 }
 
 /// Canlı dinlemeyi temsil eder; `cancel()` ya da nesnenin bırakılması dinlemeyi bitirir.

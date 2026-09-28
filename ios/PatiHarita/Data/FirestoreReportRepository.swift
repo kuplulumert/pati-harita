@@ -21,6 +21,8 @@ final class FirestoreReportRepository: ReportRepository {
     private let db: Firestore
     private let collection: CollectionReference
     private let users: CollectionReference
+    private let flags: CollectionReference
+    private let banned: CollectionReference
 
     /// Oturum açan kullanıcı; süresi dolan işaretleri kapatırken kullanılır.
     private var userID: String?
@@ -45,6 +47,8 @@ final class FirestoreReportRepository: ReportRepository {
         self.db = db
         self.collection = db.collection(FirestoreReportMapper.collection)
         self.users = db.collection(FirestoreReportMapper.usersCollection)
+        self.flags = db.collection(FirestoreReportMapper.flagsCollection)
+        self.banned = db.collection(FirestoreReportMapper.bannedCollection)
     }
 
     // MARK: Dinleme
@@ -122,15 +126,15 @@ final class FirestoreReportRepository: ReportRepository {
         }
     }
 
-    func observeClosingMode(onChange: @escaping @MainActor (ClosingMode) -> Void) -> ReportSubscription {
+    func observePublicConfig(onChange: @escaping @MainActor (PublicConfig) -> Void) -> ReportSubscription {
         let registration = db.collection(FirestoreReportMapper.configCollection)
             .document(FirestoreReportMapper.publicConfigDocument)
             .addSnapshotListener { snapshot, error in
                 guard let snapshot else {
-                    log.error("Gösterim modu okunamadı: \(error?.localizedDescription ?? "-", privacy: .public)")
+                    log.error("Uzaktan ayarlar okunamadı: \(error?.localizedDescription ?? "-", privacy: .public)")
                     return
                 }
-                onChange(FirestoreReportMapper.closingMode(data: snapshot.data()))
+                onChange(FirestoreReportMapper.publicConfig(data: snapshot.data()))
             }
         return ReportSubscription {
             registration.remove()
@@ -298,7 +302,110 @@ final class FirestoreReportRepository: ReportRepository {
         collection.document(reportID).delete { error in
             guard let error else { return }
             log.error("İşaret geri alınamadı: \(error.localizedDescription, privacy: .public)")
-            onFailure(error)
+            onFailure(Self.isPermissionDenied(error) ? RepositoryError.permissionDenied : error)
+        }
+    }
+
+    // MARK: Düzeltme
+
+    func edit(
+        reportID: String,
+        species: Species,
+        need: Need,
+        coordinate: Coordinate,
+        by userID: String
+    ) async throws -> Report {
+        let ref = collection.document(reportID)
+        do {
+            // İşlem bloğu arka plan kuyruğunda, gerekirse birkaç kez çalışır; yalnızca saf mantık kullanır.
+            let result = try await db.runTransaction { @Sendable transaction, errorPointer in
+                Self.applyEdit(
+                    to: ref,
+                    species: species,
+                    need: need,
+                    coordinate: coordinate,
+                    by: userID,
+                    in: transaction,
+                    errorPointer: errorPointer
+                )
+            }
+            if let error = result as? Error {
+                throw error
+            }
+            guard let report = result as? Report else {
+                throw ReportError.notFound
+            }
+            return report
+        } catch let error where Self.isPermissionDenied(error) {
+            log.error("Düzeltme reddedildi: \(error.localizedDescription, privacy: .public)")
+            throw RepositoryError.permissionDenied
+        }
+    }
+
+    /// `apply` gibi: alan kuralı ihlali değer olarak döner, Firestore hataları işlemi iptal eder.
+    /// Başarıda düzeltilmiş `Report` döner.
+    private nonisolated static func applyEdit(
+        to ref: DocumentReference,
+        species: Species,
+        need: Need,
+        coordinate: Coordinate,
+        by userID: String,
+        in transaction: Transaction,
+        errorPointer: NSErrorPointer
+    ) -> Any? {
+        let snapshot: DocumentSnapshot
+        do {
+            snapshot = try transaction.getDocument(ref)
+        } catch {
+            errorPointer?.pointee = error as NSError
+            return nil
+        }
+        guard let data = snapshot.data(),
+              let report = FirestoreReportMapper.report(id: snapshot.documentID, data: data)
+        else {
+            return ReportError.notFound
+        }
+
+        do {
+            // Süre, kimse dokunmadı mı ve 200 m burada da denetlenir. İhtiyaç değişince yeni ömür telefon saatiyle
+            // şimdiden sayılır; kurallar onu diğer yazımlar gibi 15 dk saat farkıyla (`skew()`) kabul eder.
+            let updated = try ReportLifecycle.edit(
+                report,
+                species: species,
+                need: need,
+                coordinate: coordinate,
+                by: userID,
+                at: Date()
+            )
+            transaction.updateData(FirestoreReportMapper.changes(from: report, to: updated), forDocument: ref)
+            return updated
+        } catch {
+            return error
+        }
+    }
+
+    // MARK: Bildirim ve engel
+
+    func flag(reportID: String, reason: FlagReason, by userID: String, onRejected: @escaping @MainActor () -> Void) {
+        // Kimlik işaret + bildiren: aynı kişinin ikinci bildirimi var olan dokümana yazmak olur ve reddedilir.
+        let id = CollectionName.flagDocumentID(reportID: reportID, userID: userID)
+        flags.document(id).setData(FirestoreReportMapper.flagData(reportID: reportID, reason: reason)) { error in
+            guard let error else { return }
+            if Self.isPermissionDenied(error) {
+                log.notice("İşaret bildirimi reddedildi (büyük olasılıkla daha önce bildirilmiş): \(error.localizedDescription, privacy: .public)")
+                onRejected()
+                return
+            }
+            log.error("İşaret bildirimi gönderilemedi: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    func isBanned(userID: String) async -> Bool? {
+        do {
+            return try await banned.document(userID).getDocument().exists
+        } catch {
+            log.error("Engel kaydı okunamadı: \(error.localizedDescription, privacy: .public)")
+            return nil
         }
     }
 
@@ -337,7 +444,8 @@ final class FirestoreReportRepository: ReportRepository {
                 // Yalnızca kanıtlı öneri yeniden denenir (ör. pencere sınırında telefon saati ileride):
                 // önce diğer dal, sonra kanıtsız. Diğer reddedilen eylemler olduğu gibi bildirilir.
                 guard let branch = spendLog.branch, let next = current.retry(afterRejected: branch) else {
-                    throw error
+                    log.error("Eylem reddedildi: \(error.localizedDescription, privacy: .public)")
+                    throw RepositoryError.permissionDenied
                 }
                 log.notice("Kanıtlı öneri reddedildi, yeniden deneniyor.")
                 attempt = next

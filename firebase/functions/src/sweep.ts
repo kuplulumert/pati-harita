@@ -19,14 +19,15 @@ export interface SweepResult {
 
 /**
  * Süresi dolan işaret: haritadan kalkar, `retentionDays` sonra TTL ile silinir.
- * "Çözüldü dendi" / "Artık yok dendi" (closing) işaret önerildiği sebeple kapanır;
- * kurallardaki isExpire ile aynı (Spark'ta istemciler de süresi dolanı böyle kapatır).
+ * "… dendi" (closing) işaret, sebebi ne olursa olsun önerildiği sebeple kapanır; kurallardaki
+ * isExpire ile aynı (Spark'ta istemciler de süresi dolanı böyle kapatır). Sebep listesi burada
+ * tekrarlanmaz: yeni bir sebep eklendiğinde bu iş de onu olduğu gibi taşır.
  */
 export function expiredFields(now: Timestamp, report: DocumentData = {}) {
   const proposed = report.status === "closing" ? report.closingReason : null;
   return {
     status: "closed",
-    closedReason: proposed === "resolved" || proposed === "gone" ? proposed : "expired",
+    closedReason: typeof proposed === "string" && proposed !== "" ? proposed : "expired",
     closedAt: now,
     purgeAt: Timestamp.fromMillis(now.toMillis() + RETENTION_DAYS * DAY_MS),
   };
@@ -45,7 +46,7 @@ export function releasedClaimFields() {
 /**
  * Haritayı temiz tutar:
  *  1. `expiresAt` geçmiş açık/ilgilenilen işaretleri `closed(expired)`, "… dendi" işaretleri
- *     önerilen sebeple (`closed(closingReason)`) kapatır.
+ *     önerilen sebeple (`closed(closingReason)`: resolved, gone, unneeded …) kapatır.
  *  2. `claimExpiresAt` geçmiş sahiplikleri bırakır (işaret yeniden `open` olur).
  *
  * İstemci de süresi dolmuş işaretleri gizlediği için bu iş birkaç dakika gecikse

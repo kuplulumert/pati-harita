@@ -57,8 +57,8 @@ final class DemoReportRepository: ReportRepository {
         }
     }
 
-    func observeClosingMode(onChange: @escaping @MainActor (ClosingMode) -> Void) -> ReportSubscription {
-        onChange(Self.closingMode)
+    func observePublicConfig(onChange: @escaping @MainActor (PublicConfig) -> Void) -> ReportSubscription {
+        onChange(PublicConfig(closingMode: Self.closingMode, minBuild: nil))
         return ReportSubscription {}
     }
 
@@ -94,6 +94,42 @@ final class DemoReportRepository: ReportRepository {
         }
         reports[reportID] = nil
         notify()
+    }
+
+    // MARK: Düzeltme
+
+    func edit(
+        reportID: String,
+        species: Species,
+        need: Need,
+        coordinate: Coordinate,
+        by userID: String
+    ) async throws -> Report {
+        guard reports[reportID] != nil else { throw ReportError.notFound }
+        try await Task.sleep(for: .milliseconds(300))
+        // Beklerken değişmiş olabilir: sunucudaki gibi güncel hâle uygulanır.
+        guard let report = reports[reportID] else { throw ReportError.notFound }
+        let updated = try ReportLifecycle.edit(
+            report,
+            species: species,
+            need: need,
+            coordinate: coordinate,
+            by: userID,
+            at: Date()
+        )
+        reports[reportID] = updated
+        notify()
+        return updated
+    }
+
+    // MARK: Bildirim ve engel
+
+    func flag(reportID: String, reason: FlagReason, by userID: String, onRejected: @escaping @MainActor () -> Void) {
+        // Demoda bildirim hiçbir yere gitmez; işaret yalnızca bu kişinin haritasından kalkar (uygulama yapar).
+    }
+
+    func isBanned(userID: String) async -> Bool? {
+        false
     }
 
     // MARK: Eylemler
@@ -152,6 +188,8 @@ final class DemoReportRepository: ReportRepository {
     private func seed(around center: Coordinate) {
         seedCount += 1
         let now = Date()
+        // Arayüz testi işaretleri etiketiyle ("Aç ve zayıf, Köpek") bulur: her ihtiyaç + tür çifti bir kez
+        // geçer ve kedi mamada yoktur (testin koyduğu "Aç ve zayıf, Kedi" ile karışmasın).
         let samples: [(Species, Need, Double, Double, TimeInterval, String?, Int)] = [
             // tür, ihtiyaç, kuzey (m), doğu (m), kaç dakika önce, ilgilenen, kaç kişi bildirdi
             // Arayüz testi yaralı kedinin 3 kişiyle başladığını (demo kullanıcısı hariç) varsayar.
@@ -159,9 +197,9 @@ final class DemoReportRepository: ReportRepository {
             (.dog, .food, -200, 150, 95, nil, 2),
             (.cat, .babies, 260, 240, 300, "komsu", 1),
             (.dog, .emergency, -90, -260, 4, nil, 6),
-            (.bird, .vet, 380, -30, 40, nil, 1),
+            (.cat, .vet, 380, -30, 40, nil, 1),
             (.cat, .shelter, -330, -120, 900, nil, 1),
-            (.other, .other, 60, 380, 600, nil, 1),
+            (.dog, .shelter, 60, 380, 600, nil, 1),
         ]
         for (index, sample) in samples.enumerated() {
             let (species, need, north, east, minutesAgo, helper, seers) = sample

@@ -103,4 +103,36 @@ public enum ClosingDisplay {
             return look(of: report, mode: mode, viewer: viewer, answered: true, at: now) == .unverified
         }
     }
+
+    /// Başlığın sayıları: `countsAsWaiting` olan işaretler, ağır ihtiyaçlar ve hafifler (`Need.isSerious`) ayrı.
+    /// "3 hayvan yardım bekliyor · 5 düşük öncelikli".
+    public static func waitingCounts<S: Sequence>(
+        _ reports: S,
+        viewer: String?,
+        mode: ClosingMode,
+        at now: Date
+    ) -> WaitingCounts where S.Element == Report {
+        var counts = WaitingCounts()
+        for report in reports where countsAsWaiting(report, viewer: viewer, mode: mode, at: now) {
+            if report.need.isSerious {
+                counts.serious += 1
+            } else {
+                counts.light += 1
+            }
+        }
+        return counts
+    }
+}
+
+/// Haritadaki "yardım bekliyor" sayısı: ağır ihtiyaçlar önce, hafifler (mama) "düşük öncelikli" olarak ayrı.
+public struct WaitingCounts: Hashable, Sendable {
+    public var serious: Int
+    public var light: Int
+
+    public init(serious: Int = 0, light: Int = 0) {
+        self.serious = serious
+        self.light = light
+    }
+
+    public var total: Int { serious + light }
 }

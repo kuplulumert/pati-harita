@@ -12,8 +12,21 @@ struct ReportCard: View {
     let look: ClosingLook?
     /// Öneriyi yapana işaretin başkalarında nasıl göründüğünü söylemek için.
     let closingMode: ClosingMode
+    /// Düğmeler (`MapViewModel.cardActions`); ilki birincil olabilir. Mamada "Yardım gerekmiyor" tek düğmedir.
+    let actions: [ReportAction]
     let busyAction: ReportAction?
+    /// İşareti koyan kimse dokunmadan düzeltebilir: başlıkta "Düzenle".
+    let canEdit: Bool
+    /// Başlıktaki "⋯" menüsü (bildir, gizle); işareti koyana gösterilmez.
+    let canFlag: Bool
+    /// Menüde "E-postayla ayrıntı gönder"; iletişim adresi yoksa `nil`.
+    let flagMailURL: URL?
+    /// "Konumu paylaş" ile gönderilecek metin; yalnızca acil, yaralı ve yavru işaretlerinde.
+    let shareLocationText: String?
     let onAction: (ReportAction) -> Void
+    let onEdit: () -> Void
+    let onFlag: () -> Void
+    let onHide: () -> Void
     let onDirections: () -> Void
     let onClose: () -> Void
 
@@ -29,19 +42,15 @@ struct ReportCard: View {
         report.phase(for: userID, at: now)
     }
 
-    private var actions: [ReportAction] {
-        guard let userID else { return [] }
-        return ReportLifecycle.availableActions(for: report, userID: userID, at: now)
-    }
-
     /// İlk eylem İlgileniyorum, Çözüldü, Evet, çözüldü ya da Geri al ise büyük düğme olarak öne çıkar.
     /// "Hâlâ yardım gerekiyor" bilerek ikincildir (ayrıca onay sorulur): yanlış itirazlar azalsın.
+    /// "Yardım gerekmiyor" da ikincildir: önce ne görüldüğü sorulur.
     private var primaryAction: ReportAction? {
         guard let first = actions.first else { return nil }
         switch first {
         case .claim, .resolve, .confirmClosing, .undoClosing:
             return first
-        case .release, .confirmStillThere, .reportGone, .dispute, .expire:
+        case .release, .confirmStillThere, .reportGone, .reportUnneeded, .dispute, .expire:
             return nil
         }
     }
@@ -103,8 +112,54 @@ struct ReportCard: View {
                 }
             }
             Spacer(minLength: 0)
+            if canEdit {
+                editButton
+            }
+            if canFlag {
+                cardMenu
+            }
             CircleButton(systemImage: "xmark", accessibilityLabel: "Kapat", action: onClose)
         }
+    }
+
+    /// "Düzenle": yalnızca işareti koyana, kimse dokunmadan ve ilk 30 dakikada. Eylem satırı zaten dolu
+    /// olduğundan başlıkta küçük bir düğmedir.
+    private var editButton: some View {
+        Button(action: onEdit) {
+            Label(MapViewModel.editButtonTitle, systemImage: "pencil")
+                .font(.footnote.weight(.semibold))
+                .lineLimit(1)
+                .padding(.horizontal, 12)
+                .frame(height: 34)
+                .background(Color(.tertiarySystemFill), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(busyAction != nil)
+        .accessibilityIdentifier("action-edit")
+    }
+
+    /// "⋯": bildir, gizle ve (adres varsa) e-postayla ayrıntı. Birincil eylem değildir; bilerek küçük.
+    private var cardMenu: some View {
+        Menu {
+            Button(MapViewModel.flagMenuTitle, systemImage: "flag", action: onFlag)
+                .accessibilityIdentifier("menu-flag")
+            Button(MapViewModel.hideMenuTitle, systemImage: "eye.slash", action: onHide)
+                .accessibilityIdentifier("menu-hide")
+            if let flagMailURL {
+                Link(destination: flagMailURL) {
+                    Label(MapViewModel.flagMailMenuTitle, systemImage: "envelope")
+                }
+                .accessibilityIdentifier("menu-mail")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 34)
+                .background(Color(.tertiarySystemFill), in: Circle())
+        }
+        .accessibilityLabel("İşaret seçenekleri")
+        .accessibilityIdentifier("card-menu")
     }
 
     /// "🐈 Kedi · 140 m" (konum yoksa yalnızca tür).
@@ -249,7 +304,7 @@ struct ReportCard: View {
             return "Başkalarına 'doğrulanmadı' olarak görünüyor; \(confirmer) onaylayınca ya da süresi dolunca kalkar."
         case .fading(let leavesAt):
             guard let leavesAt, leavesAt > now else {
-                return "Başkalarına '\(Messages.saidLabel(closing.reason))' olarak görünüyor; \(confirmer) onaylayınca ya da süresi dolunca kalkar."
+                return "Başkalarına '\(Messages.saidLabel(closing))' olarak görünüyor; \(confirmer) onaylayınca ya da süresi dolunca kalkar."
             }
             return "Başkalarının haritasından kalkış: \(Formatting.clock(leavesAt, now: now))"
         case .hidden:
@@ -287,7 +342,7 @@ struct ReportCard: View {
         switch action {
         case .resolve, .confirmClosing: Color(red: 0.13, green: 0.55, blue: 0.27)  // #218C45: beyaz yazı dışarıda da okunsun (~4.3:1)
         case .undoClosing: Color(.systemGray)
-        case .claim, .release, .confirmStillThere, .reportGone, .dispute, .expire: report.need.color
+        case .claim, .release, .confirmStillThere, .reportGone, .reportUnneeded, .dispute, .expire: report.need.color
         }
     }
 
@@ -338,12 +393,29 @@ struct ReportCard: View {
         }
     }
 
-    /// Sahte ya da tuzak işaretlere karşı (işaret 7 güne kadar kalabilir): küçük ve ikincil.
+    /// Sahte ya da tuzak işaretlere karşı (işaret 7 güne kadar kalabilir): küçük ve ikincil. Acil, yaralı ve yavru
+    /// kartlarında gidilen yer bir yakına tek dokunuşla gönderilebilir.
     private var safetyLine: some View {
-        Label("Yalnız gitme, kimseyle tartışmaya girme.", systemImage: "shield.lefthalf.filled")
-            .font(.caption)
-            .foregroundStyle(.secondary)
-            .padding(.horizontal, 4)
+        HStack(alignment: .center, spacing: 8) {
+            Label("Yalnız gitme, kimseyle tartışmaya girme, özel mülke girme.", systemImage: "shield.lefthalf.filled")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let shareLocationText {
+                ShareLink(item: shareLocationText) {
+                    Label(MapViewModel.shareLocationTitle, systemImage: "square.and.arrow.up")
+                        .font(.caption.weight(.semibold))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.bordered)
+                .buttonBorderShape(.capsule)
+                .controlSize(.small)
+                .fixedSize()
+                .accessibilityIdentifier("share-location")
+            }
+        }
+        .padding(.horizontal, 4)
     }
 }
 
@@ -384,27 +456,70 @@ private struct SecondaryButton: View {
 }
 
 #Preview("Bekliyor") {
+    let now = Date()
     var report = ReportLifecycle.makeReport(
         id: "preview",
         species: .cat,
         need: .injured,
         at: Coordinate(latitude: 40.99, longitude: 29.03),
         reporterID: "someone",
-        now: Date().addingTimeInterval(-12 * 60)
+        now: now.addingTimeInterval(-12 * 60)
     )
     // İki kişi daha "Hâlâ orada" dedi: kartta "3 kişi bildirdi".
     for passerBy in ["passer-by", "neighbour"] {
-        report = (try? ReportLifecycle.apply(.confirmStillThere, to: report, by: passerBy, at: Date())) ?? report
+        report = (try? ReportLifecycle.apply(.confirmStillThere, to: report, by: passerBy, at: now)) ?? report
     }
     return ReportCard(
         report: report,
         userID: "me",
-        now: Date(),
+        now: now,
         distance: 240,
         look: nil,
         closingMode: .demote,
+        actions: MapViewModel.cardActions(for: report, userID: "me", at: now),
         busyAction: nil,
+        canEdit: false,
+        canFlag: true,
+        flagMailURL: nil,
+        shareLocationText: Messages.shareLocation(report.coordinate),
         onAction: { _ in },
+        onEdit: {},
+        onFlag: {},
+        onHide: {},
+        onDirections: {},
+        onClose: {}
+    )
+    .padding()
+}
+
+#Preview("Aç ve zayıf, işareti koyan") {
+    let now = Date()
+    let report = ReportLifecycle.makeReport(
+        id: "preview-food",
+        species: .cat,
+        need: .food,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "me",
+        now: now.addingTimeInterval(-3 * 60)
+    )
+    // "Hâlâ yardım lazım", "Yardım gerekmiyor" ve başlıkta "Düzenle".
+    return ReportCard(
+        report: report,
+        userID: "me",
+        now: now,
+        distance: 12,
+        look: nil,
+        closingMode: .demote,
+        actions: MapViewModel.cardActions(for: report, userID: "me", at: now),
+        busyAction: nil,
+        canEdit: ReportLifecycle.canEdit(report, by: "me", at: now),
+        canFlag: false,
+        flagMailURL: nil,
+        shareLocationText: nil,
+        onAction: { _ in },
+        onEdit: {},
+        onFlag: {},
+        onHide: {},
         onDirections: {},
         onClose: {}
     )
@@ -431,8 +546,16 @@ private struct SecondaryButton: View {
         distance: 180,
         look: .unverified,
         closingMode: .demote,
+        actions: MapViewModel.cardActions(for: report, userID: "me", at: now),
         busyAction: nil,
+        canEdit: false,
+        canFlag: true,
+        flagMailURL: nil,
+        shareLocationText: Messages.shareLocation(report.coordinate),
         onAction: { _ in },
+        onEdit: {},
+        onFlag: {},
+        onHide: {},
         onDirections: {},
         onClose: {}
     )

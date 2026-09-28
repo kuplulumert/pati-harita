@@ -2,7 +2,11 @@ import AnimalKit
 import SwiftUI
 
 /// Yeni işaretin iki adımlık seçimi: tür → ihtiyaç. Açıklama, fotoğraf, form yok.
-/// İhtiyaca dokunulduğu an işaret kaydedilir (toplam 3 dokunuş).
+/// İhtiyaca dokunulduğu an işaret kaydedilir (toplam 3 dokunuş); hafif ihtiyaçta bazen önce kısa bir soru
+/// ("Yardıma ihtiyacı var mı?") ızgaranın yerine gelir.
+///
+/// Aynı panel düzeltmede de kullanılır ("İşareti düzelt"): iğne işaretin üstündedir, tür ve ihtiyaç yeniden
+/// seçilir, ihtiyaca dokununca düzeltme kaydedilir.
 struct ReportPanel: View {
     let mode: MapViewModel.Mode
     /// İğnenin yakınındaki aynı türden işaret; varsa ihtiyaçların üstünde "Ben de gördüm" önerilir.
@@ -12,29 +16,69 @@ struct ReportPanel: View {
     let duplicatePrompt: String?
     /// "3 yeni işaret hakkın kaldı" / "Yeni işaret hakkın saat 14.20'de açılır"; hak boldaysa `nil`.
     let allowanceText: String?
+    /// İhtiyaç seçildi, önce soru soruluyor ("Yardıma ihtiyacı var mı?" ya da uzaklık sorusu).
+    let pendingReport: MapViewModel.PendingReport?
+    /// Düzeltilen işaret: şimdiki türü ve ihtiyacı işaretli görünür.
+    let editingReport: Report?
+    /// Bir düzeltme kaydediliyor. Yalnızca düzeltme panelinde etkilidir (bkz. `isSaving`).
+    let isSavingEdit: Bool
+    /// Düzeltmede iğne izin verilenden (~200 m) uzağa kaydı.
+    let isEditTargetTooFar: Bool
+    /// Düzeltmede "İşareti sil" gösterilsin mi.
+    let canRetract: Bool
     let onSpecies: (Species) -> Void
     let onNeed: (Need) -> Void
     /// Öneriye dokunuldu: bekleyen işarette "Hâlâ orada", "… dendi" işaretinde itiraz.
     let onDuplicate: (Report) -> Void
     /// "Hayır, başka bir hayvan"
     let onDismissDuplicate: () -> Void
+    /// "Yardıma ihtiyacı var, işaretle" / "Evet, orada gördüm"
+    let onConfirmPending: () -> Void
+    /// "Sağlıklı görünüyor, vazgeç" / "İğneyi düzelt"
+    let onCancelPending: () -> Void
+    /// "İşareti sil" (onay ayrıca sorulur).
+    let onRetract: () -> Void
     let onBack: () -> Void
     let onCancel: () -> Void
+
+    /// İhtiyaç ızgarasının üstündeki tek satır: sağlıklı sokak hayvanı işaretlenmez.
+    static let needGuidance = "Yalnızca yardıma ihtiyacı varsa işaretle. Sağlıklı sokak hayvanları işaretlenmez."
+
+    private var isEditing: Bool {
+        if case .editing = mode { return true }
+        return false
+    }
+
+    /// Düzeltme kaydediliyor: düğmeler, geri ve "Vazgeç" dahil, kayıt bitene kadar bekler (düzeltmeden çıkıp yeni
+    /// işarete başlanırsa kaydın sonucu onu bozmasın). Yeni işaret panelini etkilemez.
+    private var isSaving: Bool {
+        isEditing && isSavingEdit
+    }
+
+    /// İhtiyaç ızgarası mı (yeni işarette ya da düzeltmede tür seçildikten sonra), tür satırı mı?
+    private var showsNeeds: Bool {
+        switch mode {
+        case .choosingNeed: true
+        case .editing(_, let species): species != nil
+        case .browsing, .choosingSpecies: false
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             header
-            switch mode {
-            case .choosingNeed:
-                if let duplicate {
+            if let pendingReport, case .choosingNeed = mode {
+                pendingQuestion(pendingReport)
+            } else if showsNeeds {
+                if !isEditing, let duplicate {
                     if let duplicatePrompt {
                         closingDuplicatePrompt(duplicate, prompt: duplicatePrompt)
                     } else {
                         duplicateSuggestion(duplicate)
                     }
                 }
-                needGrid
-            case .choosingSpecies, .browsing:
+                needSection
+            } else {
                 speciesRow
             }
         }
@@ -43,17 +87,35 @@ struct ReportPanel: View {
         .shadow(color: .black.opacity(0.12), radius: 16, y: 4)
     }
 
+    // MARK: Başlık
+
     private var header: some View {
-        HStack(spacing: 8) {
-            if case .choosingNeed = mode {
+        HStack(alignment: .top, spacing: 8) {
+            if showsNeeds {
                 CircleButton(systemImage: "chevron.left", accessibilityLabel: "Geri", action: onBack)
+                    .disabled(isSaving)
             }
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.title3.weight(.semibold))
-                Text("İğneyi ayarlamak için haritayı kaydır")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Text(title)
+                        .font(.title3.weight(.semibold))
+                    if isSaving {
+                        ProgressView()
+                    }
+                }
+                // Soru açıkken iğne sabittir (harita kaydırılamaz); ipucu gösterilmez.
+                if pendingReport == nil {
+                    Text(isEditing ? MapViewModel.editPanelSubtitle : "İğneyi ayarlamak için haritayı kaydır")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+                if isEditing && isEditTargetTooFar {
+                    Label(ReportError.editTooFar.errorDescription ?? "Konum en fazla 200 m kaydırılabilir.",
+                          systemImage: "exclamationmark.triangle.fill")
+                        .font(.footnote.weight(.medium))
+                        .foregroundStyle(.orange)
+                        .accessibilityIdentifier("edit-too-far")
+                }
                 if let allowanceText {
                     // Hak az kaldığında: son işaretten sonra sınır bildirimi sürpriz olmasın.
                     Label(allowanceText, systemImage: "hourglass")
@@ -61,22 +123,41 @@ struct ReportPanel: View {
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("create-allowance")
                 }
+                if isEditing && canRetract {
+                    Button(role: .destructive, action: onRetract) {
+                        Label(MapViewModel.retractButtonTitle, systemImage: "trash")
+                            .font(.footnote.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.red)
+                    .padding(.top, 4)
+                    .disabled(isSaving)
+                    .accessibilityIdentifier("edit-retract")
+                }
             }
             Spacer(minLength: 0)
             CircleButton(systemImage: "xmark", accessibilityLabel: "Vazgeç", action: onCancel)
+                .disabled(isSaving)
         }
     }
 
     private var title: String {
-        if case .choosingNeed(let species) = mode {
+        switch mode {
+        case .editing:
+            return MapViewModel.editPanelTitle
+        case .choosingNeed(let species):
             return "\(species.emoji) Neye ihtiyacı var?"
+        case .browsing, .choosingSpecies:
+            return "Hangi hayvan?"
         }
-        return "Hangi hayvan?"
     }
+
+    // MARK: Tür
 
     private var speciesRow: some View {
         HStack(spacing: 10) {
             ForEach(Species.allCases) { species in
+                let isCurrent = isEditing && editingReport?.species == species
                 Button {
                     onSpecies(species)
                 } label: {
@@ -89,13 +170,24 @@ struct ReportPanel: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 88)
                     .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay {
+                        // Düzeltmede şimdiki tür işaretli; aynısına dokunmak da ihtiyaca geçer.
+                        if isCurrent {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.accentColor, lineWidth: 2)
+                        }
+                    }
                 }
                 .buttonStyle(PressableStyle())
+                .disabled(isSaving)
+                .accessibilityAddTraits(isCurrent ? .isSelected : [])
                 // Arayüz testi için: etiket haritadaki işaretlerle ("Yaralı / hasta, Kedi") karışmasın.
                 .accessibilityIdentifier("species-\(species.rawValue)")
             }
         }
     }
+
+    // MARK: "Aynı hayvan mı?"
 
     /// Aynı hayvan zaten işaretliyse yeni işaret yerine tek dokunuşla ona "Hâlâ orada" denir.
     /// İhtiyaç düğmeleri yine yeni işaret koyar; öneri yalnızca bir kısayoldur.
@@ -179,6 +271,75 @@ struct ReportPanel: View {
         .buttonStyle(PressableStyle())
     }
 
+    // MARK: Kaydetmeden önceki soru
+
+    /// "Yardıma ihtiyacı var mı?" ya da "İğne bulunduğun yerden 2,4 km uzakta. …": ızgaranın yerinde, iki düğme.
+    /// Hiçbiri işaretlemeyi engellemez; öne çıkan düğme işaretler.
+    private func pendingQuestion(_ pending: MapViewModel.PendingReport) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 10) {
+                NeedBadge(need: pending.need, size: 32)
+                VStack(alignment: .leading, spacing: 4) {
+                    if let title = pending.title {
+                        Text(title)
+                            .font(.headline)
+                    }
+                    Text(pending.message)
+                        .font(.subheadline)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .accessibilityIdentifier("pending-message")
+                }
+            }
+            VStack(spacing: 8) {
+                questionButton(pending.confirmTitle, isPrimary: true, action: onConfirmPending)
+                    .accessibilityIdentifier(pending.confirmIdentifier)
+                questionButton(pending.cancelTitle, isPrimary: false, action: onCancelPending)
+                    .accessibilityIdentifier(pending.cancelIdentifier)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    /// Tam genişlikte. Öne çıkan düğme ana düğmenin renklerinde (ihtiyaç rengi açık yeşilde beyaz yazı okunmuyordu).
+    private func questionButton(_ title: String, isPrimary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.85)
+                .foregroundStyle(isPrimary ? Color(.systemBackground) : Color.primary)
+                .padding(.horizontal, 12)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 50)
+                .background(
+                    isPrimary ? Color.accentColor : Color(.tertiarySystemFill),
+                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+                )
+        }
+        .buttonStyle(PressableStyle())
+    }
+
+    // MARK: İhtiyaç
+
+    private var needSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(Self.needGuidance)
+                .font(.footnote)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("need-guidance")
+            needGrid
+        }
+    }
+
+    /// Düzeltmede işaretin şimdiki ihtiyacı.
+    private func isCurrent(_ need: Need) -> Bool {
+        isEditing && editingReport?.need == need
+    }
+
     /// "Acil yardım" en üstte ve tam genişlikte; diğerleri iki sütunda.
     private var needGrid: some View {
         VStack(spacing: 10) {
@@ -199,8 +360,15 @@ struct ReportPanel: View {
                 .padding(.horizontal, 16)
                 .frame(height: 56)
                 .background(Need.emergency.color, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay {
+                    if isCurrent(.emergency) {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(Color.primary, lineWidth: 3)
+                    }
+                }
             }
             .buttonStyle(PressableStyle())
+            .accessibilityAddTraits(isCurrent(.emergency) ? .isSelected : [])
             .accessibilityIdentifier("need-\(Need.emergency.rawValue)")
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
@@ -221,12 +389,21 @@ struct ReportPanel: View {
                         .padding(.horizontal, 10)
                         .frame(height: 56)
                         .background(need.color.opacity(0.14), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay {
+                            if isCurrent(need) {
+                                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                    .strokeBorder(need.color, lineWidth: 2)
+                            }
+                        }
                     }
                     .buttonStyle(PressableStyle())
+                    .accessibilityAddTraits(isCurrent(need) ? .isSelected : [])
                     .accessibilityIdentifier("need-\(need.rawValue)")
                 }
             }
         }
+        .disabled(isSaving)
+        .opacity(isSaving ? 0.6 : 1)
     }
 }
 
@@ -257,34 +434,93 @@ struct CircleButton: View {
     }
 }
 
+// MARK: Önizlemeler
+
+private extension ReportPanel {
+    /// Önizlemeler için: yalnızca değişen girdiler verilir.
+    init(
+        mode: MapViewModel.Mode,
+        duplicate: Report? = nil,
+        duplicatePrompt: String? = nil,
+        allowanceText: String? = nil,
+        pendingReport: MapViewModel.PendingReport? = nil,
+        editingReport: Report? = nil,
+        isEditTargetTooFar: Bool = false,
+        canRetract: Bool = false
+    ) {
+        self.init(
+            mode: mode,
+            duplicate: duplicate,
+            duplicatePrompt: duplicatePrompt,
+            allowanceText: allowanceText,
+            pendingReport: pendingReport,
+            editingReport: editingReport,
+            isSavingEdit: false,
+            isEditTargetTooFar: isEditTargetTooFar,
+            canRetract: canRetract,
+            onSpecies: { _ in },
+            onNeed: { _ in },
+            onDuplicate: { _ in },
+            onDismissDuplicate: {},
+            onConfirmPending: {},
+            onCancelPending: {},
+            onRetract: {},
+            onBack: {},
+            onCancel: {}
+        )
+    }
+}
+
 #Preview("Tür seçimi") {
+    ReportPanel(mode: .choosingSpecies, allowanceText: "3 yeni işaret hakkın kaldı")
+        .padding()
+}
+
+#Preview("İhtiyaç seçimi") {
+    ReportPanel(mode: .choosingNeed(.cat))
+        .padding()
+}
+
+#Preview("Yardıma ihtiyacı var mı?") {
     ReportPanel(
-        mode: .choosingSpecies,
-        duplicate: nil,
-        duplicatePrompt: nil,
-        allowanceText: "3 yeni işaret hakkın kaldı",
-        onSpecies: { _ in },
-        onNeed: { _ in },
-        onDuplicate: { _ in },
-        onDismissDuplicate: {},
-        onBack: {},
-        onCancel: {}
+        mode: .choosingNeed(.cat),
+        pendingReport: MapViewModel.PendingReport(
+            species: .cat,
+            need: .food,
+            coordinate: Coordinate(latitude: 40.99, longitude: 29.03),
+            step: .gentleCheck(recentCount: 2)
+        )
     )
     .padding()
 }
 
-#Preview("İhtiyaç seçimi") {
+#Preview("Uzaklık sorusu") {
     ReportPanel(
-        mode: .choosingNeed(.cat),
-        duplicate: nil,
-        duplicatePrompt: nil,
-        allowanceText: nil,
-        onSpecies: { _ in },
-        onNeed: { _ in },
-        onDuplicate: { _ in },
-        onDismissDuplicate: {},
-        onBack: {},
-        onCancel: {}
+        mode: .choosingNeed(.dog),
+        pendingReport: MapViewModel.PendingReport(
+            species: .dog,
+            need: .injured,
+            coordinate: Coordinate(latitude: 40.99, longitude: 29.03),
+            step: .distance(meters: 2400)
+        )
+    )
+    .padding()
+}
+
+#Preview("İşareti düzelt") {
+    let report = ReportLifecycle.makeReport(
+        id: "preview-edit",
+        species: .cat,
+        need: .food,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "me",
+        now: Date().addingTimeInterval(-5 * 60)
+    )
+    return ReportPanel(
+        mode: .editing(reportID: report.id, species: .cat),
+        editingReport: report,
+        isEditTargetTooFar: true,
+        canRetract: true
     )
     .padding()
 }
@@ -299,19 +535,8 @@ struct CircleButton: View {
         now: Date().addingTimeInterval(-30 * 60)
     )
     let seen = (try? ReportLifecycle.apply(.confirmStillThere, to: nearby, by: "passer-by", at: Date())) ?? nearby
-    return ReportPanel(
-        mode: .choosingNeed(.cat),
-        duplicate: seen,
-        duplicatePrompt: nil,
-        allowanceText: nil,
-        onSpecies: { _ in },
-        onNeed: { _ in },
-        onDuplicate: { _ in },
-        onDismissDuplicate: {},
-        onBack: {},
-        onCancel: {}
-    )
-    .padding()
+    return ReportPanel(mode: .choosingNeed(.cat), duplicate: seen)
+        .padding()
 }
 
 #Preview("Burada 'Çözüldü' dendi") {
@@ -329,14 +554,7 @@ struct CircleButton: View {
     return ReportPanel(
         mode: .choosingNeed(.cat),
         duplicate: closing,
-        duplicatePrompt: Messages.duplicateClosingPrompt(closing, now: now),
-        allowanceText: nil,
-        onSpecies: { _ in },
-        onNeed: { _ in },
-        onDuplicate: { _ in },
-        onDismissDuplicate: {},
-        onBack: {},
-        onCancel: {}
+        duplicatePrompt: Messages.duplicateClosingPrompt(closing, now: now)
     )
     .padding()
 }

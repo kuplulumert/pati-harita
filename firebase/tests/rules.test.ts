@@ -6,10 +6,13 @@ import {
   initializeTestEnvironment,
   type RulesTestEnvironment,
 } from "@firebase/rules-unit-testing";
+import { geohashForLocation } from "geofire-common";
 import {
   Timestamp,
+  addDoc,
   collection,
   deleteDoc,
+  deleteField,
   doc,
   documentId,
   getDoc,
@@ -48,6 +51,9 @@ import {
   createReset,
   createSpend,
   createWithSpend,
+  editFields,
+  flagFields,
+  flagId,
   newUser,
   newUserFields,
   openReport,
@@ -73,7 +79,9 @@ function db(uid: string) {
 const ref = (uid: string, id = ID) => doc(db(uid), contract.collection, id);
 const userRef = (uid: string, of = uid) => doc(db(uid), contract.usersCollection, of);
 
-const LIFETIME = contract.needs.injured.lifetimeHours * HOUR; // openReport'un ihtiyacı
+const lifetimeOf = (need: string) => contract.needs[need as Need].lifetimeHours * HOUR;
+const LIFETIME = lifetimeOf("injured"); // openReport'un ihtiyacı
+const FOOD_LIFETIME = lifetimeOf("food");
 const STALE = contract.claimStaleMinutes;
 const UNDO = contract.undoMinutes;
 
@@ -88,6 +96,21 @@ async function seedUser(uid: string, data: Record<string, unknown> = agedUser())
     await setDoc(doc(ctx.firestore(), contract.usersCollection, uid), data);
   });
 }
+
+/** Sahibin konsoldan yaptığı gibi: banned/{uid}. */
+async function ban(uid: string) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await setDoc(doc(ctx.firestore(), contract.collections.banned, uid), { at: Timestamp.now() });
+  });
+}
+
+async function unban(uid: string) {
+  await env.withSecurityRulesDisabled(async (ctx) => {
+    await deleteDoc(doc(ctx.firestore(), contract.collections.banned, uid));
+  });
+}
+
+const flagRef = (uid: string, id = flagId(ID, uid)) => doc(db(uid), contract.collections.flags, id);
 
 /** Dokümanın sunucudaki hâli. İşaretleri giriş yapmış herkes okuyabildiği için onlar hazır bir
  *  istemciyle okunur (her seferinde kuralsız bağlam açmak yavaş); users kuralsız bağlamdan okunur. */
@@ -118,10 +141,16 @@ function seenAgo(hoursAgo: number) {
   return { createdAt: ts(seen), lastSeenAt: ts(seen), expiresAt: ts(seen + LIFETIME) };
 }
 
-/** "Hâlâ orada" yazımı; seenBy verilirse o da yazılır. */
-function confirm(seenBy?: string[]) {
+/** "Hâlâ orada" yazımı (ömür `need`e göre); seenBy verilirse o da yazılır. */
+function confirm(seenBy?: string[], need = "injured") {
   const now = Date.now();
-  return { lastSeenAt: ts(now), expiresAt: ts(now + LIFETIME), ...(seenBy ? { seenBy } : {}) };
+  return { lastSeenAt: ts(now), expiresAt: ts(now + lifetimeOf(need)), ...(seenBy ? { seenBy } : {}) };
+}
+
+/** Aç ve zayıf (food) işaretin, `hoursAgo` saat önce görülmüş zaman alanları. */
+function foodSeenAgo(hoursAgo: number) {
+  const seen = Date.now() - hoursAgo * HOUR;
+  return { need: "food", createdAt: ts(seen), lastSeenAt: ts(seen), expiresAt: ts(seen + FOOD_LIFETIME) };
 }
 
 /** `uid`'nin "Hâlâ yardım gerekiyor" yazımı (kurallardaki isObjection'ın beklediği biçim). */
@@ -137,7 +166,7 @@ function objection(uid: string, before: DocumentData, extra: Record<string, unkn
     disputed: [...(before.disputed as string[]), before.closingBy],
     objectors: uid === before.reporterId ? objectors : [...objectors, uid],
     lastSeenAt: ts(now),
-    expiresAt: ts(now + LIFETIME),
+    expiresAt: ts(now + lifetimeOf(before.need)),
     seenBy: seenBy.includes(uid) ? seenBy : [...seenBy, uid],
     ...extra,
   };
@@ -395,6 +424,10 @@ describe("işaret oluşturma", () => {
     await assertFails(create(ALICE, openReport({ note: "uzun açıklama" })));
     await assertFails(create(ALICE, openReport({ species: "fish" })));
     await assertFails(create(ALICE, openReport({ need: "toys" })));
+    // Şimdilik yalnızca kedi ve köpek; "Diğer" ihtiyacı kaldırıldı.
+    await assertFails(create(ALICE, openReport({ species: "bird" })));
+    await assertFails(create(ALICE, openReport({ species: "other" })));
+    await assertFails(create(ALICE, openReport({ need: "other" })));
     await assertFails(create(ALICE, openReport({ lat: 91 })));
     await assertFails(create(ALICE, openReport({ geohash: "sxk9hw43ba" }))); // 'a' geohash alfabesinde yok
     await assertFails(create(ALICE, openReport({ goneReports: [BOB] })));
@@ -404,6 +437,17 @@ describe("işaret oluşturma", () => {
     await assertFails(create(ALICE, openReport({ closingCredible: false })));
     await assertFails(create(ALICE, openReport({ closingReason: "resolved", closingBy: ALICE, closingAt: ts(Date.now()), closingCredible: false })));
     await assertSucceeds(create(ALICE));
+  });
+
+  it("yeni işaret editCount 0 ile oluşturulur", async () => {
+    const { editCount: _omit, ...missing } = openReport();
+    await assertFails(create(ALICE, missing));
+    await assertFails(create(ALICE, openReport({ editCount: 1 })));
+    await assertFails(create(ALICE, openReport({ editCount: -1 })));
+    await assertFails(create(ALICE, openReport({ editCount: "0" })));
+    await assertFails(create(ALICE, openReport({ editCount: 0.5 })));
+    await assertFails(create(ALICE, openReport({ editCount: null })));
+    await assertSucceeds(create(ALICE, openReport({ editCount: 0 })));
   });
 
   it("\"kaç kişi bildirdi\" listesi yalnızca bildiren kişiyle başlar", async () => {
@@ -644,6 +688,8 @@ describe("Çözüldü (resolve)", () => {
     await assertFails(updateDoc(ref(CARA), closingFields(BOB)));
     await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), closingReason: "expired" }));
     await assertFails(updateDoc(ref(CARA), closingFields(CARA, "gone")));
+    // "Yardım gerekmiyor" ağır ihtiyaçta (openReport: Yaralı) yok.
+    await assertFails(updateDoc(ref(CARA), closingFields(CARA, "unneeded")));
     await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), closingCredible: null }));
     await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), claimedBy: CARA }));
   });
@@ -1316,6 +1362,7 @@ describe("değişmez kural: başkası da gördüyse tek kişi işareti kaldıram
     "eski hesap, puanı var": () => agedUser(),
   };
   const base = () => ({ ...seenAgo(2), seenBy: [ALICE, CARA] });
+  const foodBase = () => ({ ...foodSeenAgo(2), seenBy: [ALICE, CARA] });
   const starts: Record<string, () => Record<string, unknown>> = {
     açık: () => openReport(base()),
     "2 kişi artık yok dedi": () => openReport({ ...base(), goneReports: [DAVE, "u1"] }),
@@ -1327,6 +1374,9 @@ describe("değişmez kural: başkası da gördüyse tek kişi işareti kaldıram
       closingReport(BOB, "gone", true, { ...base(), goneReports: [DAVE, "u1", BOB] }),
     "ALICE 'Çözüldü' dedi": () => closingReport(ALICE, "resolved", false, base()),
     "DAVE 'Çözüldü' dedi": () => closingReport(DAVE, "resolved", false, base()),
+    "Aç ve zayıf, açık": () => openReport(foodBase()),
+    "BOB 'Yardım gerekmiyor' dedi": () => closingReport(BOB, "unneeded", false, foodBase()),
+    "ALICE 'Yardım gerekmiyor' dedi": () => closingReport(ALICE, "unneeded", false, foodBase()),
   };
 
   function forbidden(cur: DocumentData, hasUser: boolean, spendRejected: boolean): [string, () => Promise<unknown>][] {
@@ -1334,10 +1384,13 @@ describe("değişmez kural: başkası da gördüyse tek kişi işareti kaldıram
     const gone = cur.goneReports as string[];
     const votes = gone.includes(BOB) ? gone : [...gone, BOB];
     const credible = closingFields(BOB, "resolved", true);
+    const cost = contract.needs[cur.need as Need].closeCost;
+    const nextEdit = { editCount: ((cur.editCount as number | undefined) ?? 0) + 1 };
     const writes: [string, () => Promise<unknown>][] = [
       ["closed(resolved)", () => updateDoc(ref(BOB), closeFields("resolved"))],
       ["closed(gone)", () => updateDoc(ref(BOB), closeFields("gone"))],
       ["closed(expired)", () => updateDoc(ref(BOB), closeFields("expired"))],
+      ["closed(unneeded)", () => updateDoc(ref(BOB), closeFields("unneeded"))],
       ["oy + closed(gone)", () => updateDoc(ref(BOB), { goneReports: votes, ...closeFields("gone") })],
       ["ilgilen + closed", () => updateDoc(ref(BOB), { ...claimFields(BOB), ...closeFields("resolved") })],
       ["dokümanı closed olarak yeniden yaz", () => setDoc(ref(BOB), { ...cur, ...closeFields("resolved") })],
@@ -1347,16 +1400,19 @@ describe("değişmez kural: başkası da gördüyse tek kişi işareti kaldıram
       ["itiraz + kısa ömür", () => updateDoc(ref(BOB), objection(BOB, cur, { expiresAt: ts(now + HOUR) }))],
       ["harcamasız kanıtlı Çözüldü dendi", () => updateDoc(ref(BOB), credible)],
       ["harcamasız kanıtlı Artık yok dendi", () => updateDoc(ref(BOB), { goneReports: votes, ...closingFields(BOB, "gone", true) })],
+      ["harcamasız kanıtlı Yardım gerekmiyor dendi", () => updateDoc(ref(BOB), closingFields(BOB, "unneeded", true))],
+      ["düzenle: ihtiyaç + kısa ömür", () => updateDoc(ref(BOB), { need: "food", expiresAt: ts(now + HOUR), ...nextEdit })],
+      ["düzenle: konum", () => updateDoc(ref(BOB), { lat: (cur.lat as number) + 0.001, ...nextEdit })],
       ["sil", () => deleteDoc(ref(BOB))],
     ];
     if (hasUser) {
       writes.push(
-        ["başka işaret için harcama", () => updateWithSpend(db(BOB), BOB, ID, credible, closeSpend("r2", 2))],
-        ["eksik puan", () => updateWithSpend(db(BOB), BOB, ID, credible, closeSpend(ID, 1))],
+        ["başka işaret için harcama", () => updateWithSpend(db(BOB), BOB, ID, credible, closeSpend("r2", cost))],
+        ["yanlış puan", () => updateWithSpend(db(BOB), BOB, ID, credible, closeSpend(ID, cost === 2 ? 1 : 2))],
       );
     }
     if (spendRejected) {
-      writes.push(["tam harcama", () => updateWithSpend(db(BOB), BOB, ID, credible, closeSpend(ID, 2))]);
+      writes.push(["tam harcama", () => updateWithSpend(db(BOB), BOB, ID, credible, closeSpend(ID, cost))]);
     }
     return writes;
   }
@@ -1385,10 +1441,11 @@ describe("değişmez kural: başkası da gördüyse tek kişi işareti kaldıram
         const steps: (() => Promise<unknown>)[] = [
           async () => {
             const cur = (await stored())!;
-            return updateDoc(ref(BOB), confirm([...(cur.seenBy as string[]), BOB]));
+            return updateDoc(ref(BOB), confirm([...(cur.seenBy as string[]), BOB], cur.need));
           },
           () => updateDoc(ref(BOB), claimFields(BOB)),
           () => updateDoc(ref(BOB), closingFields(BOB)),
+          () => updateDoc(ref(BOB), closingFields(BOB, "unneeded")),
           async () => {
             const cur = (await stored())!;
             return updateDoc(ref(BOB), { goneReports: [...(cur.goneReports as string[]), BOB] });
@@ -1413,6 +1470,651 @@ describe("değişmez kural: başkası da gördüyse tek kişi işareti kaldıram
       });
     }
   }
+});
+
+describe("Düzenle (edit)", () => {
+  const { windowMinutes, maxEdits, maxLatDelta, maxLngDelta } = contract.edit;
+  const LAT = openReport().lat as number;
+  const LNG = openReport().lng as number;
+
+  /** ALICE'in `minutesAgo` dakika önce koyduğu işaretin zaman alanları. */
+  function placedAgo(minutesAgo = 5) {
+    const created = Date.now() - minutesAgo * MINUTE;
+    return { createdAt: ts(created), lastSeenAt: ts(created), expiresAt: ts(created + LIFETIME) };
+  }
+  /** Kimsenin dokunmadığı, düzenlenebilir işaret. */
+  const fresh = (overrides: Record<string, unknown> = {}, minutesAgo = 5) =>
+    openReport({ ...placedAgo(minutesAgo), ...overrides });
+  /** Yeni konum ve istemcinin ondan hesapladığı geohash. */
+  const moveTo = (lat: number, lng: number) => ({
+    lat,
+    lng,
+    geohash: geohashForLocation([lat, lng], contract.geohashPrecision),
+  });
+  /** İhtiyaç değişince ömür şimdiden, yeni ihtiyacın süresiyle sayılır. */
+  const needChange = (need: Need, now = Date.now()) => ({ need, expiresAt: ts(now + lifetimeOf(need)) });
+  /** Uygulamanın düzenleme yazımı: değişen alanlar + bir artan editCount. */
+  const edit = async (uid: string, fields: Record<string, unknown>) =>
+    updateDoc(ref(uid), editFields((await stored())!, fields));
+
+  it("koyan türü, ihtiyacı ve konumu ayrı ayrı düzeltebilir; her düzenleme editCount'u bir artırır", async () => {
+    await seed(fresh());
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+    await assertSucceeds(edit(ALICE, needChange("food")));
+    await assertSucceeds(edit(ALICE, moveTo(LAT + 0.0015, LNG - 0.002)));
+    const after = (await stored())!;
+    expect(after).toMatchObject({ species: "dog", need: "food", lat: LAT + 0.0015, lng: LNG - 0.002, editCount: 3 });
+    expect(after.geohash).toBe(geohashForLocation([LAT + 0.0015, LNG - 0.002], contract.geohashPrecision));
+    // Görülme bilgisi, koyan ve durum aynı kalır.
+    expect(after).toMatchObject({ status: "open", reporterId: ALICE, seenBy: [ALICE] });
+  });
+
+  it("tür, ihtiyaç ve konum tek yazımda birlikte düzeltilebilir", async () => {
+    await seed(fresh());
+    await assertSucceeds(edit(ALICE, { species: "dog", ...needChange("vet"), ...moveTo(LAT - 0.001, LNG + 0.001) }));
+    expect((await stored())!).toMatchObject({ species: "dog", need: "vet", editCount: 1 });
+  });
+
+  it(`en fazla ${maxEdits} kez düzenlenir`, async () => {
+    await seed(fresh({ editCount: maxEdits - 1 }));
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+    await assertFails(edit(ALICE, { species: "cat" }));
+    await assertFails(updateDoc(ref(ALICE), { species: "cat", editCount: maxEdits }));
+    await assertFails(updateDoc(ref(ALICE), { species: "cat", editCount: maxEdits + 1 }));
+    expect((await stored())!).toMatchObject({ species: "dog", editCount: maxEdits });
+  });
+
+  it("editCount tam bir artar; editCount'u artırmayan düzenleme reddedilir", async () => {
+    await seed(fresh({ editCount: 1 }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog" }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: 1 }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: 3 }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: 0 }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: "2" }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: 1.5 }));
+    await assertSucceeds(updateDoc(ref(ALICE), { species: "dog", editCount: 2 }));
+  });
+
+  it("editCount başka eylemlerle değişmez", async () => {
+    await seed(fresh());
+    await assertFails(updateDoc(ref(BOB), { ...claimFields(BOB), editCount: 1 }));
+    await assertFails(updateDoc(ref(CARA), { ...confirm([ALICE, CARA]), editCount: 1 }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), editCount: 1 }));
+    await assertFails(updateDoc(ref(BOB), { editCount: 1 }));
+    await seed(fresh({ ...seenAgo(25), editCount: 2 }));
+    await assertFails(updateDoc(ref(CARA), { ...closeFields("expired"), editCount: 0 }));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("expired")));
+  });
+
+  it(`oluşturulduktan ${windowMinutes} dk sonra düzenlenemez (silmek serbest kalır)`, async () => {
+    await seed(fresh({}, windowMinutes - 1));
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+    await seed(fresh({}, windowMinutes + 1));
+    await assertFails(edit(ALICE, { species: "dog" }));
+    await assertFails(edit(ALICE, needChange("food")));
+    await assertFails(edit(ALICE, moveTo(LAT + 0.0001, LNG)));
+    await assertSucceeds(deleteDoc(ref(ALICE)));
+  });
+
+  it("konum her düzenlemede enlem ve boylamda sözleşmedeki sınıra kadar kayar", async () => {
+    const step = 0.0001;
+    const cases: [number, number, boolean][] = [
+      [maxLatDelta - step, 0, true],
+      [-(maxLatDelta - step), 0, true],
+      [maxLatDelta + step, 0, false],
+      [-(maxLatDelta + step), 0, false],
+      [0, maxLngDelta - step, true],
+      [0, -(maxLngDelta - step), true],
+      [0, maxLngDelta + step, false],
+      [0, -(maxLngDelta + step), false],
+      [maxLatDelta - step, -(maxLngDelta - step), true],
+      [maxLatDelta - step, maxLngDelta + step, false],
+    ];
+    for (const [dLat, dLng, ok] of cases) {
+      await seed(fresh());
+      const write = edit(ALICE, moveTo(LAT + dLat, LNG + dLng));
+      await (ok ? assertSucceeds(write) : assertFails(write)).catch((e) => {
+        throw new Error(`Δlat ${dLat}, Δlng ${dLng}: ${ok ? "kabul" : "ret"} bekleniyordu: ${e}`);
+      });
+    }
+  });
+
+  it("sınır her düzenlemede son konuma göredir", async () => {
+    const d = maxLatDelta - 0.0001;
+    await seed(fresh());
+    await assertSucceeds(edit(ALICE, moveTo(LAT + d, LNG)));
+    await assertSucceeds(edit(ALICE, moveTo(LAT + 2 * d, LNG)));
+    await assertFails(edit(ALICE, moveTo(LAT, LNG)));
+  });
+
+  it("ihtiyaç değişmezse ömür aynı kalır", async () => {
+    await seed(fresh());
+    const now = Date.now();
+    await assertFails(edit(ALICE, { species: "dog", expiresAt: ts(now + LIFETIME) }));
+    await assertFails(edit(ALICE, { ...moveTo(LAT + 0.001, LNG), expiresAt: ts(now + HOUR) }));
+    await assertFails(edit(ALICE, { need: "injured", expiresAt: ts(now + LIFETIME) }));
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+  });
+
+  it("ihtiyaç değişince ömür şimdiden yeni ihtiyacın süresiyle sayılır", async () => {
+    await seed(fresh()); // Yaralı: 24 sa
+    const now = Date.now();
+    // Eski ömür, daha kısa ömürlü yeni ihtiyaç için fazla uzun.
+    await assertFails(edit(ALICE, { need: "food" }));
+    // Telefon saati en fazla 15 dk (skew) ileri sayılır; daha uzun ömür reddedilir.
+    await assertFails(edit(ALICE, { need: "food", expiresAt: ts(now + FOOD_LIFETIME + 16 * MINUTE) }));
+    await assertFails(edit(ALICE, { need: "food", expiresAt: ts(now - MINUTE) }));
+    await assertSucceeds(edit(ALICE, needChange("food", now)));
+    // Daha uzun ömürlü ihtiyaca geçince de bu andan sayılır.
+    const later = Date.now();
+    await assertFails(edit(ALICE, { need: "babies", expiresAt: ts(later + lifetimeOf("babies") + 16 * MINUTE) }));
+    await assertSucceeds(edit(ALICE, needChange("babies", later)));
+    expect((await stored())!.expiresAt.toMillis()).toBe(later + lifetimeOf("babies"));
+  });
+
+  it("ihtiyaç değişirken telefon saati diğer yazımlardaki gibi 15 dk'ya kadar ileri olabilir", async () => {
+    await seed(fresh()); // Yaralı: 24 sa
+    // Saati 10 dk ileri telefonun hesapladığı ömür (işaret koymak ve üstüne almak da bu saatle kabul edilir).
+    const phoneNow = Date.now() + 10 * MINUTE;
+    await assertSucceeds(edit(ALICE, needChange("food", phoneNow)));
+    expect((await stored())!).toMatchObject({ need: "food", editCount: 1 });
+    expect((await stored())!.expiresAt.toMillis()).toBe(phoneNow + FOOD_LIFETIME);
+  });
+
+  it("yalnızca kimsenin dokunmadığı, açık ve süresi dolmamış işaret düzenlenir", async () => {
+    const touched: Record<string, Record<string, unknown>> = {
+      "başkası da gördü": fresh({ seenBy: [ALICE, CARA] }),
+      "'Artık yok' oyu var": fresh({ goneReports: [CARA] }),
+      "itiraz geçmişi var": fresh({ disputed: [BOB], objectors: [CARA] }),
+      "koyan itiraz etmiş": fresh({ disputed: [BOB] }),
+      "BOB ilgileniyor": claimedReport(BOB, placedAgo()),
+      "ALICE ilgileniyor": claimedReport(ALICE, placedAgo()),
+      "Çözüldü dendi": closingReport(BOB, "resolved", false, placedAgo()),
+      "kendi 'Çözüldü dendi'si": closingReport(ALICE, "resolved", false, placedAgo()),
+      kapanmış: fresh(closeFields("resolved")),
+      "süresi dolmuş": fresh({ expiresAt: ts(Date.now() - MINUTE) }),
+    };
+    for (const [name, report] of Object.entries(touched)) {
+      await seed(report);
+      await assertFails(edit(ALICE, { species: "dog" })).catch((e) => {
+        throw new Error(`${name}: ${e}`);
+      });
+    }
+    await seed(fresh());
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+  });
+
+  it("yalnızca koyan düzenler", async () => {
+    await seed(fresh());
+    await assertFails(edit(BOB, { species: "dog" }));
+    await assertFails(edit(CARA, needChange("food")));
+    await assertFails(edit(CARA, moveTo(LAT + 0.001, LNG)));
+    await assertFails(edit(ALICE, { species: "dog", reporterId: BOB }));
+    // Tek tanık olmak yetmez (kurallarla oluşamayacak bir durum bile olsa): koyan olmalı.
+    await seed(fresh({ seenBy: [BOB] }));
+    await assertFails(edit(BOB, { species: "dog" }));
+  });
+
+  it("düzenleme başka alanlara dokunamaz", async () => {
+    await seed(fresh());
+    const now = Date.now();
+    const extras: Record<string, unknown>[] = [
+      { lastSeenAt: ts(now) },
+      { createdAt: ts(now) },
+      { seenBy: [ALICE, BOB] },
+      { goneReports: [ALICE] },
+      claimFields(ALICE),
+      closeFields("resolved"),
+      closingFields(ALICE),
+    ];
+    for (const extra of extras) {
+      await assertFails(edit(ALICE, { species: "dog", ...extra }));
+    }
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+  });
+
+  it("düzenlenen değerler geçerli olmalı", async () => {
+    await seed(fresh());
+    const invalid: Record<string, unknown>[] = [
+      { species: "bird" },
+      { species: "other" },
+      { need: "other", expiresAt: ts(Date.now() + HOUR) },
+      { geohash: "sxk9hw43ba" },
+      { lat: "40.99" },
+      { lat: null },
+    ];
+    for (const fields of invalid) await assertFails(edit(ALICE, fields));
+  });
+
+  it("engellenen kimlik düzenleyemez", async () => {
+    await seed(fresh());
+    await ban(ALICE);
+    await assertFails(edit(ALICE, { species: "dog" }));
+    await unban(ALICE);
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+  });
+
+  it("düzenlenmiş işareti koyan hâlâ silebilir", async () => {
+    await seed(fresh());
+    await assertSucceeds(edit(ALICE, { species: "dog" }));
+    await assertSucceeds(deleteDoc(ref(ALICE)));
+  });
+
+  it("başkası dokununca düzenleme kapanır, işaret olağan akışa devam eder", async () => {
+    await seed(fresh());
+    await assertSucceeds(edit(ALICE, needChange("food")));
+    await assertSucceeds(updateDoc(ref(CARA), confirm([ALICE, CARA], "food")));
+    await assertFails(edit(ALICE, { species: "dog" }));
+  });
+});
+
+describe("editCount'u olmayan (eski) işaretler", () => {
+  const legacy = (overrides: Record<string, unknown> = {}) => {
+    const { editCount: _omit, ...report } = openReport(overrides);
+    return report;
+  };
+
+  it("diğer eylemler olduğu gibi sürer; alan kendiliğinden eklenmez", async () => {
+    await seed(legacy());
+    await assertSucceeds(updateDoc(ref(BOB), claimFields(BOB)));
+    expect("editCount" in (await stored())!).toBe(false);
+    await seed(legacy(seenAgo(20)));
+    await assertSucceeds(updateDoc(ref(CARA), confirm([ALICE, CARA])));
+    await seed(legacy());
+    await assertSucceeds(updateDoc(ref(CARA), closingFields(CARA)));
+    await seed(legacy(seenAgo(25)));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("expired")));
+  });
+
+  it("düzenlenirken sayaç 0'dan başlar; editCount sonradan silinemez", async () => {
+    await seed(legacy());
+    await assertFails(updateDoc(ref(ALICE), { species: "dog" }));
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: 2 }));
+    await assertSucceeds(updateDoc(ref(ALICE), { species: "dog", editCount: 1 }));
+    await assertFails(updateDoc(ref(ALICE), { species: "cat", editCount: deleteField() }));
+    await assertFails(updateDoc(ref(BOB), { ...claimFields(BOB), editCount: deleteField() }));
+    await assertSucceeds(updateDoc(ref(BOB), claimFields(BOB)));
+  });
+});
+
+describe("Yardım gerekmiyor (unneeded)", () => {
+  const food = (overrides: Record<string, unknown> = {}) => openReport({ ...foodSeenAgo(0), ...overrides });
+  const unneededBy = (uid: string, credible = false) => updateDoc(ref(uid), closingFields(uid, "unneeded", credible));
+
+  it("yalnızca sözleşmedeki hafif ihtiyaçlarda denebilir", async () => {
+    for (const need of Object.keys(contract.needs) as Need[]) {
+      const allowed = contract.unneededNeeds.includes(need);
+      const report = openReport({ need, expiresAt: ts(Date.now() + lifetimeOf(need)) });
+      const check = (write: Promise<unknown>, who: string) =>
+        (allowed ? assertSucceeds(write) : assertFails(write)).catch((e) => {
+          throw new Error(`${need} (${who}): ${e}`);
+        });
+      await seed(report);
+      await check(updateDoc(ref(ALICE), closeFields("unneeded")), "koyan");
+      await seed(report);
+      await check(unneededBy(CARA), "yoldan geçen");
+    }
+  });
+
+  it("koyan tek tanıksa işaret hemen kapanır ('Yanlış alarmdı')", async () => {
+    await seed(food());
+    await assertSucceeds(updateDoc(ref(ALICE), closeFields("unneeded")));
+    expect((await stored())!).toMatchObject({ status: "closed", closedReason: "unneeded", closingReason: null });
+  });
+
+  it("başkası da gördüyse koyanınki de yalnızca 'Yardım gerekmiyor dendi' olur", async () => {
+    await seed(food({ seenBy: [ALICE, CARA] }));
+    await assertFails(updateDoc(ref(ALICE), closeFields("unneeded")));
+    await assertSucceeds(unneededBy(ALICE));
+  });
+
+  it("başkası hemen kapatamaz; 'Yardım gerekmiyor dendi' yapar, ömür değişmez", async () => {
+    const report = food();
+    await seed(report);
+    await assertFails(updateDoc(ref(CARA), closeFields("unneeded")));
+    await assertSucceeds(unneededBy(CARA));
+    const after = (await stored())!;
+    expect(after).toMatchObject({ status: "closing", closingReason: "unneeded", closingBy: CARA, closingCredible: false });
+    expect(after.expiresAt.toMillis()).toBe((report.expiresAt as Timestamp).toMillis());
+  });
+
+  it("kanıtlı olabilir: aynı günlük bütçeden, hafif ihtiyacın puanıyla", async () => {
+    const cost = contract.needs.food.closeCost;
+    const credibleUnneeded = (w: number) =>
+      updateWithSpend(db(CARA), CARA, ID, closingFields(CARA, "unneeded", true), closeSpend(ID, w));
+    await seedUser(CARA);
+    await seed(food());
+    await assertFails(unneededBy(CARA, true));
+    await assertFails(credibleUnneeded(cost + 1));
+    await assertSucceeds(credibleUnneeded(cost));
+    expect((await stored())!.closingCredible).toBe(true);
+    expect((await stored(`${contract.usersCollection}/${CARA}`))!.closeUsed).toBe(cost);
+    // Genç hesap başkasının işaretini kanıtlı kapatamaz; puansız önerebilir.
+    await seedUser(CARA, newUser());
+    await seed(food());
+    await assertFails(credibleUnneeded(cost));
+    await assertSucceeds(unneededBy(CARA));
+    // Puanı bitmiş hesap da kanıtlı kapatamaz.
+    await seedUser(CARA, agedUser({ closeUsed: contract.closeBudget.points }));
+    await seed(food());
+    await assertFails(credibleUnneeded(cost));
+  });
+
+  it("başkasının taze sahipliğine ve itiraz geçmişine saygı gösterir", async () => {
+    const claimed = (minutesAgo: number) => claimedReport(BOB, foodSeenAgo(0), minutesAgo);
+    await seed(claimed(10));
+    await assertFails(unneededBy(CARA));
+    await assertSucceeds(unneededBy(BOB));
+    await seed(claimed(10));
+    await assertSucceeds(unneededBy(ALICE));
+    await seed(claimed(STALE + 1));
+    await assertSucceeds(unneededBy(CARA));
+    await seed(food({ disputed: [CARA], objectors: [DAVE] }));
+    await assertFails(unneededBy(CARA));
+    await assertSucceeds(unneededBy(BOB));
+  });
+
+  it("öneri başka alanlara dokunamaz; sebepler karıştırılamaz", async () => {
+    await seed(food({ goneReports: [BOB, DAVE] }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA, "unneeded"), expiresAt: ts(Date.now() + HOUR) }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA, "unneeded"), goneReports: [BOB, DAVE, CARA] }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA, "unneeded"), closedReason: "unneeded" }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA, "unneeded"), closingBy: BOB }));
+    await assertFails(updateDoc(ref(CARA), { ...closingFields(CARA), closingReason: "fine" }));
+    await assertSucceeds(unneededBy(CARA));
+  });
+
+  it("koyan başkasının önerisini onaylar ('Evet, ihtiyacı yoktu'): closed(unneeded)", async () => {
+    await seed(closingReport(BOB, "unneeded", false, foodSeenAgo(1)));
+    await assertFails(updateDoc(ref(ALICE), closeFields("resolved")));
+    await assertFails(updateDoc(ref(ALICE), closeFields("expired")));
+    await assertFails(updateDoc(ref(BOB), closeFields("unneeded")));
+    await assertFails(updateDoc(ref(CARA), closeFields("unneeded")));
+    await assertSucceeds(updateDoc(ref(ALICE), closeFields("unneeded")));
+    expect((await stored())!).toMatchObject({
+      status: "closed",
+      closedReason: "unneeded",
+      closingReason: "unneeded",
+      closingBy: BOB,
+    });
+  });
+
+  it("koyan önerdiyse hayvanı gören başka biri onaylar", async () => {
+    await seed(closingReport(ALICE, "unneeded", false, { ...foodSeenAgo(1), seenBy: [ALICE, CARA] }));
+    await assertFails(updateDoc(ref(ALICE), closeFields("unneeded")));
+    await assertFails(updateDoc(ref(BOB), closeFields("unneeded")));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("unneeded")));
+  });
+
+  it("'Hâlâ yardım gerekiyor' öneriyi geri çevirir; kapatan bir daha öneremez", async () => {
+    await seed(closingReport(BOB, "unneeded", true, foodSeenAgo(2)));
+    const before = (await stored())!;
+    await assertFails(updateDoc(ref(BOB), objection(BOB, before)));
+    await assertSucceeds(updateDoc(ref(CARA), objection(CARA, before)));
+    expect((await stored())!).toMatchObject({
+      status: "open",
+      closingReason: null,
+      closingCredible: null,
+      disputed: [BOB],
+      objectors: [CARA],
+      seenBy: [ALICE, CARA],
+    });
+    await assertFails(unneededBy(BOB));
+    await assertSucceeds(unneededBy(DAVE));
+  });
+
+  it(`kapatan ${UNDO} dk içinde geri alabilir`, async () => {
+    await seed(closingReport(BOB, "unneeded", false, foodSeenAgo(1)));
+    await assertFails(updateDoc(ref(CARA), undo));
+    await assertFails(updateDoc(ref(ALICE), undo));
+    await assertSucceeds(updateDoc(ref(BOB), undo));
+    expect((await stored())!).toMatchObject({ status: "open", closingReason: null });
+    await seed(closingReport(BOB, "unneeded", false, foodSeenAgo(1), UNDO + 1));
+    await assertFails(updateDoc(ref(BOB), undo));
+  });
+
+  it("süresi dolunca önerilen sebeple kapanır; öneri yoksa 'expired'", async () => {
+    const expired = foodSeenAgo(contract.needs.food.lifetimeHours + 1);
+    await seed(closingReport(BOB, "unneeded", false, expired));
+    await assertFails(updateDoc(ref(CARA), closeFields("expired")));
+    await assertFails(updateDoc(ref(CARA), closeFields("resolved")));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("unneeded")));
+    await seed(food(expired));
+    await assertFails(updateDoc(ref(CARA), closeFields("unneeded")));
+    await assertFails(updateDoc(ref(ALICE), closeFields("unneeded")));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("expired")));
+  });
+
+  it("'Yardım gerekmiyor dendi' işaret yalnızca itiraz, onay, geri alma ve süre dolumuyla değişir", async () => {
+    await seed(closingReport(BOB, "unneeded", false, foodSeenAgo(1)));
+    await assertFails(updateDoc(ref(CARA), claimFields(CARA)));
+    await assertFails(updateDoc(ref(CARA), confirm([ALICE, CARA], "food")));
+    await assertFails(updateDoc(ref(CARA), { goneReports: [CARA] }));
+    await assertFails(unneededBy(CARA));
+    await assertFails(updateDoc(ref(BOB), closingFields(BOB, "resolved")));
+  });
+});
+
+describe("Bu işareti bildir (flags)", () => {
+  beforeEach(() => seed(openReport()));
+
+  it("herkes bir işareti sözleşmedeki her sebeple bildirebilir; at sunucu saatidir", async () => {
+    for (const [i, reason] of contract.flagReasons.entries()) {
+      await assertSucceeds(setDoc(flagRef(`u${i}`), flagFields(ID, reason)));
+    }
+    const flag = (await stored(`${contract.collections.flags}/${flagId(ID, "u0")}`))!;
+    expect(flag.reportId).toBe(ID);
+    expect(flag.reason).toBe(contract.flagReasons[0]);
+    expect(flag.at).toBeInstanceOf(Timestamp);
+  });
+
+  it("belge kimliği işaret kimliği + '_' + bildirenin kimliğidir", async () => {
+    await assertFails(setDoc(flagRef(CARA, flagId(ID, BOB)), flagFields(ID)));
+    await assertFails(setDoc(flagRef(CARA, `${ID}${CARA}`), flagFields(ID)));
+    await assertFails(setDoc(flagRef(CARA, `${ID}-${CARA}`), flagFields(ID)));
+    await assertFails(setDoc(flagRef(CARA, `${CARA}_${ID}`), flagFields(ID)));
+    await assertFails(setDoc(flagRef(CARA, `${ID}_${CARA}_2`), flagFields(ID)));
+    await assertFails(setDoc(flagRef(CARA, flagId("r2", CARA)), flagFields(ID)));
+    await assertFails(addDoc(collection(db(CARA), contract.collections.flags), flagFields(ID)));
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID)));
+  });
+
+  it("yalnızca var olan bir işaret bildirilebilir (kapanmış olsa da)", async () => {
+    await assertFails(setDoc(flagRef(CARA, flagId("r2", CARA)), flagFields("r2")));
+    await seed(openReport(), "r2");
+    await assertSucceeds(setDoc(flagRef(CARA, flagId("r2", CARA)), flagFields("r2")));
+    await seed(openReport(closeFields("resolved")), "r3");
+    await assertSucceeds(setDoc(flagRef(CARA, flagId("r3", CARA)), flagFields("r3")));
+  });
+
+  it("alanlar tam olarak reportId, reason ve sunucu saatli at", async () => {
+    const { reason: _omit, ...noReason } = flagFields(ID);
+    const { at: _omit2, ...noAt } = flagFields(ID);
+    const { reportId: _omit3, ...noReport } = flagFields(ID);
+    const invalid: Record<string, unknown>[] = [
+      noReason,
+      noAt,
+      noReport,
+      { ...flagFields(ID), note: "ayrıntı" },
+      { ...flagFields(ID), reason: "spam" },
+      { ...flagFields(ID), reason: "other" },
+      { ...flagFields(ID), reason: null },
+      { ...flagFields(ID), at: ts(Date.now()) },
+      { ...flagFields(ID), reportId: 7 },
+    ];
+    for (const bad of invalid) await assertFails(setDoc(flagRef(CARA), bad));
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID, "unsafe")));
+  });
+
+  it("aynı kişi aynı işareti bir kez bildirir; bildirim değiştirilemez, silinemez", async () => {
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID, "fake")));
+    await assertFails(setDoc(flagRef(CARA), flagFields(ID, "fake")));
+    await assertFails(setDoc(flagRef(CARA), flagFields(ID, "misuse")));
+    await assertFails(updateDoc(flagRef(CARA), { reason: "misuse" }));
+    await assertFails(deleteDoc(flagRef(CARA)));
+    // Başkası aynı işareti ayrıca bildirebilir.
+    await assertSucceeds(setDoc(flagRef(DAVE), flagFields(ID, "misuse")));
+  });
+
+  it("bildirimler okunamaz ve listelenemez (kendininki de, işareti koyan da)", async () => {
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID)));
+    await assertFails(getDocFromServer(flagRef(CARA)));
+    await assertFails(getDocFromServer(flagRef(ALICE, flagId(ID, CARA))));
+    await assertFails(getDocs(collection(db(CARA), contract.collections.flags)));
+    await assertFails(getDocs(query(collection(db(ALICE), contract.collections.flags), where("reportId", "==", ID))));
+  });
+
+  it("giriş yapmamış kullanıcı bildiremez", async () => {
+    const anon = doc(env.unauthenticatedContext().firestore(), contract.collections.flags, `${ID}_x`);
+    await assertFails(setDoc(anon, flagFields(ID)));
+  });
+
+  it("engellenen kimlik bildiremez", async () => {
+    await ban(CARA);
+    await assertFails(setDoc(flagRef(CARA), flagFields(ID)));
+    await unban(CARA);
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID)));
+  });
+
+  it("bildirimin işarete hiçbir etkisi yoktur", async () => {
+    const before = (await stored())!;
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID, "fake")));
+    await assertSucceeds(setDoc(flagRef(DAVE), flagFields(ID, "unsafe")));
+    expect((await stored())!).toEqual(before);
+  });
+});
+
+describe("engellenen kimlik (banned)", () => {
+  const bannedRef = (uid: string, of = uid) => doc(db(uid), contract.collections.banned, of);
+
+  it("kişi yalnızca kendi kaydını okur (yoksa da); kimse yazamaz ya da listeleyemez", async () => {
+    await ban(ALICE);
+    expect((await assertSucceeds(getDocFromServer(bannedRef(ALICE)))).exists()).toBe(true);
+    // Engellenmemiş kişi kendi (olmayan) kaydını okuyabilir: uygulama bir kez bakar.
+    expect((await assertSucceeds(getDocFromServer(bannedRef(CARA)))).exists()).toBe(false);
+    await assertFails(getDocFromServer(bannedRef(BOB, ALICE)));
+    await assertFails(getDocs(collection(db(ALICE), contract.collections.banned)));
+    await assertFails(getDocs(query(collection(db(ALICE), contract.collections.banned), where(documentId(), "==", ALICE))));
+    await assertFails(deleteDoc(bannedRef(ALICE)));
+    await assertFails(setDoc(bannedRef(ALICE), { at: serverTimestamp() }));
+    await assertFails(setDoc(bannedRef(BOB), { at: serverTimestamp() }));
+    await assertFails(setDoc(bannedRef(BOB, CARA), { at: serverTimestamp() }));
+    await assertFails(getDocFromServer(doc(env.unauthenticatedContext().firestore(), contract.collections.banned, ALICE)));
+  });
+
+  // Her eylem engelliyken reddedilir, engel kalkınca aynı yazım kabul edilir: ret engelden gelir.
+  const actions: Record<string, { who: string; setup: () => Promise<unknown>; write: () => Promise<unknown> }> = {
+    "yeni işaret": { who: ALICE, setup: () => seedUser(ALICE), write: () => create(ALICE) },
+    "yeni işaret hakkı harcama": {
+      who: ALICE,
+      setup: () => seedUser(ALICE),
+      write: () => updateDoc(userRef(ALICE), createSpend("x")),
+    },
+    "kapatma puanı harcama": {
+      who: ALICE,
+      setup: () => seedUser(ALICE),
+      write: () => updateDoc(userRef(ALICE), closeSpend("x", 1)),
+    },
+    İlgileniyorum: { who: BOB, setup: () => seed(openReport()), write: () => updateDoc(ref(BOB), claimFields(BOB)) },
+    Vazgeç: { who: BOB, setup: () => seed(claimedReport(BOB)), write: () => updateDoc(ref(BOB), release) },
+    "İlgilenen gelmedi (koyan bırakır)": {
+      who: ALICE,
+      setup: () => seed(claimedReport(BOB, {}, STALE + 1)),
+      write: () => updateDoc(ref(ALICE), release),
+    },
+    "Çözüldü (koyan, hemen)": {
+      who: ALICE,
+      setup: () => seed(openReport()),
+      write: () => updateDoc(ref(ALICE), closeFields("resolved")),
+    },
+    "Çözüldü dendi": { who: CARA, setup: () => seed(openReport()), write: () => updateDoc(ref(CARA), closingFields(CARA)) },
+    "kanıtlı Çözüldü dendi": {
+      who: CARA,
+      setup: async () => {
+        await seedUser(CARA);
+        await seed(openReport());
+      },
+      write: () => updateWithSpend(db(CARA), CARA, ID, closingFields(CARA, "resolved", true), closeSpend(ID, 2)),
+    },
+    "Yardım gerekmiyor (koyan, hemen)": {
+      who: ALICE,
+      setup: () => seed(openReport(foodSeenAgo(0))),
+      write: () => updateDoc(ref(ALICE), closeFields("unneeded")),
+    },
+    "Yardım gerekmiyor dendi": {
+      who: CARA,
+      setup: () => seed(openReport(foodSeenAgo(0))),
+      write: () => updateDoc(ref(CARA), closingFields(CARA, "unneeded")),
+    },
+    "Hâlâ orada": {
+      who: CARA,
+      setup: () => seed(openReport(seenAgo(20))),
+      write: () => updateDoc(ref(CARA), confirm([ALICE, CARA])),
+    },
+    "Artık yok oyu": { who: CARA, setup: () => seed(openReport()), write: () => updateDoc(ref(CARA), { goneReports: [CARA] }) },
+    "Artık yok (koyan, hemen)": {
+      who: ALICE,
+      setup: () => seed(openReport()),
+      write: () => updateDoc(ref(ALICE), { goneReports: [ALICE], ...closeFields("gone") }),
+    },
+    "Artık yok dendi": {
+      who: BOB,
+      setup: () => seed(claimedReport(BOB)),
+      write: () => updateDoc(ref(BOB), { goneReports: [BOB], ...closingFields(BOB, "gone") }),
+    },
+    "Hâlâ yardım gerekiyor (itiraz)": {
+      who: CARA,
+      setup: () => seed(closingReport(BOB, "resolved", false, seenAgo(2))),
+      write: async () => updateDoc(ref(CARA), objection(CARA, (await stored())!)),
+    },
+    "Evet, çözüldü (onay)": {
+      who: ALICE,
+      setup: () => seed(closingReport(BOB)),
+      write: () => updateDoc(ref(ALICE), closeFields("resolved")),
+    },
+    "Geri al": { who: BOB, setup: () => seed(closingReport(BOB)), write: () => updateDoc(ref(BOB), undo) },
+    Düzenle: {
+      who: ALICE,
+      setup: () => seed(openReport()),
+      write: () => updateDoc(ref(ALICE), { species: "dog", editCount: 1 }),
+    },
+    "İşareti sil": { who: ALICE, setup: () => seed(openReport()), write: () => deleteDoc(ref(ALICE)) },
+    "Bu işareti bildir": {
+      who: CARA,
+      setup: () => seed(openReport()),
+      write: () => setDoc(flagRef(CARA), flagFields(ID)),
+    },
+  };
+
+  for (const [name, { who, setup, write }] of Object.entries(actions)) {
+    it(`engelliyken yapılamaz: ${name}`, async () => {
+      await setup();
+      await ban(who);
+      await assertFails(write());
+      await unban(who);
+      await assertSucceeds(write());
+    });
+  }
+
+  it("engellenen kimlik süresi dolan işareti yine kapatabilir", async () => {
+    await ban(CARA);
+    await seed(openReport(seenAgo(25)));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("expired")));
+    await seed(claimedReport(CARA, seenAgo(25)));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("expired")));
+    await seed(closingReport(BOB, "gone", false, seenAgo(25)));
+    await assertSucceeds(updateDoc(ref(CARA), closeFields("gone")));
+    // Süresi dolmamış işarette "süre doldu" yazılamaz.
+    await seed(openReport(seenAgo(20)));
+    await assertFails(updateDoc(ref(CARA), closeFields("expired")));
+  });
+
+  it("engel yalnızca o kimliği etkiler", async () => {
+    await ban(BOB);
+    await seed(openReport());
+    await assertFails(updateDoc(ref(BOB), claimFields(BOB)));
+    await assertSucceeds(updateDoc(ref(CARA), claimFields(CARA)));
+  });
 });
 
 describe("emülatörde doğrulanan kural dili varsayımları", () => {
@@ -1457,6 +2159,66 @@ describe("emülatörde doğrulanan kural dili varsayımları", () => {
     );
     // Aynı dolu işarette itiraz.
     await assertSucceeds(updateDoc(ref(ALICE), objection(ALICE, (await stored())!, { seenBy })));
+    // Dolu listeli "Aç ve zayıf" işarette kanıtlı "Yardım gerekmiyor dendi".
+    await seed(openReport({ ...foodSeenAgo(1), seenBy, goneReports: gone, disputed: [DAVE], objectors: ["u1"] }), "r2");
+    await assertSucceeds(
+      updateWithSpend(db(CARA), CARA, "r2", closingFields(CARA, "unneeded", true), closeSpend("r2", contract.needs.food.closeCost)),
+    );
+  });
+
+  it("math.abs ondalıklı ve eksi farklarda çalışır; sonuç aynı çift duyarlıklı hesapla birebir tutar", async () => {
+    // İstemci |yeni − eski| <= sınır hesabını Double ile yaparsa kuralla hep aynı sonuca varır;
+    // tam sınırda (ör. 41 + 0,0018) kayan nokta farkı sınırı aşabilir.
+    const { maxLatDelta, maxLngDelta } = contract.edit;
+    const bases: [number, number][] = [
+      [40.9903, 29.029],
+      [41, 29], // tam sayı olarak saklanan koordinat
+      [-33.8688, 151.2093],
+    ];
+    for (const [lat, lng] of bases) {
+      for (const axis of ["lat", "lng"] as const) {
+        const limit = axis === "lat" ? maxLatDelta : maxLngDelta;
+        for (const d of [limit, -limit, limit - 1e-7, -(limit - 1e-7), limit + 1e-7, -(limit + 1e-7)]) {
+          await seed(openReport({ lat, lng, geohash: geohashForLocation([lat, lng], contract.geohashPrecision) }));
+          const moved: [number, number] = axis === "lat" ? [lat + d, lng] : [lat, lng + d];
+          const expected = axis === "lat" ? Math.abs(moved[0] - lat) <= limit : Math.abs(moved[1] - lng) <= limit;
+          const write = updateDoc(ref(ALICE), {
+            lat: moved[0],
+            lng: moved[1],
+            geohash: geohashForLocation(moved, contract.geohashPrecision),
+            editCount: 1,
+          });
+          await (expected ? assertSucceeds(write) : assertFails(write)).catch((e) => {
+            throw new Error(`${axis} ${axis === "lat" ? lat : lng} + ${d}: ${expected ? "kabul" : "ret"} bekleniyordu: ${e}`);
+          });
+        }
+      }
+    }
+  });
+
+  it("belge kimliği metin birleştirmeyle (reportId + '_' + uid) denetlenir; '_' içeren uid de olur", async () => {
+    await seed(openReport());
+    const odd = "x_y";
+    await assertSucceeds(setDoc(doc(db(odd), contract.collections.flags, `${ID}_${odd}`), flagFields(ID)));
+    await assertFails(setDoc(doc(db("x"), contract.collections.flags, `${ID}_x_y`), flagFields(ID)));
+  });
+
+  it("exists() var olmayan dokümanda false, var olanda true döner", async () => {
+    await assertFails(setDoc(flagRef(CARA), flagFields(ID)));
+    await seed(openReport());
+    await assertSucceeds(setDoc(flagRef(CARA), flagFields(ID)));
+    // Aynı sorgu engel kaydında: yokken yazılır, varken yazılamaz.
+    await seedUser(DAVE);
+    await assertSucceeds(updateDoc(userRef(DAVE), createSpend("a")));
+    await ban(DAVE);
+    await assertFails(updateDoc(userRef(DAVE), createSpend("b")));
+  });
+
+  it("map.get varsayılanı: editCount'u olmayan dokümanda 0 sayılır", async () => {
+    const { editCount: _omit, ...legacy } = openReport();
+    await seed(legacy);
+    await assertFails(updateDoc(ref(ALICE), { species: "dog", editCount: 0 }));
+    await assertSucceeds(updateDoc(ref(ALICE), { species: "dog", editCount: 1 }));
   });
 });
 

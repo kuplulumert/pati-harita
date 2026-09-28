@@ -14,9 +14,14 @@ public enum ReportAction: String, CaseIterable, Identifiable, Sendable {
     case confirmStillThere
     /// "Artık yok": hayvan orada değil.
     case reportGone
+    /// "Hayvan orada ama iyi görünüyor" (mama işaretinde "Yardım gerekmiyor" altında): `resolve` gibi işler,
+    /// nedeni `unneeded`. Yalnızca işareti koyan tek tanıksa hemen kapanır ("Yanlış alarmdı");
+    /// diğer her durumda "Yardım gerekmiyor dendi" olur.
+    case reportUnneeded
     /// "Hâlâ yardım gerekiyor": "… dendi" önerisine itiraz; işaret yeniden yardım bekler.
     case dispute
-    /// "Evet, çözüldü" (gone için arayüz "Evet, artık yok" der): ikinci kişi öneriyi onaylar.
+    /// "Evet, çözüldü" (gone için arayüz "Evet, artık yok", unneeded için "Evet, ihtiyacı yoktu" der):
+    /// ikinci kişi öneriyi onaylar.
     case confirmClosing
     /// "Geri al": öneriyi yapan kişi 10 dk içinde geri alır. Geçerli sahiplik kalır.
     case undoClosing
@@ -32,6 +37,7 @@ public enum ReportAction: String, CaseIterable, Identifiable, Sendable {
         case .resolve: "Çözüldü"
         case .confirmStillThere: "Hâlâ orada"
         case .reportGone: "Artık yok"
+        case .reportUnneeded: "Hayvan orada ama iyi görünüyor"
         case .dispute: "Hâlâ yardım gerekiyor"
         case .confirmClosing: "Evet, çözüldü"
         case .undoClosing: "Geri al"
@@ -46,6 +52,7 @@ public enum ReportAction: String, CaseIterable, Identifiable, Sendable {
         case .resolve: "checkmark.circle.fill"
         case .confirmStillThere: "eye.fill"
         case .reportGone: "eye.slash"
+        case .reportUnneeded: "hand.thumbsup.fill"
         case .dispute: "exclamationmark.circle.fill"
         case .confirmClosing: "checkmark.seal.fill"
         case .undoClosing: "arrow.uturn.backward"
@@ -75,6 +82,11 @@ public enum ReportError: Error, Equatable, LocalizedError {
     case notYourClosing
     /// Kart açıkken işaretin durumu değişti (ör. biri az önce "Çözüldü" dedi ya da itiraz etti).
     case statusChanged
+    /// Düzeltme yalnızca işareti koyana, kimse dokunmamışken, `ReportLifecycle.editWindow` içinde
+    /// ve en fazla `ReportLifecycle.maxEdits` kez açık.
+    case notEditable
+    /// Düzeltmede iğne en fazla ~200 m kaydırılabilir (`ReportLifecycle.editMaxLatDelta` / `editMaxLngDelta`).
+    case editTooFar
 
     public var errorDescription: String? {
         switch self {
@@ -92,6 +104,8 @@ public enum ReportError: Error, Equatable, LocalizedError {
         case .notExpired: "Bu işaretin süresi henüz dolmadı."
         case .notYourClosing: "Geri alma süresi doldu. 'Çözüldü' ya da 'Artık yok' yalnızca 10 dk içinde geri alınabilir."
         case .statusChanged: "Bu işaretin durumu az önce değişti."
+        case .notEditable: "Bu işaret artık düzenlenemez: başkası gördü ya da 30 dakika geçti."
+        case .editTooFar: "Konum en fazla 200 m kaydırılabilir."
         }
     }
 }
@@ -99,12 +113,15 @@ public enum ReportError: Error, Equatable, LocalizedError {
 /// İşaretin yaşam döngüsü: oluşturma, eylemler ve hangi eylemin kime açık olduğu.
 ///
 ///     open ──İlgileniyorum──▶ claimed ──(Vazgeç / 3 sa)──▶ open
-///     open|claimed ──Çözüldü / Artık yok──▶ closing ("… dendi"; haritada kalır, ömrü kısalmaz)
+///     open ──Düzenle (koyan; kimse dokunmadan, 30 dk içinde, en fazla 3 kez)──▶ open
+///     open|claimed ──Çözüldü / Artık yok / Yardım gerekmiyor──▶ closing ("… dendi"; haritada kalır, ömrü kısalmaz)
 ///     closing ──Hâlâ yardım gerekiyor (kapatan dışında herkes)──▶ open
 ///     closing ──Evet, çözüldü (ikinci kişi)──▶ closed
 ///     closing ──Geri al (kapatan, 10 dk)──▶ claimed (sahiplik hâlâ geçerliyse) | open
-///     open|claimed ──Çözüldü / Artık yok (koyan; başka gören yoksa)──▶ closed
+///     open|claimed ──Çözüldü / Artık yok / Yardım gerekmiyor (koyan; başka gören yoksa)──▶ closed
 ///     open|claimed|closing ──süresi doldu──▶ closed
+///
+/// "Yardım gerekmiyor" (`reportUnneeded`) yalnızca mama işaretlerinde vardır (`Need.allowsUnneeded`).
 ///
 /// Değişmez kural: başkasının da gördüğü bir işareti tek bir kişi süresinden önce kaldıramaz.
 ///
@@ -130,6 +147,14 @@ public enum ReportLifecycle {
     public static let maxSeenBy = 100
     /// "Artık yok" listesinin (`Report.goneReports`) kurallardaki üst sınırı.
     public static let maxGoneReports = 20
+    /// İşareti koyan, yanlış koyduğu işareti oluşturduktan sonra bu süre içinde düzeltebilir.
+    public static let editWindow: TimeInterval = 30 * 60
+    /// Bir işaret en fazla bu kadar kez düzeltilebilir.
+    public static let maxEdits = 3
+    /// Bir düzeltmede konumun enlemde ve boylamda en fazla kayabileceği derece: ikisi de ~200 m
+    /// (Türkiye enlemlerinde bir boylam derecesi daha kısadır).
+    public static let editMaxLatDelta = 0.0018
+    public static let editMaxLngDelta = 0.0024
 
     /// Yeni işaret. Tek gereken tür, ihtiyaç ve konum.
     public static func makeReport(
@@ -159,7 +184,8 @@ public enum ReportLifecycle {
             purgeAt: nil,
             closing: nil,
             objectors: [],
-            disputed: []
+            disputed: [],
+            editCount: 0
         )
     }
 
@@ -167,6 +193,7 @@ public enum ReportLifecycle {
 
     /// Kullanıcının bu işarette görebileceği eylemler. İlki birincil eylemdir
     /// (İlgileniyorum / Çözüldü / Evet, çözüldü); `expire` hiçbir zaman gösterilmez.
+    /// Mama işaretinde "Çözüldü"nün açık olduğu her yerde `reportUnneeded` de vardır ("Artık yok"tan hemen önce).
     public static func availableActions(for report: Report, userID: String, at now: Date) -> [ReportAction] {
         let isReporter = report.reporterID == userID
         let canResolve = reporterAlone(report, userID: userID) || mayPropose(report, by: userID, at: now)
@@ -199,13 +226,18 @@ public enum ReportLifecycle {
             if isReporter && report.isClaimStale(at: now) { actions.append(.release) }
         }
 
+        // Bu evrelerde "Çözüldü" tam olarak `canResolve` iken sunulur; "Yardım gerekmiyor" aynı yoldan geçer.
+        if canResolve && report.need.allowsUnneeded {
+            actions.append(.reportUnneeded)
+        }
         if canReportGone(report, by: userID) {
             actions.append(.reportGone)
         }
         return actions
     }
 
-    /// Hayvanı koyandan başka gören yok: işareti koyanın "Çözüldü" / "Artık yok"u hemen kapatır.
+    /// Hayvanı koyandan başka gören yok: işareti koyanın "Çözüldü" / "Artık yok" / "Yardım gerekmiyor"u
+    /// hemen kapatır.
     public static func reporterAlone(_ report: Report, userID: String) -> Bool {
         report.reporterID == userID && report.seenBy == [userID]
     }
@@ -230,9 +262,11 @@ public enum ReportLifecycle {
     }
 
     /// "Evet, çözüldü": ikinci kişi onaylar. Kapatan başkasıysa işareti koyan;
-    /// kapatan koyansa hayvanı gören başka biri.
+    /// kapatan koyansa hayvanı gören başka biri. Tanınmayan nedenli öneri bu sürümde onaylanamaz.
     public static func canConfirmClosing(_ report: Report, by userID: String) -> Bool {
-        guard report.status == .closing, let closing = report.closing else { return false }
+        guard report.status == .closing, let closing = report.closing, closing.unrecognizedReason == nil else {
+            return false
+        }
         let isReporter = report.reporterID == userID
         if isReporter { return closing.userID != userID }
         return closing.userID == report.reporterID && report.seenBy.contains(userID)
@@ -267,14 +301,37 @@ public enum ReportLifecycle {
             && report.disputed.isEmpty
     }
 
+    /// "Düzenle": yalnızca işareti koyan; işaret açık ve süresi dolmamışken, kimse dokunmamışken (başka gören,
+    /// "Artık yok", itiraz yok), oluşturulduktan sonraki `editWindow` içinde ve en fazla `maxEdits` kez
+    /// (kurallardaki `isEdit`).
+    public static func canEdit(_ report: Report, by userID: String, at now: Date) -> Bool {
+        report.reporterID == userID
+            && report.status == .open
+            && report.expiresAt > now
+            && report.seenBy == [userID]
+            && report.goneReports.isEmpty
+            && report.objectors.isEmpty
+            && report.disputed.isEmpty
+            && now < report.createdAt.addingTimeInterval(editWindow)
+            && report.editCount < maxEdits
+    }
+
+    /// Yeni konum bir düzeltmede izin verilen kaymanın içinde mi? Sınır her düzeltmede işaretin
+    /// o anki konumundan ölçülür.
+    public static func isWithinEditRange(_ report: Report, to coordinate: Coordinate) -> Bool {
+        abs(coordinate.latitude - report.coordinate.latitude) <= editMaxLatDelta
+            && abs(coordinate.longitude - report.coordinate.longitude) <= editMaxLngDelta
+    }
+
     /// İşaretin ömrünün hiçbir uzatmayla geçemeyeceği an: oluşturma + `maxAge`.
     public static func lifeCap(_ report: Report) -> Date {
         report.createdAt.addingTimeInterval(maxAge)
     }
 
-    /// Süresi dolmuş ama henüz kapanmamış: herkes `expire` ile kapatabilir.
+    /// Süresi dolmuş ama henüz kapanmamış: herkes `expire` ile kapatabilir. Tanınmayan nedenli öneriyi
+    /// bu sürüm kapatamaz (kurallar aynı nedeni ister); onu yeni sürümler kapatır.
     public static func isDue(_ report: Report, at now: Date) -> Bool {
-        report.status != .closed && report.expiresAt <= now
+        report.status != .closed && report.expiresAt <= now && !hasUnrecognizedClosing(report)
     }
 
     // MARK: Eylemler
@@ -332,6 +389,16 @@ public enum ReportLifecycle {
             // Günler arayla verilen "Artık yok" oyları toplanmasın.
             updated.goneReports = []
 
+        case .reportUnneeded:
+            try requireWaiting(report, at: now)
+            guard report.need.allowsUnneeded else { throw ReportError.notAllowed }
+            if reporterAlone(report, userID: userID) {
+                close(&updated, as: .unneeded, at: now)
+            } else {
+                try requireProposal(report, by: userID, at: now, credible: credible)
+                startClosing(&updated, as: .unneeded, by: userID, at: now, credible: credible)
+            }
+
         case .reportGone:
             try requireWaiting(report, at: now)
             guard !report.goneReports.contains(userID) else { throw ReportError.alreadyReportedGone }
@@ -383,10 +450,43 @@ public enum ReportLifecycle {
             }
 
         case .expire:
-            guard isDue(report, at: now) else { throw ReportError.notExpired }
+            guard report.expiresAt <= now else { throw ReportError.notExpired }
+            guard isDue(report, at: now) else { throw ReportError.notAllowed }
             let reason: ClosedReason = report.status == .closing ? (report.closing?.reason ?? .expired) : .expired
             close(&updated, as: reason, at: now)
         }
+        return updated
+    }
+
+    /// Yanlış konan işareti düzeltir: tür, ihtiyaç ve konum (`isWithinEditRange`). Her çağrı bir düzeltme
+    /// sayılır, bir şey değişmese de: kurallar `editCount`un tam bir artmasını ister.
+    ///
+    /// İhtiyaç değişirse ömür yeni ihtiyaca göre şimdiden yeniden başlar (kısalabilir de); değişmezse
+    /// `expiresAt` aynı kalır. `geohash` yeni konumdan hesaplanır (kurallar doğrulayamaz). Görülme anı,
+    /// "kaç kişi bildirdi" ve diğer alanlar değişmez.
+    public static func edit(
+        _ report: Report,
+        species: Species,
+        need: Need,
+        coordinate: Coordinate,
+        by userID: String,
+        at now: Date
+    ) throws -> Report {
+        guard report.status != .closed, report.expiresAt > now else { throw ReportError.notActive }
+        guard canEdit(report, by: userID, at: now) else { throw ReportError.notEditable }
+        guard isWithinEditRange(report, to: coordinate) else { throw ReportError.editTooFar }
+
+        var updated = report
+        updated.species = species
+        if need != report.need {
+            updated.need = need
+            updated.expiresAt = min(now.addingTimeInterval(need.lifetime), lifeCap(report))
+        }
+        if coordinate != report.coordinate {
+            updated.coordinate = coordinate
+            updated.geohash = Geohash.encode(coordinate, precision: geohashPrecision)
+        }
+        updated.editCount += 1
         return updated
     }
 
@@ -431,6 +531,10 @@ public enum ReportLifecycle {
 
     private static func canReportGone(_ report: Report, by userID: String) -> Bool {
         !report.goneReports.contains(userID) && report.goneReports.count < maxGoneReports
+    }
+
+    private static func hasUnrecognizedClosing(_ report: Report) -> Bool {
+        report.status == .closing && report.closing?.unrecognizedReason != nil
     }
 
     /// Sahiplik alanları kartta zaman çizelgesi için kalır; `expiresAt` değişmez.

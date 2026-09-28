@@ -12,7 +12,6 @@ extension Need {
         case .food: Color(red: 0.26, green: 0.67, blue: 0.55) // #43AA8B
         case .shelter: Color(red: 0.43, green: 0.36, blue: 0.82) // #6D5BD0
         case .babies: Color(red: 0.88, green: 0.34, blue: 0.61) // #E0569B
-        case .other: Color(red: 0.42, green: 0.46, blue: 0.49) // #6C757D
         }
     }
 }
@@ -23,10 +22,9 @@ extension ReportPhase {
         case .waiting: "Yardım bekliyor"
         case .helpedByMe: "Sen ilgileniyorsun"
         case .helpedByOther: "Biri ilgileniyor"
+        // Tanınmayan nedende `reason` yalnızca yer tutucudur; kart "… dendi" metnini `report.closing`ten okur.
         case .closing(let reason, _, _, _): Messages.saidLabel(reason)
-        case .closed(.resolved): "Çözüldü"
-        case .closed(.gone): "Artık orada değil"
-        case .closed(.expired): "Süresi doldu"
+        case .closed(let reason): Messages.closedTitle(reason)
         }
     }
 

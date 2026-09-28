@@ -35,6 +35,12 @@ class ReportTestCase: XCTestCase {
         return report
     }
 
+    /// alice'in 5. dakikada köpek / mama olarak düzelttiği ve ~100 m kaydırdığı işaret (kimse görmedi).
+    func editedReport() throws -> Report {
+        let moved = Coordinate(latitude: kadikoy.latitude + 0.0009, longitude: kadikoy.longitude - 0.0012)
+        return try ReportLifecycle.edit(makeReport(), species: .dog, need: .food, coordinate: moved, by: alice, at: minutes(5))
+    }
+
     /// Farklı evrelerdeki işaretler ve bakıldıkları an.
     func phaseCatalogue() throws -> [(name: String, report: Report, now: Date)] {
         let open = makeReport()
@@ -54,6 +60,15 @@ class ReportTestCase: XCTestCase {
         let goneClosing = try ReportLifecycle.apply(.reportGone, to: votedTwice, by: eve, at: minutes(30))
         let disputed = try ReportLifecycle.apply(.dispute, to: byPasserBy, by: cara, at: minutes(40))
         let secondRound = try ReportLifecycle.apply(.resolve, to: disputed, by: dan, at: minutes(50))
+        // Mama işaretinde "Yardım gerekmiyor" (hayvan orada ama iyi görünüyor) da açık.
+        let seenFood = try seenReport(need: .food)
+        let claimedFood = try ReportLifecycle.apply(.claim, to: seenFood, by: bob, at: minutes(2))
+        let unneededByPasserBy = try ReportLifecycle.apply(.reportUnneeded, to: seenFood, by: bob, at: minutes(30))
+        let unneededByReporter = try ReportLifecycle.apply(.reportUnneeded, to: seenFood, by: alice, at: minutes(30))
+        let unneededCredible = try ReportLifecycle.apply(
+            .reportUnneeded, to: claimedFood, by: bob, at: minutes(30), credible: true
+        )
+        let edited = try editedReport()
         return [
             ("açık", open, minutes(30)),
             ("mama", food, minutes(30)),
@@ -73,6 +88,12 @@ class ReportTestCase: XCTestCase {
             ("artık yok dendi", goneClosing, minutes(35)),
             ("itiraz edildi", disputed, minutes(45)),
             ("ikinci öneri", secondRound, minutes(55)),
+            ("görülmüş mama", seenFood, minutes(30)),
+            ("mamada taze sahiplik", claimedFood, minutes(10)),
+            ("yoldan geçen yardım gerekmiyor dedi", unneededByPasserBy, minutes(35)),
+            ("koyan yardım gerekmiyor dedi", unneededByReporter, minutes(35)),
+            ("ilgilenen kanıtlı yardım gerekmiyor dedi", unneededCredible, minutes(35)),
+            ("düzeltilmiş", edited, minutes(10)),
         ]
     }
 
@@ -97,8 +118,13 @@ class ReportTestCase: XCTestCase {
             XCTAssertNil(report.purgeAt, message, file: file, line: line)
         }
         if let closing = report.closing {
-            XCTAssertTrue(closing.reason == .resolved || closing.reason == .gone, message, file: file, line: line)
+            XCTAssertTrue(closing.reason.canBeProposed, message, file: file, line: line)
+            // "Yardım gerekmiyor dendi" yalnızca mama işaretinde olabilir (kurallardaki isUnneeded).
+            if closing.reason == .unneeded {
+                XCTAssertTrue(report.need.allowsUnneeded, message, file: file, line: line)
+            }
         }
+        XCTAssertTrue((0...ReportLifecycle.maxEdits).contains(report.editCount), message, file: file, line: line)
         XCTAssertTrue((1...ReportLifecycle.maxSeenBy).contains(report.seenBy.count), message, file: file, line: line)
         XCTAssertLessThanOrEqual(report.goneReports.count, ReportLifecycle.maxGoneReports, message, file: file, line: line)
         XCTAssertLessThanOrEqual(report.objectors.count, ReportLifecycle.maxDisputed, message, file: file, line: line)
