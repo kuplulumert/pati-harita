@@ -2,7 +2,7 @@ import AnimalKit
 import SwiftUI
 
 /// İşarete dokununca açılan kart: ihtiyaç, tür, ne zaman işaretlendiği, mevcut durum, olgular
-/// ("İlgilenmeden çözüldü dendi.") ve yapılabilecek eylemler. Hüküm vermez; ne olduğunu söyler.
+/// ("'İlgileniyorum' demeyen biri 'Çözüldü' dedi.") ve yapılabilecek eylemler. Hüküm vermez; ne olduğunu söyler.
 struct ReportCard: View {
     let report: Report
     let userID: String?
@@ -83,9 +83,13 @@ struct ReportCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(report.need.title)
                     .font(.title3.weight(.semibold))
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                // İki ayrı satır: tek metin " · " ile kaydırılınca satır sonunda "·", alt satırda yalnızca uzaklık kalıyordu.
+                Group {
+                    Text(speciesLine)
+                    Text("\(Formatting.timeAgo(report.createdAt, now: now)) işaretlendi")
+                }
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
                 if let seen = Formatting.seenCount(report.seenCount) {
                     // "Hâlâ orada" diyen herkes sayılır; tek başına işareti koyan bildirdiyse gösterilmez.
                     HStack(spacing: 4) {
@@ -103,15 +107,11 @@ struct ReportCard: View {
         }
     }
 
-    private var subtitle: String {
-        var parts = [
-            "\(report.species.emoji) \(report.species.title)",
-            "\(Formatting.timeAgo(report.createdAt, now: now)) işaretlendi",
-        ]
-        if let distance {
-            parts.append(Formatting.distance(meters: distance))
-        }
-        return parts.joined(separator: " · ")
+    /// "🐈 Kedi · 140 m" (konum yoksa yalnızca tür).
+    private var speciesLine: String {
+        let species = "\(report.species.emoji) \(report.species.title)"
+        guard let distance else { return species }
+        return "\(species) · \(Formatting.distance(meters: distance))"
     }
 
     // MARK: Durum
@@ -133,7 +133,7 @@ struct ReportCard: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(statusColor.opacity(0.12), in: Capsule())
+        .background(statusColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
     private var statusText: String {
@@ -205,15 +205,15 @@ struct ReportCard: View {
             facts.append(Fact(
                 symbol: "arrow.uturn.backward.circle",
                 text: count == 1
-                    ? "Önceki kapatma önerisine itiraz edildi."
-                    : "Önceki \(count) kapatma önerisine itiraz edildi."
+                    ? "Daha önce 'Hâlâ yardım gerekiyor' diye itiraz edildi."
+                    : "Daha önce \(count) kez 'Hâlâ yardım gerekiyor' diye itiraz edildi."
             ))
         }
         // "İlgileniyorum" ve "Çözüldü" bu kişiye gösterilmez; nedenini bilsin.
         if let userID, report.disputed.contains(userID) {
             facts.append(Fact(
                 symbol: "info.circle",
-                text: "Kapatma önerine itiraz edildi; bu işareti üstüne alamazsın ve kapatamazsın.",
+                text: "Bu işaret için dediğine itiraz edildi; artık 'İlgileniyorum' ya da 'Çözüldü' diyemezsin.",
                 isHint: true
             ))
         }
@@ -229,7 +229,7 @@ struct ReportCard: View {
         switch look {
         case .unverified:
             let counted = "Doğrulanmadığı için hâlâ yardım bekleyenler arasında sayılıyor."
-            return canDispute ? "\(counted) Gidip bakarsan durumu buradan bildir." : counted
+            return canDispute ? "\(counted) Hayvanı şimdi gördüysen ve hâlâ yardıma ihtiyacı varsa bildir." : counted
         case .fading:
             return canDispute ? "Hayvanı görürsen ve hâlâ yardıma ihtiyacı varsa bildir." : objected
         case .hidden:
@@ -285,7 +285,7 @@ struct ReportCard: View {
 
     private func primaryColor(_ action: ReportAction) -> Color {
         switch action {
-        case .resolve, .confirmClosing: .green
+        case .resolve, .confirmClosing: Color(red: 0.13, green: 0.55, blue: 0.27)  // #218C45: beyaz yazı dışarıda da okunsun (~4.3:1)
         case .undoClosing: Color(.systemGray)
         case .claim, .release, .confirmStillThere, .reportGone, .dispute, .expire: report.need.color
         }

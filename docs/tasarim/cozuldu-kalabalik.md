@@ -525,7 +525,7 @@ public static func countsAsWaiting(_ r: Report, userID: String?, mode: ClosingMo
 **Kart**
 - "?" işaret (sayılır):
   - Durum satırı: "Çözüldü dendi · 20 dk önce · doğrulanmadı"
-  - "Doğrulanmadığı için hâlâ yardım bekleyenler arasında sayılıyor. Gidip bakarsan durumu buradan bildir."
+  - "Doğrulanmadığı için hâlâ yardım bekleyenler arasında sayılıyor. Hayvanı şimdi gördüysen ve hâlâ yardıma ihtiyacı varsa bildir."
 - Soluk işaret (kalkmadan önce):
   - Durum satırı: "Çözüldü dendi · 20 dk önce"
   - "Haritadan kalkış: 14.20" / "Haritadan kalkış: yarın 08.00"
@@ -533,10 +533,10 @@ public static func countsAsWaiting(_ r: Report, userID: String?, mode: ClosingMo
   - Durum satırı: "Çözüldü dendi · 3 sa önce · haritadan kalktı"
   - "Hayvanı şimdi gördüysen ve hâlâ yardıma ihtiyacı varsa bildir."
 - Olgu satırları (plandan):
-  - "İşareti koyan çözüldü dedi."
-  - "İlgilenen kişi 40 dk sonra çözüldü dedi."
-  - "İlgilenmeden çözüldü dendi."
-  - "3 kişi artık yok dedi."
+  - "İşareti koyan 'Çözüldü' dedi."
+  - "İlgilenmeye başlayan kişi 40 dk sonra 'Çözüldü' dedi."
+  - "'İlgileniyorum' demeyen biri 'Çözüldü' dedi."
+  - "3 kişi 'Artık yok' dedi."
   - Doğrulamadan sonra: "Başka bir gönüllü de doğruladı."
 - Düğmeler:
   - Herkes: [Hâlâ yardım gerekiyor]

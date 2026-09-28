@@ -84,13 +84,13 @@ public enum ReportError: Error, Equatable, LocalizedError {
         case .notClaimedByYou: "Bu işaretle şu an sen ilgilenmiyorsun."
         case .notAllowed: "Bunu şu an yapamazsın."
         case .alreadyReportedGone: "Bunu zaten bildirdin."
-        case .disputed: "Bu işarette kapatma önerine itiraz edildi; tekrar kapatamazsın."
+        case .disputed: "Bu işaret için dediğine itiraz edildi; artık 'İlgileniyorum' ya da 'Çözüldü' diyemezsin."
         case .claimTooFresh:
             "Biri az önce ilgilenmeye başladı. 45 dk içinde haber gelmezse sen de 'Çözüldü' diyebilirsin."
-        case .alreadyObjected: "Buna zaten itiraz ettin."
+        case .alreadyObjected: "Bu işarete zaten itiraz ettin."
         case .tooManyDisputes: "Bu işaret çok itiraz aldı; süresi dolunca kendiliğinden kalkar."
         case .notExpired: "Bu işaretin süresi henüz dolmadı."
-        case .notYourClosing: "Bunu yalnızca kapatmayı öneren kişi 10 dk içinde geri alabilir."
+        case .notYourClosing: "Geri alma süresi doldu. 'Çözüldü' ya da 'Artık yok' yalnızca 10 dk içinde geri alınabilir."
         case .statusChanged: "Bu işaretin durumu az önce değişti."
         }
     }

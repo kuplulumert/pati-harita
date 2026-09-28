@@ -3,7 +3,8 @@ import SwiftUI
 
 /// Haritadaki işaretlerin anlamı ve bir işaretin yaşam döngüsü.
 struct LegendSheet: View {
-    /// En altta kimliğin başı gösterilir: TestFlight'ta silip yeniden kurunca aynı kimlik mi, bakılabilsin.
+    /// En altta kimliğin başı gösterilir: TestFlight'ta silip yeniden kurunca aynı kimlik mi, bakılabilsin
+    /// (demo modunda `nil`: kimlik hep aynıdır).
     let userID: String?
     /// Kanıtlı "Çözüldü dendi"nin başkalarının haritasında nasıl göründüğü (`config/public.closingMode`):
     /// yalnızca `demote`da işaret başkalarından da kalkar; gece kuralı ve paydaş satırı yalnızca orada geçerli.
@@ -37,18 +38,18 @@ struct LegendSheet: View {
                     )
                     row(
                         pin(MarkerStyle(need: .food, species: .cat, badge: nil, isSelected: false, seenBadge: "3")),
-                        "Sağ alttaki sayı: kaç kişinin bildirdiği — \"Hâlâ orada\" ya da \"Ben de gördüm\" diyen herkes eklenir."
+                        "Sağ alttaki sayı: kaç kişinin bildirdiği — 'Hâlâ orada' ya da 'Ben de gördüm' diyen herkes eklenir."
                     )
-                    Label("Soluk işaretler bir süredir kimse tarafından doğrulanmadı.", systemImage: "circle.lefthalf.filled")
+                    Label("Rozetsiz soluk işaret: bir süredir kimse 'Hâlâ orada' demedi.", systemImage: "circle.lefthalf.filled")
                         .font(.subheadline)
                     Label("Köşedeki emoji hayvanın türünü gösterir.", systemImage: "pawprint")
                         .font(.subheadline)
                 }
 
-                Section("\"Çözüldü\" dendiğinde") {
+                Section("'Çözüldü' dendiğinde") {
                     row(
                         pin(MarkerStyle(need: .injured, species: .cat, badge: .closing, isSelected: false, seenBadge: nil)),
-                        "? rozetli işaret: Biri 'Çözüldü' dedi ama doğrulanmadı. Hâlâ yardım bekleyenlerden sayılır."
+                        "? rozeti: Biri 'Çözüldü' dedi, henüz onaylanmadı. Kartta 'doğrulanmadı' yazıyorsa hâlâ yardım bekleyenlerden sayılır."
                     )
                     // strict modda her öneri yalnızca "?" olarak görünür; soluk işaret yok.
                     if closingMode != .strict {
@@ -64,19 +65,19 @@ struct LegendSheet: View {
                         streetDotText
                     )
                     if closingMode == .demote {
-                        Label("Gece yarısından sabah 7'ye kadar bu süre işlemez.", systemImage: "moon.zzz")
+                        Label("'Çözüldü' denen işaretin kalkma süresi gece yarısından sabah 7'ye kadar durur.", systemImage: "moon.zzz")
                             .font(.subheadline)
-                        Label("İşareti koyan ve hayvanı gördüğünü söyleyenler, soruyu yanıtlayana kadar işareti görmeye devam eder.", systemImage: "person.2")
+                        Label("İşareti koyana ve hayvanı gördüğünü söyleyenlere bir soru sorulur; yanıtlayana kadar işareti görmeye devam ederler.", systemImage: "person.2")
                             .font(.subheadline)
                     }
                 }
 
                 Section {
                     Label("Hayvan gördüm → türünü ve ihtiyacını seç.", systemImage: "1.circle.fill")
-                    Label("Yakındakiler haritada görür, biri \"İlgileniyorum\" der.", systemImage: "2.circle.fill")
+                    Label("Yakındakiler haritada görür, biri 'İlgileniyorum' der.", systemImage: "2.circle.fill")
                     Label(resolveStepText, systemImage: "3.circle.fill")
-                    Label("Hayvanı yine görürsen \"Hâlâ orada\", göremezsen \"Artık yok\" de.", systemImage: "arrow.triangle.2.circlepath")
-                    Label("Biri yanlışlıkla 'Çözüldü' dediyse ve hayvanı şimdi görüyorsan \"Hâlâ yardım gerekiyor\" de.", systemImage: "exclamationmark.circle")
+                    Label("Hayvanı yine görürsen 'Hâlâ orada', göremezsen 'Artık yok' de.", systemImage: "arrow.triangle.2.circlepath")
+                    Label("'Çözüldü' denen bir hayvanı şimdi görüyorsan ve hâlâ yardıma ihtiyacı varsa 'Hâlâ yardım gerekiyor' de.", systemImage: "exclamationmark.circle")
                 } header: {
                     Text("Nasıl çalışır?")
                 } footer: {
@@ -101,9 +102,9 @@ struct LegendSheet: View {
     private var fadingText: String {
         switch closingMode {
         case .demote:
-            "Soluk işaret: 'Çözüldü' dendi, kısa süre sonra haritadan kalkacak. Acil, yaralı, yavru, veteriner ve barınak işaretleri solmaz."
+            "Soluk, ? rozetli işaret: 'Çözüldü' dendi, 1–2 saat içinde haritadan kalkacak. Acil, yaralı, yavru, veteriner ve barınak işaretleri solmaz."
         case .label, .strict:
-            "Soluk işaret: 'Çözüldü' dendi; işareti koyan onaylayınca ya da süresi dolunca kalkar. Acil, yaralı, yavru, veteriner ve barınak işaretleri solmaz."
+            "Soluk, ? rozetli işaret: 'Çözüldü' dendi; işareti koyan onaylayınca ya da süresi dolunca kalkar. Acil, yaralı, yavru, veteriner ve barınak işaretleri solmaz."
         }
     }
 
@@ -111,7 +112,7 @@ struct LegendSheet: View {
     private var streetDotText: String {
         switch closingMode {
         case .demote:
-            "Gri nokta (yakınlaşınca): 'Çözüldü' denip haritadan kalkan işaret. Hayvan hâlâ oradaysa dokunup bildir."
+            "Gri nokta (yakınlaşınca): 'Çözüldü' denip haritadan kalkan işaret. Hayvan hâlâ yardım bekliyorsa dokunup bildir."
         case .label, .strict:
             "Gri nokta (yakınlaşınca): senin 'Çözüldü' dediğin işaret. Yanlışlıkla dediysen dokunup geri al."
         }

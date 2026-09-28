@@ -286,13 +286,13 @@ UI:
 - Toasts per `CloseCredibility` and mode (clutter doc §5); closer's toast offers "Geri al" and stays 10 s.
   Create-limit toast: "Son 24 saatte 10 işaret koydun. Yeni işaret hakkın saat 14.20'de açılır. Yakındaki bir
   işaret aynı hayvansa 'Ben de gördüm' diyebilirsin." (numbers/time computed; first day says 5). When ≤ 3
-  creates remain, the report panel shows "Bugün 3 işaret hakkın kaldı". Offline create rejected by the quota:
+  creates remain, the report panel shows "3 yeni işaret hakkın kaldı" (rolling 24 h, not a calendar day). Offline create rejected by the quota:
   "Bu işaret günlük sınır nedeniyle kaydedilemedi."; rejected because it was sent ≥ 24 h − 15 min after it was
   placed: "İşaret çok geç gönderilebildiği için kaydedilemedi."
   "Artık yok" vote that did not start closing: closed → "Teşekkürler! İşaret haritadan kaldırıldı."; live claim
   by someone else → "Teşekkürler, kaydedildi. Biri bu hayvanla ilgilendiği için işaret yerinde kalıyor.";
-  threshold reached but this voter cannot propose → "Teşekkürler, kaydedildi."; otherwise "Teşekkürler. 3 kişi
-  'Artık yok' derse işaret 'Artık yok dendi' olarak işaretlenir." (a vote that starts closing gets the closer
+  threshold reached but this voter cannot propose → "Teşekkürler, kaydedildi."; otherwise "Teşekkürler, kaydedildi. 3
+  kişi 'Artık yok' deyince haritada 'Artık yok dendi' olarak görünür." (a vote that starts closing gets the closer
   toast). "Geri al" toast says whether a live claim was kept.
 - Follow-up prompt (plan A7): `WatchedReports` in `UserDefaults` (≤ 50 IDs created/confirmed/claimed/objected on
   this device, kept until `expiresAt + 24 h`, plus per-report "answered"); on foreground at most every 10 min

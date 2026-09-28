@@ -144,7 +144,8 @@ final class ReportFlowUITests: XCTestCase {
         screenshots.take("10-cozuldu-dendi")
 
         // Demo verisindeki "Çözüldü dendi" örneği: yoldan geçen biri bütçesiz dedi, bu yüzden demo
-        // kullanıcısına "?" rozetiyle "doğrulanmadı" görünür. Kullanıcının ~260 m güneyinde.
+        // kullanıcısına "?" rozetiyle "doğrulanmadı" görünür. Kullanıcının ~260 m güneyinde; harita kediye dokununca
+        // ona ortalandığı için köpek görünen alanın ortasının ~210 nokta altında (bildirimin üstünde) kalır.
         let closingDog = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == %@ AND label == %@", "report-marker", "Yaralı / hasta, Köpek"))
             .firstMatch

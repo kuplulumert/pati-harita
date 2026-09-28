@@ -56,7 +56,7 @@ enum Messages {
                 // Eşik aşıldı ama bu kişi öneremiyor (ör. önceki kapatma önerisine itiraz edildi).
                 return "Teşekkürler, kaydedildi."
             }
-            return "Teşekkürler. \(ReportLifecycle.goneThreshold) kişi 'Artık yok' derse işaret 'Artık yok dendi' olarak işaretlenir."
+            return "Teşekkürler, kaydedildi. \(ReportLifecycle.goneThreshold) kişi 'Artık yok' deyince haritada 'Artık yok dendi' olarak görünür."
         case .dispute:
             return "Teşekkürler, işaret yeniden yardım bekliyor."
         case .undoClosing:
@@ -84,8 +84,8 @@ enum Messages {
         let reason = report.closing?.reason ?? .resolved
         let thanks = reason == .gone ? "Teşekkürler! Bildirimin kaydedildi." : "Teşekkürler! Yardımın kaydedildi."
         // İşareti koyan kapattıysa onu hayvanı gören başka biri onaylar.
-        let confirmer = report.reporterID == userID ? "hayvanı gören başka biri" : "koyan kişi"
-        let unverified = "Bu işaret, \(confirmer) onaylayana kadar başkalarına 'doğrulanmadı' olarak görünecek."
+        let confirmer = report.reporterID == userID ? "hayvanı gören başka biri" : "işareti koyan kişi"
+        let unverified = "Başkalarına 'doğrulanmadı' olarak görünecek; \(confirmer) onaylayınca kalkacak."
 
         switch credibility {
         case .credible:
@@ -100,16 +100,16 @@ enum Messages {
                 }
                 return "\(thanks) İşaret \(clockPhrase(leavesAt, now: now)) civarında başkalarının haritasından da kalkacak."
             case .label:
-                return "\(thanks) İşaret '\(saidLabel(reason))' olarak görünecek; \(confirmer) onaylayınca ya da süresi dolunca kalkacak."
+                return "\(thanks) İşaret başkalarına '\(saidLabel(reason))' olarak görünecek; \(confirmer) onaylayınca ya da süresi dolunca kalkacak."
             case .strict:
                 return "\(thanks) \(unverified)"
             }
         case .newAccount:
-            return "\(thanks) Uygulamanın ilk gününde '\(verb(reason))' başkalarına 'doğrulanmadı' olarak görünür; \(confirmer) onaylayınca kalkar."
+            return "\(thanks) İlk gününde '\(verb(reason))' dediğin işaretler başkalarına 'doğrulanmadı' olarak görünür; \(confirmer) onaylayınca kalkar."
         case .budgetUsed:
-            return "\(thanks) Son 24 saatte çok işaret kapattın; bu işaret, \(confirmer) onaylayana kadar 'doğrulanmadı' olarak görünecek."
+            return "\(thanks) Son 24 saatte çok işaret kapattın; bu işaret başkalarına 'doğrulanmadı' olarak görünecek, \(confirmer) onaylayınca kalkacak."
         case .disputed:
-            return "\(thanks) Bu işarete daha önce itiraz edildiği için 'doğrulanmadı' olarak görünecek."
+            return "\(thanks) Bu işarete daha önce itiraz edildiği için başkalarına 'doğrulanmadı' olarak görünecek."
         case .noRecord:
             return "\(thanks) \(unverified)"
         }
@@ -133,13 +133,13 @@ enum Messages {
     /// Çevrimdışı konan işaret ancak ~24 saat sonra gönderilebildi; kurallar bu kadar eskisini kabul etmez.
     static let createTooLate = "İşaret çok geç gönderilebildiği için kaydedilemedi."
 
-    /// Seçim panelinde: hak azaldıysa "Bugün 3 işaret hakkın kaldı", bittiyse ne zaman açılacağı; yoksa `nil`.
+    /// Seçim panelinde: hak azaldıysa "3 yeni işaret hakkın kaldı", bittiyse ne zaman açılacağı; yoksa `nil`.
     static func createAllowance(_ record: UserRecord, lowThreshold: Int, now: Date) -> String? {
         let remaining = Budget.remainingCreates(record, at: now)
         if remaining == 0 {
             return Budget.nextCreateAt(record, at: now).map { "Yeni işaret hakkın \(atClock($0, now: now)) açılır" }
         }
-        return remaining <= lowThreshold ? "Bugün \(remaining) işaret hakkın kaldı" : nil
+        return remaining <= lowThreshold ? "\(remaining) yeni işaret hakkın kaldı" : nil
     }
 
     // MARK: "… dendi" soruları

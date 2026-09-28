@@ -27,7 +27,7 @@ final class AppEnvironment {
     let location: LocationProvider
     /// Takip sorusu (A7) için bu cihazın ilgilendiği işaretler.
     let watched: WatchedReports
-    /// Geliştiriciye gösterilecek kurulum uyarısı (ör. demo modu).
+    /// Üst etikette gösterilen demo uyarısı (işaretlerin örnek olduğunu söyler).
     let setupWarning: String?
 
     init(
@@ -54,7 +54,7 @@ final class AppEnvironment {
 
         let hasFirebaseConfig = Bundle.main.url(forResource: "GoogleService-Info", withExtension: "plist") != nil
         guard hasFirebaseConfig, !arguments.contains("-demo") else {
-            let demoWarning = hasFirebaseConfig ? nil : "Demo modu: GoogleService-Info.plist yok, işaretler yalnızca bu cihazda."
+            let demoWarning = hasFirebaseConfig ? nil : "Demo modu: işaretler örnektir. Seninkileri kimse görmez."
             return AppEnvironment(
                 backend: .demo,
                 repository: DemoReportRepository(),

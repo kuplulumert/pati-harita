@@ -57,7 +57,7 @@ final class MapViewModel {
     enum FollowUpAnswer: String, Hashable {
         /// "Evet, çözüldü" / "Evet, artık yok" (`ReportAction.confirmClosing`)
         case confirm
-        /// "Hayır, hâlâ yardım gerekiyor" (`ReportAction.dispute`)
+        /// "Hayır/Evet, hâlâ yardım gerekiyor" (`ReportAction.dispute`)
         case dispute
         /// "Bilmiyorum": yalnızca yanıtlandı sayılır.
         case dontKnow
@@ -215,7 +215,7 @@ final class MapViewModel {
         userRecord.map { Budget.remainingCreates($0, at: now) }
     }
 
-    /// Seçim panelinde: "Bugün 3 işaret hakkın kaldı" (≤ `lowCreatesThreshold`) ya da hak bittiyse
+    /// Seçim panelinde: "3 yeni işaret hakkın kaldı" (≤ `lowCreatesThreshold`) ya da hak bittiyse
     /// "Yeni işaret hakkın saat 14.20'de açılır"; yoksa `nil`.
     var createAllowanceText: String? {
         guard let userRecord else { return nil }
@@ -332,7 +332,15 @@ final class MapViewModel {
     /// İğne ya da gri nokta.
     func markerTapped(_ reportID: String) {
         guard mode == .browsing else { return }
+        // Başka bir işaretin "Geri al" bildirimi yeni kartın üstünde kalmasın (hangi işareti geri alacağı belli olmaz).
+        if let undoID = toast?.undoReportID, undoID != reportID {
+            toast = nil
+        }
         selectedReportID = reportID
+        // Kart haritanın alt yarısını örter: işaret, kart ile üst kenar arasındaki alanın ortasına gelsin.
+        if let report = reports.first(where: { $0.id == reportID }) {
+            cameraRequest = CameraRequest(target: report.coordinate)
+        }
     }
 
     func mapTapped() {
@@ -412,6 +420,7 @@ final class MapViewModel {
         mode = .browsing
         updateDuplicateCandidate()
         selectedReportID = report.id
+        cameraRequest = CameraRequest(target: report.coordinate)
         showNextFollowUp()
         guard let action else { return }
         Task { [weak self] in
@@ -660,15 +669,17 @@ final class MapViewModel {
 
     private func makeFollowUp(for report: Report, userID: String, at now: Date) -> FollowUp {
         var options: [FollowUp.Option] = []
-        if ReportLifecycle.canConfirmClosing(report, by: userID) {
+        // "Doğru mu?" sorusu (onaylayabilen) → "Hayır, …"; "Hâlâ yardım gerekiyor mu?" sorusu → "Evet, …".
+        let canConfirm = ReportLifecycle.canConfirmClosing(report, by: userID)
+        if canConfirm {
             let reason = report.closing?.reason ?? .resolved
             options.append(FollowUp.Option(answer: .confirm, title: Messages.confirmClosingTitle(reason)))
         }
         if ReportLifecycle.canDispute(report, by: userID) {
-            let title = report.reporterID == userID ? "Hayır, hâlâ yardım gerekiyor" : "Hâlâ yardım gerekiyor"
+            let title = canConfirm ? "Hayır, hâlâ yardım gerekiyor" : "Evet, hâlâ yardım gerekiyor"
             options.append(FollowUp.Option(answer: .dispute, title: title))
         }
-        options.append(FollowUp.Option(answer: .dontKnow, title: "Bilmiyorum"))
+        options.append(FollowUp.Option(answer: .dontKnow, title: canConfirm ? "Bilmiyorum" : "Hayır / bilmiyorum"))
 
         // Paydaş yanıtlayana kadar işareti görür; başkalarının haritasından kalkış anı soruda söylenir.
         var leavesAt: Date?

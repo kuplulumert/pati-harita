@@ -30,6 +30,8 @@ struct MapScreen: View {
                     Spacer(minLength: 0)
                     if let toast = viewModel.toast {
                         ToastView(toast: toast) { viewModel.undo(toast) }
+                            // Apple Haritalar yazısı ve "Yasal" bağlantısı alt panelin hemen üstünde; bildirim onu örtmesin.
+                            .padding(.bottom, 24)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                     bottomPanel
@@ -57,7 +59,7 @@ struct MapScreen: View {
         .animation(.snappy(duration: 0.3), value: viewModel.toast)
         .sensoryFeedback(.success, trigger: viewModel.reportsCreated)
         .sheet(isPresented: $showsLegend) {
-            LegendSheet(userID: viewModel.userID, closingMode: viewModel.closingMode)
+            LegendSheet(userID: viewModel.environment.backend == .demo ? nil : viewModel.userID, closingMode: viewModel.closingMode)
                 .presentationDetents([.medium, .large])
         }
         // "Hâlâ yardım gerekiyor" onayı. `presenting`: düğme, soru açıldığı andaki işaretle çalışır.
@@ -91,7 +93,9 @@ struct MapScreen: View {
     /// sıradaki soru hemen gelebilir; o sırada gelen `nil`, henüz gösterilmemiş sıradakini yanıtlamasın.
     private var followUpBinding: Binding<MapViewModel.FollowUp?> {
         Binding(
-            get: { viewModel.followUp },
+            // Açıklama sayfası ya da itiraz onayı açıkken ikinci bir sayfa açılamaz: SwiftUI onu atlar ve `followUp` takılı
+            // kalıp sonraki soruları da engellerdi. Onlar kapanınca gösterilir.
+            get: { (showsLegend || viewModel.disputeCandidate != nil) ? nil : viewModel.followUp },
             set: { newValue in
                 guard newValue == nil, let shown = presentedFollowUpID, viewModel.followUp?.id == shown else { return }
                 viewModel.dismissFollowUp()
@@ -290,6 +294,11 @@ struct ToastView: View {
             if toast.undoReportID != nil {
                 Button("Geri al", action: onUndo)
                     .font(.subheadline.weight(.semibold))
+                    .buttonStyle(.bordered)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.small)
+                    .tint(.primary)
+                    .fixedSize()
                     .accessibilityIdentifier("toast-undo")
             }
         }

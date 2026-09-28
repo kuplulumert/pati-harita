@@ -10,7 +10,7 @@ struct ReportPanel: View {
     /// Öneri bir "… dendi" işaretiyse sorulacak soru ("Burada 2 sa önce bir kedi için 'Çözüldü' dendi. …");
     /// bekleyen işarette `nil`.
     let duplicatePrompt: String?
-    /// "Bugün 3 işaret hakkın kaldı" / "Yeni işaret hakkın saat 14.20'de açılır"; hak boldaysa `nil`.
+    /// "3 yeni işaret hakkın kaldı" / "Yeni işaret hakkın saat 14.20'de açılır"; hak boldaysa `nil`.
     let allowanceText: String?
     let onSpecies: (Species) -> Void
     let onNeed: (Need) -> Void
@@ -262,7 +262,7 @@ struct CircleButton: View {
         mode: .choosingSpecies,
         duplicate: nil,
         duplicatePrompt: nil,
-        allowanceText: "Bugün 3 işaret hakkın kaldı",
+        allowanceText: "3 yeni işaret hakkın kaldı",
         onSpecies: { _ in },
         onNeed: { _ in },
         onDuplicate: { _ in },
