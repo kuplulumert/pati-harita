@@ -3,13 +3,14 @@ import Foundation
 import Observation
 
 /// Yalnızca bu cihazda tutulan küçük durum: kabul edilen kurallar, "Yardıma ihtiyacı var mı?" sayaçları,
-/// kişinin haritasından kaldırdığı işaretler, gece hatırlatmasının son gösterimi ve engel bilgisi.
+/// kişinin haritasından kaldırdığı işaretler, gece hatırlatmasının son gösterimi, ilk gidişteki güvenlik uyarısı
+/// ve engel bilgisi.
 ///
 /// `UserDefaults`'ta saklanır. `defaults` `nil` ise (`-demo` argümanı, arayüz testi) hiçbir şey saklanmaz: test
 /// her seferinde ilk açılıştaki gibi başlar. `persistsReports` `false` ise (plist'siz demo derlemesi, ör. TestFlight)
-/// cihaza ait olanlar (kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması) saklanır; işaret kimliklerine
-/// bağlı olanlar (gizlenen ve son 24 saatin işaretleri) ve demo kimliğinin engel bilgisi yalnızca bellektedir, çünkü
-/// örnek işaretlerin kimlikleri her açılışta yeniden kullanılır.
+/// cihaza ait olanlar (kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması, güvenlik uyarısı) saklanır;
+/// işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri) ve demo kimliğinin engel bilgisi yalnızca
+/// bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta yeniden kullanılır.
 @MainActor
 @Observable
 final class DeviceState {
@@ -28,6 +29,7 @@ final class DeviceState {
         static let recentReports = "gentleCheck.recentReports.v1"
         static let hiddenReports = "hiddenReports.v1"
         static let nightReminderShownAt = "nightReminder.shownAt"
+        static let goSafetyTipShown = "goSafetyTip.shown"
         static let knownBanned = "banned.known"
     }
 
@@ -39,10 +41,13 @@ final class DeviceState {
     @ObservationIgnored private(set) var lightReportCount = 0
     @ObservationIgnored private var recentReports: [RecentReport] = []
     @ObservationIgnored private(set) var nightReminderShownAt: Date? = nil
+    /// "Yardıma gidiyorsun" uyarısı ya da onun yerine gece hatırlatması bu cihazda gösterildi (ilk "İlgileniyorum"
+    /// ya da "Yol tarifi").
+    @ObservationIgnored private(set) var goSafetyTipShown = false
     /// Son bakıldığında bu kimlik engelliydi: açılışta yeniden bakılır.
     @ObservationIgnored private(set) var knownBanned = false
 
-    /// Cihaza ait olanlar: kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması.
+    /// Cihaza ait olanlar: kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması, güvenlik uyarısı.
     private let defaults: UserDefaults?
     /// İşaret kimliklerine ve kimliğe bağlı olanlar: gizlenen ve son 24 saatin işaretleri, engel bilgisi.
     private let reportDefaults: UserDefaults?
@@ -54,6 +59,7 @@ final class DeviceState {
         acceptedTermsVersion = defaults?.integer(forKey: Key.acceptedTermsVersion) ?? 0
         lightReportCount = defaults?.integer(forKey: Key.lightReportCount) ?? 0
         nightReminderShownAt = defaults?.object(forKey: Key.nightReminderShownAt) as? Date
+        goSafetyTipShown = defaults?.bool(forKey: Key.goSafetyTipShown) ?? false
         recentReports = Self.decode([RecentReport].self, from: reportDefaults?.data(forKey: Key.recentReports)) ?? []
         hiddenReports = Self.decode([String: Date].self, from: reportDefaults?.data(forKey: Key.hiddenReports)) ?? [:]
         knownBanned = reportDefaults?.bool(forKey: Key.knownBanned) ?? false
@@ -109,11 +115,17 @@ final class DeviceState {
         save(hiddenReports, forKey: Key.hiddenReports)
     }
 
-    // MARK: Gece hatırlatması ve engel
+    // MARK: Güvenlik hatırlatmaları ve engel
 
     func markNightReminderShown(at now: Date) {
         nightReminderShownAt = now
         defaults?.set(now, forKey: Key.nightReminderShownAt)
+    }
+
+    func markGoSafetyTipShown() {
+        guard !goSafetyTipShown else { return }
+        goSafetyTipShown = true
+        defaults?.set(true, forKey: Key.goSafetyTipShown)
     }
 
     func setKnownBanned(_ banned: Bool) {

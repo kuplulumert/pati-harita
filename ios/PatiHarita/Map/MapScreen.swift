@@ -20,9 +20,10 @@ struct MapScreen: View {
             ZStack {
                 map(safeArea: proxy.safeAreaInsets)
                     .ignoresSafeArea()
-                    // Gece yardıma giderken; "Devam et" bekleyen işi (İlgileniyorum ya da yol tarifi) yapar.
+                    // Yardıma giderken (gece ya da bu cihazda ilk kez); "Devam et" bekleyen işi (İlgileniyorum ya da
+                    // yol tarifi) yapar.
                     .alert(
-                        MapViewModel.nightReminderTitle,
+                        MapViewModel.reminderTitle(viewModel.nightReminder?.kind ?? .night),
                         isPresented: Binding(
                             get: { viewModel.nightReminder != nil },
                             set: { if !$0 { viewModel.dismissNightReminder() } }
@@ -32,8 +33,8 @@ struct MapScreen: View {
                         Button(MapViewModel.nightReminderContinueTitle) {
                             if let url = viewModel.continueAfterNightReminder(reminder) { openURL(url) }
                         }
-                    } message: { _ in
-                        Text(MapViewModel.nightReminderMessage)
+                    } message: { reminder in
+                        Text(MapViewModel.reminderMessage(reminder.kind))
                     }
 
                 if viewModel.isPlacing {
@@ -60,7 +61,8 @@ struct MapScreen: View {
                             .padding(.bottom, 24)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
-                    bottomPanel
+                    // Kartın gövdesi ekranın en fazla %60'ı kadar; büyük yazıda kayar.
+                    bottomPanel(maxCardContentHeight: max(proxy.size.height * 0.6, 200))
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                             // Harita dolgusu da 0,25 sn'de değişir; iğne onunla birlikte kaysın.
                             withAnimation(.easeInOut(duration: 0.25)) { bottomPanelHeight = height }
@@ -68,23 +70,6 @@ struct MapScreen: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
-                // Mamada "Yardım gerekmiyor". Onay ve seçimlerin hepsinde düğmeler, soru açıldığı andaki
-                // işaretle çalışır (`presenting`).
-                .confirmationDialog(
-                    MapViewModel.unneededQuestion,
-                    isPresented: Binding(
-                        get: { viewModel.unneededCandidate != nil },
-                        set: { if !$0 { viewModel.cancelUnneeded() } }
-                    ),
-                    titleVisibility: .visible,
-                    presenting: viewModel.unneededCandidate
-                ) { report in
-                    ForEach(viewModel.unneededChoices(for: report)) { action in
-                        Button(Messages.unneededChoiceTitle(action)) { viewModel.chooseUnneeded(action, on: report) }
-                            .accessibilityIdentifier(action == .reportUnneeded ? "unneeded-fine" : "unneeded-gone")
-                    }
-                    Button(MapViewModel.unneededCancelTitle, role: .cancel) { viewModel.cancelUnneeded() }
-                }
             }
             // Açıklama sayfasıyla aynı görünüme bağlanmasın diye burada (iki `.sheet` bir arada sorun çıkarabiliyor).
             .sheet(item: followUpBinding) { followUp in
@@ -95,7 +80,8 @@ struct MapScreen: View {
                 .presentationDragIndicator(.visible)
                 .onAppear { presentedFollowUpID = followUp.id }
             }
-            // "⋯" → "Bu işareti bildir": neden sabit listeden seçilir, serbest metin yok.
+            // "⋯ Diğer" → "Bu işareti bildir": neden sabit listeden seçilir, serbest metin yok. Onayların hepsinde
+            // düğmeler, soru açıldığı andaki işaretle çalışır (`presenting`).
             .confirmationDialog(
                 MapViewModel.flagQuestion,
                 isPresented: Binding(
@@ -287,7 +273,7 @@ struct MapScreen: View {
     // MARK: Alt panel
 
     @ViewBuilder
-    private var bottomPanel: some View {
+    private func bottomPanel(maxCardContentHeight: CGFloat) -> some View {
         switch viewModel.mode {
         case .choosingSpecies, .choosingNeed, .editing:
             ReportPanel(
@@ -320,12 +306,10 @@ struct MapScreen: View {
                     distance: viewModel.distance(to: report),
                     look: viewModel.look(for: report),
                     closingMode: viewModel.closingMode,
-                    actions: viewModel.cardActions(for: report),
+                    plan: viewModel.cardPlan(for: report),
                     busyAction: viewModel.busyAction,
-                    canEdit: viewModel.canEdit(report),
-                    canFlag: viewModel.canFlag(report),
                     flagMailURL: viewModel.flagMailURL(for: report),
-                    shareLocationText: viewModel.shareLocationText(for: report),
+                    maxContentHeight: maxCardContentHeight,
                     onAction: { action in viewModel.handle(action, on: report) },
                     onEdit: { viewModel.startEditing(report) },
                     onFlag: { viewModel.requestFlag(report) },

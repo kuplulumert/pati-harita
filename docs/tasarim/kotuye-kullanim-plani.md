@@ -700,6 +700,11 @@ case .expire:       close(status == .closing ? closing!.reason : .expired)
 - **Scripter.** Before enforcement, a script can do all of the above with unlimited uids, plus spam, a full dump, and a quota outage. After enforcement it can still replay bearer tokens taken from a jailbroken device (30–60 min each), anonymous sign-up over REST may not be gated, and it can build aged uid farms. On Spark the quota cliff means an outage, not a bill. Only Blaze plus C3 really closes this.
 - **Rules cannot check presence.** GPS is supplied by the client, so every action can be done from the sofa.
 - **Fake or lure reports** can be kept alive for at most 7 days. Add a safety line to the card: "Yalnız gitme, kimseyle tartışmaya girme."
+  *Later change (card redesign):* the line left the card, where people learned to skip it. The same guidance now
+  arrives when someone commits to going: a one-time "Yardıma gidiyorsun" alert on the first "İlgileniyorum" or
+  "Yol tarifi" ("Yalnız gitme, kimseyle tartışmaya girme, özel mülke girme. Hayati tehlike varsa 112'yi ara."),
+  the night reminder (unchanged), the onboarding rule (unchanged) and "Mümkünse biriyle git." appended to the
+  claim toast on acil/yaralı/yavru reports.
 - **Keychain.** Keeping the uid across a reinstall is observed behaviour, not a guarantee. Erase All Content or a second device gives a new uid, but every Tier A guarantee is stated in terms of devices and uids anyway.
 
 **Separate risk: exposed locations.**

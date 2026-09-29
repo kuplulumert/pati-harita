@@ -278,11 +278,20 @@ UI:
   "Çözüldü dendi, haritadan kalktı" (append to the existing seen-count value). Keep the `report-marker`
   identifier and the "Need, Species" label (UI tests rely on them); dots keep the same identifier/label.
 - Top chip count uses `ClosingDisplay.countsAsWaiting`.
-- Card: closing status line ("Çözüldü dendi · 20 dk önce · doğrulanmadı" / "… · Haritadan kalkış: 14.20" /
+- Card (first version): closing status line ("Çözüldü dendi · 20 dk önce · doğrulanmadı" / "… · Haritadan kalkış: 14.20" /
   "… · haritadan kalktı"), fact lines from the design docs, buttons per `availableActions`; `.dispute` asks for
   confirmation ("Hayvan hâlâ yardım bekliyor mu? Bunu yalnızca hayvanı şimdi gördüysen söyle." →
-  [Evet, hâlâ yardım gerekiyor] [Vazgeç]); stale-claim text for others after 45 min; safety line on the card:
-  "Yalnız gitme, kimseyle tartışmaya girme." (small, secondary).
+  [Evet, hâlâ yardım gerekiyor] [Vazgeç]); stale-claim text for others after 45 min. The safety line is no
+  longer on the card (see the card layout note below).
+- Card layout (current): title "<need> <species>" plus one meta line ("140 m · az önce görüldü · 4 kişi bildirdi");
+  a status block only for non-default states (closing: "<who> 'Çözüldü' dedi" / "20 dk önce · doğrulanmadı");
+  one filled primary, one context tile chosen once when the card opens (near → "Hâlâ orada", or "Artık yok" for
+  the helper; far or no location → "Yol tarifi"; own editable pin → "Düzenle"; closing → "Hâlâ yardım
+  gerekiyor"; the helper on acil/yaralı/yavru also gets "Konumu paylaş") and a labelled "⋯ Diğer" menu with
+  everything else. `CardLayout.plan` (AnimalKit) places each item exactly once; a unit test checks it. Safety
+  moved to the moment someone goes: a one-time "Yardıma gidiyorsun" alert on the first "İlgileniyorum" or
+  "Yol tarifi" (same text as the onboarding rule; the night reminder wins when both apply and then counts as that
+  one-time alert, `-noNightReminder` turns both off) and "Mümkünse biriyle git." at the end of the claim toast on acil/yaralı/yavru.
 - Toasts per `CloseCredibility` and mode (clutter doc §5); closer's toast offers "Geri al" and stays 10 s.
   Create-limit toast: "Son 24 saatte 10 işaret koydun. Yeni işaret hakkın saat 14.20'de açılır. Yakındaki bir
   işaret aynı hayvansa 'Ben de gördüm' diyebilirsin." (numbers/time computed; first day says 5). When ≤ 3

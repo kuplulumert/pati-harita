@@ -1,42 +1,85 @@
 import AnimalKit
 import Foundation
 
-/// Saate, sayıya ve kişiye göre değişen Türkçe metinler: bildirimler, günlük sınır, takip sorusu,
-/// "Yardıma ihtiyacı var mı?" kontrolü.
+/// Saate, sayıya ve kişiye göre değişen Türkçe metinler: kart, bildirimler, günlük sınır, takip sorusu,
+/// "Yardıma ihtiyacı var mı?" kontrolü, güvenlik.
 enum Messages {
+    // MARK: Kart
+
+    /// Kartın başlığı, ihtiyaç ve tür birlikte: "Yaralı / hasta kedi", "Acil yardım gereken köpek",
+    /// "Yavru kediler tehlikede". Haritadaki işaretin etiketi ("Yaralı / hasta, Kedi") değişmez.
+    static func cardTitle(_ report: Report) -> String {
+        let noun = report.species.noun
+        switch report.need {
+        case .food, .injured, .shelter:
+            return "\(report.need.title) \(noun)"
+        case .emergency:
+            return "Acil yardım gereken \(noun)"
+        case .vet:
+            return "Veteriner desteği gereken \(noun)"
+        case .babies:
+            return "Yavru \(report.species.pluralNoun) tehlikede"
+        }
+    }
+
+    /// Kartın bilgi satırı: "140 m · az önce görüldü · 4 kişi bildirdi". Sığmazsa `twoLines`: sayı alt satırda.
+    /// Biri "Hâlâ orada" dediyse "görüldü", yoksa "işaretlendi"; tek kişi bildirdiyse sayı yok, konum yoksa uzaklık yok.
+    static func cardMeta(_ report: Report, distance: Double?, now: Date) -> (oneLine: String, twoLines: String) {
+        var parts: [String] = []
+        if let distance {
+            parts.append(Formatting.distance(meters: distance))
+        }
+        if report.lastSeenAt > report.createdAt {
+            parts.append("\(Formatting.timeAgo(report.lastSeenAt, now: now)) görüldü")
+        } else {
+            parts.append("\(Formatting.timeAgo(report.createdAt, now: now)) işaretlendi")
+        }
+        let first = parts.joined(separator: " · ")
+        guard let seen = Formatting.seenCount(report.seenCount) else { return (first, first) }
+        return ("\(first) · \(seen)", "\(first)\n\(seen)")
+    }
+
     // MARK: Düğmeler
 
     /// Eylemin bu kişi için başlığı: işareti koyanın başkasının sahipliğini kaldırması "İlgilenen gelmedi",
-    /// "Artık yok dendi"yi onaylamak "Evet, artık yok"; mama işaretinde "Hâlâ yardım lazım" ve
-    /// "Yardım gerekmiyor" (seçenekleri `unneededChoiceTitle`); diğerleri `ReportAction.title`.
+    /// ilgilenenin bırakması "İlgilenmeyi bırak" (menüde yalın "Vazgeç" iptal gibi okunur), "Artık yok dendi"yi
+    /// onaylamak "Evet, artık yok"; mama işaretinde "Hâlâ yardım lazım" ve "Yardım gerekmiyor"; diğerleri
+    /// `ReportAction.title`.
     static func title(for action: ReportAction, on report: Report, userID: String?, now: Date) -> String {
         switch action {
         case .release:
             let isClaimer = report.activeClaim(at: now)?.userID == userID
-            return report.reporterID == userID && !isClaimer ? "İlgilenen gelmedi" : action.title
+            return report.reporterID == userID && !isClaimer ? "İlgilenen gelmedi" : "İlgilenmeyi bırak"
         case .confirmClosing:
             return confirmClosingTitle(report.closing?.reason ?? .resolved)
         case .confirmStillThere:
             // Hafif ihtiyaçta hayvanın orada olması yetmez; ağır ihtiyaçta orada olması ihtiyacın kendisidir.
             return report.need.allowsUnneeded ? "Hâlâ yardım lazım" : action.title
-        case .reportGone:
-            // Mamada "Ne gördün?" seçimini açar (`MapViewModel.unneededChoices`).
-            return report.need.allowsUnneeded ? unneededButtonTitle : action.title
-        case .claim, .resolve, .reportUnneeded, .dispute, .undoClosing, .expire:
+        case .reportUnneeded:
+            // Ne görüldüğü alt satırda: "Hayvan orada ama iyi görünüyor" (`menuSubtitle`).
+            return "Yardım gerekmiyor"
+        case .claim, .resolve, .reportGone, .dispute, .undoClosing, .expire:
             return action.title
         }
     }
 
-    /// Mama kartındaki düğme; "Ne gördün?" seçimini açar.
-    static let unneededButtonTitle = "Yardım gerekmiyor"
-
-    /// "Ne gördün?" seçimindeki düğmeler.
-    static func unneededChoiceTitle(_ action: ReportAction) -> String {
+    /// Kartın "⋯ Diğer" menüsünde eylemin alt satırı; yoksa `nil`. İşareti koyan tek tanıksa kapatan eylemler
+    /// "işaret hemen kalkar" der (geri alınamaz); daha önce itiraz edilen işarette "Çözüldü" bunu hatırlatır.
+    static func menuSubtitle(for action: ReportAction, on report: Report, userID: String?) -> String? {
+        let alone = userID.map { ReportLifecycle.reporterAlone(report, userID: $0) } ?? false
+        let closesNow = " · işaret hemen kalkar"
         switch action {
-        case .reportGone: "Hayvan artık orada değil"
-        case .reportUnneeded, .claim, .release, .resolve, .confirmStillThere, .dispute, .confirmClosing,
-             .undoClosing, .expire:
-            action.title
+        case .reportUnneeded:
+            return "Hayvan orada ama iyi görünüyor" + (alone ? closesNow : "")
+        case .reportGone:
+            return "Hayvan artık orada değil" + (alone ? closesNow : "")
+        case .resolve:
+            if alone { return "İşaret hemen kalkar" }
+            return report.disputed.isEmpty ? nil : "Daha önce itiraz edildi"
+        case .release:
+            return "İşaret yeniden yardım bekler"
+        case .claim, .confirmStillThere, .dispute, .confirmClosing, .undoClosing, .expire:
+            return nil
         }
     }
 
@@ -61,7 +104,8 @@ enum Messages {
         let report = outcome.report
         switch action {
         case .claim:
-            return "Teşekkürler! İşaret \(Int(ReportLifecycle.claimDuration / 3600)) saat boyunca sende."
+            let thanks = "Teşekkürler! İşaret \(Int(ReportLifecycle.claimDuration / 3600)) saat boyunca sende."
+            return goTogetherNeeds.contains(report.need) ? "\(thanks) \(goTogether)" : thanks
         case .release:
             return "İşaret yeniden yardım bekliyor."
         case .resolve:
@@ -284,6 +328,16 @@ enum Messages {
         "Pati Harita'dan bir hayvana yardıma gidiyorum: https://maps.apple.com/?ll=\(coordinate.latitude),\(coordinate.longitude)&q=Pati%20Harita"
     }
 
+    // MARK: Güvenlik
+
+    /// Kurallar sayfasında ve ilk gidişteki uyarıda aynı cümleler.
+    static let safetyRule = "Yalnız gitme, kimseyle tartışmaya girme, özel mülke girme. Hayati tehlike varsa 112'yi ara."
+    /// Bu cihazda ilk "İlgileniyorum" ya da "Yol tarifi"nde bir kez (gece hatırlatması öncelikli); ileti `safetyRule`.
+    static let goSafetyTitle = "Yardıma gidiyorsun"
+    /// Bu ihtiyaçlarda "İlgileniyorum" bildirimine `goTogether` eklenir (gece hatırlatmasıyla aynı ihtiyaçlar).
+    static let goTogetherNeeds: Set<Need> = [.emergency, .injured, .babies]
+    static let goTogether = "Mümkünse biriyle git."
+
     // MARK: Güncelleme
 
     static let updateRequiredTitle = "Güncelleme gerekli"
@@ -366,6 +420,14 @@ extension Species {
         switch self {
         case .cat: "kedi"
         case .dog: "köpek"
+        }
+    }
+
+    /// "Yavru kediler tehlikede".
+    var pluralNoun: String {
+        switch self {
+        case .cat: "kediler"
+        case .dog: "köpekler"
         }
     }
 }

@@ -82,29 +82,52 @@ politikası bağlantılarını gösterir.
 
 ### İşarete dokununca
 
-Yalnızca temel bilgiler: **ihtiyaç, tür, ne zaman işaretlendiği, uzaklık ve mevcut durum** ("Yardım bekliyor", "Biri ilgileniyor · 12 dk önce", "Sen ilgileniyorsun · 2 sa 40 dk kaldı").
-Hayvanı birden fazla kişi bildirdiyse **"N kişi bildirdi"** de yazar.
-Altında duruma göre değişen düğmeler:
+Kart iki satırda dört şeyi söyler: **ne ve hangi hayvan** ("Yaralı / hasta kedi", "Acil yardım gereken köpek",
+"Yavru kediler tehlikede"), **ne kadar uzakta, ne kadar taze ve kaç kişi bildirdi** ("140 m · az önce görüldü · 4 kişi
+bildirdi"; biri "Hâlâ orada" demediyse "12 dk önce işaretlendi", sayı 2 kişiden itibaren, sığmazsa alt satırda).
+Bir durum satırı yalnızca işaret "yardım bekliyor"dan farklıysa çıkar: "Sen ilgileniyorsun · 2 sa 59 dk kaldı",
+"Biri ilgileniyor · 10 dk önce" (45 dk'dan sonra gri: "… · 1 sa önce, haber yok"), "2 kişi 'Artık yok' dedi",
+"… 'Çözüldü' dedi" (aşağıda). Sesli okumada başlık durumu da söyler ("Yardım bekliyor").
 
-| Kim | Görülen eylemler |
-| --- | --- |
-| Yoldan geçen | **İlgileniyorum** · Hâlâ orada · Çözüldü · Artık yok · Yol tarifi |
-| İlgilenen kişi | **Çözüldü** · Vazgeç · Artık yok · Yol tarifi |
-| İşareti koyan | **İlgileniyorum** · Çözüldü · Hâlâ orada · Artık yok · Yol tarifi (45 dk'dır haber vermeyen ilgilenen için "İlgilenen gelmedi"; ilk 30 dakikada başlıkta **Düzenle**) |
-| "Çözüldü dendi" işaretinde | **Evet, çözüldü** (işareti koyan) · Hâlâ yardım gerekiyor · Yol tarifi |
+En fazla üç düğme görünür:
 
-"Aç ve zayıf" işaretlerinde **Hâlâ orada** yerine **Hâlâ yardım lazım**, **Artık yok** yerine **Yardım gerekmiyor**
-yazar; ikincisi "Ne gördün?" diye sorar: **Hayvan orada ama iyi görünüyor** ya da **Hayvan artık orada değil**.
+- Dolu **birincil** düğme: kişinin sıradaki adımı (**İlgileniyorum**, ilgilenene **Çözüldü**, **Evet, çözüldü**, **Geri al**).
+- Bir **bağlam döşemesi**, kart açılırken bir kez seçilir ve kart açıkken değişmez: hayvanın **yakınındaysan**
+  (taze ve ≤ 50 m doğru bir konumla en fazla 100 m) **Hâlâ orada** (ilgilenene **Artık yok**), **uzaktaysan** ya da
+  konum yoksa **Yol tarifi**; kendi yeni işaretinde **Düzenle**; "… dendi" işaretinde **Hâlâ yardım gerekiyor**
+  (hiçbir zaman "Evet" ile yan yana değil); 45 dk'dır haber vermeyen ilgilenen için işareti koyana
+  **İlgilenen gelmedi**. Acil, yaralı ve yavruda ilgilenen kişiye ikinci döşeme **Konumu paylaş**: gidilen yer tek
+  dokunuşla bir yakına gönderilir. Biri tazece ilgileniyorsa uzaktaki yoldan geçene döşeme gösterilmez (ikinci kişi
+  yola çıkmasın).
+- **⋯ Diğer**: geri kalan her şey, üç bölümde. "Hayvanı şimdi gördüysen" (**Hâlâ orada**, **Artık yok**; alt satır
+  "Hayvan artık orada değil"), diğer eylemler (yoldan geçenin **Çözüldü**'sü, ilgilenenin **İlgilenmeyi bırak**'ı
+  "İşaret yeniden yardım bekler", **Yol tarifi**, **Konumu paylaş**) ve bildir / gizle. İşareti koyan tek tanıksa
+  kapatan öğeler "işaret hemen kalkar" der; daha önce itiraz edilen işarette **Çözüldü**'nün altında "Daha önce itiraz
+  edildi" yazar.
+
+Bilerek iki dokunuş: yoldan geçenin (bekleyen işarette işareti koyanın da; tek tanıkken geri alınamaz) **Çözüldü**'sü
+ve herkesin **Artık yok**'u (hayvanın başındaki ilgilenen hariç); yanlışlıkla ya da kötü niyetle tek dokunuşla kapatma
+zorlaşır. İlgilenen kişi yine tek dokunuşla kapatır.
+"Aç ve zayıf" işaretlerinde **Hâlâ orada** yerine **Hâlâ yardım lazım** yazar ve menüde **Yardım gerekmiyor** ("Hayvan
+orada ama iyi görünüyor") ile **Artık yok** ayrı öğelerdir; ikisi de soru sormadan yapılır.
+
+"… dendi" işaretinde durum bloğu kimin ne dediğini ve nasıl göründüğünü söyler: "'İlgileniyorum' demeyen biri
+'Çözüldü' dedi" / "20 dk önce · doğrulanmadı" (ya da "Haritadan kalkış: 14.20", "haritadan kalktı"). Onaylayabilen
+kişi "İlgilenmeye başlayan kişi 40 dk sonra 'Çözüldü' dedi. Doğru mu?" görür; daha önce itiraz ettiysen "· itiraz
+ettin". Öneriyi yapan kişi "'Çözüldü' dedin · 2 dk önce" ve işaretin başkalarında nasıl göründüğünü görür.
 
 **Hâlâ orada** diyen kişi bildirenlerin sayısına da eklenir ("Teşekkürler! Bu hayvanı artık 4 kişi bildirdi.").
-Kartın altında küçük bir güvenlik notu durur: "Yalnız gitme, kimseyle tartışmaya girme, özel mülke girme."
-Acil, yaralı ve yavru kartlarında yanında **Konumu paylaş** vardır: gidilen yer tek dokunuşla bir yakına gönderilir.
-Gece (21.00–06.00) bu işaretlere **İlgileniyorum** ya da **Yol tarifi** denince haftada en fazla bir kez kısa bir
-güvenlik hatırlatması çıkar ("Gece yardıma gidiyorsun"); **Devam et** ile eylem sürer.
+
+Güvenlik kartta değil, yola çıkarken söylenir: bu cihazda ilk **İlgileniyorum** ya da **Yol tarifi**'nde bir kez
+"Yardıma gidiyorsun" uyarısı çıkar ("Yalnız gitme, kimseyle tartışmaya girme, özel mülke girme. Hayati tehlike varsa
+112'yi ara."); acil, yaralı ve yavruda **İlgileniyorum** bildirimi "Mümkünse biriyle git." ile biter. Gece
+(21.00–06.00) bu işaretlere **İlgileniyorum** ya da **Yol tarifi** denince haftada en fazla bir kez "Gece yardıma
+gidiyorsun" hatırlatması çıkar (ikisi birden uyuyorsa yalnızca bu çıkar ve ilk gidiş uyarısı yerine sayılır);
+**Devam et** ile eylem sürer.
 
 ### Şüpheli bir işaret: bildir ya da gizle
 
-Kartın başlığındaki **⋯** menüsü (işareti koyana gösterilmez):
+Kartın **⋯ Diğer** menüsünün son bölümü (işareti koyana gösterilmez):
 
 - **Bu işareti bildir**: "Bu işarette ne sorun var?" — sahte işaret, tehlikeli ya da şüpheli bir yer, hayvan dışında bir
   amaç (buluşma, taciz, reklam…). Serbest metin yoktur. Bildirim yalnızca uygulamanın sahibine gider; haritada hiçbir
@@ -220,13 +243,13 @@ open PatiHarita.xcodeproj
 
 `GoogleService-Info.plist` yoksa uygulama **demo modunda** açılır: çevrede örnek işaretler görünür, tüm akış denenebilir, veriler yalnızca cihazdadır.
 Demo işaretleri her açılışta yeniden oluşur; gizlenen işaretler hatırlanmaz. Kabul edilen kurallar, "Yardıma ihtiyacı var mı?"
-sayacı ve gece hatırlatması cihazda saklanır (TestFlight'ta kurallar bir kez sorulur). `-demo` argümanıyla hiçbir şey saklanmaz:
+sayacı ve güvenlik hatırlatmaları cihazda saklanır (TestFlight'ta kurallar ve "Yardıma gidiyorsun" bir kez sorulur). `-demo` argümanıyla hiçbir şey saklanmaz:
 her açılış ilk açılış gibidir (arayüz testi bunu kullanır).
 Simülatörün varsayılan konumu Kadıköy'dür (`ios/Kadikoy.gpx`). Harita Apple Haritalar'dır; API anahtarı gerekmez.
 
 Başlatma argümanları (*Edit Scheme → Run → Arguments*): `-demo` (plist olsa da demo modu), `-useEmulator` (yerel
-emülatörler, aşağıda), `-noNightReminder` (gece güvenlik hatırlatmasını kapatır; arayüz testi günün her saatinde aynı
-akışı denesin diye kullanır).
+emülatörler, aşağıda), `-noNightReminder` (gece hatırlatmasını ve ilk gidişteki "Yardıma gidiyorsun" uyarısını kapatır;
+arayüz testi günün her saatinde aynı akışı denesin diye kullanır).
 
 Kendi iPhone'unuzda çalıştırmak için `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig` ile Apple Developer ekip kimliğinizi (`DEVELOPMENT_TEAM`) yazın.
 
@@ -295,8 +318,8 @@ AnimalKit testleri (Linux) ve iOS uygulamasının derlemesi ile arayüz testi (m
 depo özele dönerse macOS dakikaları 10 kat sayılır (bir iOS çalışması ≈ 200 dakika, ayda 2000 dakikalık hakkın onda biri).
 Ardından uygulamayı simülatörde açar ve arayüz testiyle ana akışı gerçek dokunuşlarla dener: kuralları kabul etme, işaret
 koyma ("Yardıma ihtiyacı var mı?" kontrolüyle), işareti düzeltme, işarete dokunma, "İlgileniyorum", "Hâlâ orada",
-"Ben de gördüm", uzun basma, yoldan geçenin "Çözüldü"sü, "Çözüldü dendi" kartı, itiraz, "Aç ve zayıf" işaretinde
-"Yardım gerekmiyor" ve "⋯" menüsünden işaret bildirme. Her adımın ekran görüntüsü (`00-kurallar` … `19-bildirildi`)
+"Ben de gördüm", uzun basma, yoldan geçenin "Çözüldü"sü, "… 'Çözüldü' dedi" kartı, itiraz, "Aç ve zayıf" işaretinde
+"⋯ Diğer" menüsünden "Yardım gerekmiyor" ve aynı menüden işaret bildirme. Her adımın ekran görüntüsü (`00-kurallar` … `19-bildirildi`)
 çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü).
 
 ## Sonraki adımlar
@@ -308,6 +331,6 @@ koyma ("Yardıma ihtiyacı var mı?" kontrolüyle), işareti düzeltme, işarete
   3. aşama (Blaze): "… dendi" olunca işareti koyana ve görenlere bildirim, yeni bildirimlerde sahibe haber, itibar.
 - Gizlilik politikasını ([taslak](docs/gizlilik-politikasi.md)) ve kullanım koşullarını ([taslak](docs/kullanim-kosullari.md))
   tamamlayıp herkese açık bir adreste yayımlamak (App Store ister); `AppInfo.supportEmail`'e iletişim adresini yazmak
-  (dolunca açıklama ekranında, engel mesajında ve "⋯" menüsünde görünür).
+  (dolunca açıklama ekranında, engel mesajında ve "⋯ Diğer" menüsünde görünür).
 - Karanlık harita stili, VoiceOver ince ayarları. (Simgenin kaynağı: [docs/app-icon.svg](docs/app-icon.svg))
 - Android / web istemcisi (aynı Firestore kuralları ve `shared/` sözleşmesiyle).

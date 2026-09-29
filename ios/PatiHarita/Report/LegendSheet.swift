@@ -95,7 +95,7 @@ struct LegendSheet: View {
                     Label("'Aç ve zayıf' işaretindeki hayvan iyi görünüyorsa 'Yardım gerekmiyor' de.", systemImage: "hand.thumbsup")
                     Label("'Çözüldü' ya da 'Yardım gerekmiyor' denen bir hayvanı şimdi görüyorsan ve hâlâ yardıma ihtiyacı varsa 'Hâlâ yardım gerekiyor' de.", systemImage: "exclamationmark.circle")
                     Label("Yanlış işaretlediysen kimse dokunmadan, ilk 30 dakikada kartındaki 'Düzenle' ile türü, ihtiyacı ve yeri (en fazla 200 m) düzeltebilir ya da silebilirsin.", systemImage: "pencil")
-                    Label("Şüpheli bir işareti kartın ⋯ menüsünden bildirebilir ya da yalnızca kendi haritandan gizleyebilirsin.", systemImage: "flag")
+                    Label("Şüpheli bir işareti kartın '⋯ Diğer' menüsünden bildirebilir ya da yalnızca kendi haritandan gizleyebilirsin.", systemImage: "flag")
                 }
                 .font(.subheadline)
 

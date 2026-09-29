@@ -4,12 +4,13 @@ import XCTest
 /// Ana akışı demo modunda gerçek dokunuşlarla dener:
 /// kurallar → harita → "Yardım gereken hayvan" → tür → ihtiyaç → "Yardıma ihtiyacı var mı?" → işarete dokun →
 /// "Düzenle" ile tür ve ihtiyaç düzeltilir → "İlgileniyorum" → "Hâlâ orada" ile gören sayısı artar →
-/// "Aynı hayvan mı?" önerisi → uzun basma → yoldan geçen "Çözüldü" der → "Çözüldü dendi" kartı →
-/// "Hâlâ yardım gerekiyor" itirazı → "Aç ve zayıf" işaretinde "Yardım gerekmiyor" → "⋯" ile işareti bildirme.
-/// Her adımın ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
+/// "Aynı hayvan mı?" önerisi → uzun basma → yoldan geçen "Çözüldü" der → "… 'Çözüldü' dedi" kartı →
+/// "Hâlâ yardım gerekiyor" itirazı → "Aç ve zayıf" işaretinde "⋯ Diğer" → "Yardım gerekmiyor" → "⋯ Diğer" ile
+/// işareti bildirme. Her adımın ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
 ///
 /// Düğmeler görünen metinleri yerine kimlikleriyle bulunur (`report-button`, `need-food`, `action-…`); metinler
-/// değişse de test aynı akışı dener.
+/// değişse de test aynı akışı dener. Kart, açılırken hayvana yakın olup olmadığına göre bazı eylemleri döşeme,
+/// bazılarını "⋯ Diğer" menüsünde gösterir; `cardAction` ikisinde de bulur.
 final class ReportFlowUITests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
@@ -109,7 +110,8 @@ final class ReportFlowUITests: XCTestCase {
         sleep(1)
         screenshots.take("08-isaret-guncellendi")
 
-        // Düzeltmeden sonra kart yeniden açılır. Gece hatırlatması `-noNightReminder` ile kapalı.
+        // Düzeltmeden sonra kart yeniden açılır. Güvenlik hatırlatmaları (gece ve ilk gidiş) `-noNightReminder` ile
+        // kapalı.
         XCTAssertTrue(claim.waitForExistence(timeout: 5), "Düzeltmeden sonra kart açılmadı")
         claim.tap()
         let thanks = app.staticTexts.element(labelContaining: "3 saat boyunca sende")
@@ -132,8 +134,11 @@ final class ReportFlowUITests: XCTestCase {
         injuredCat.tap()
         let seenByThree = app.staticTexts.element(labelContaining: "3 kişi bildirdi")
         XCTAssertTrue(seenByThree.waitForExistence(timeout: 5), "Kartta gören sayısı (3) görünmedi")
+        // Güvenlik notu kartta değil; ilk gidişte bir kez sorulur (`-noNightReminder` ile kapalı).
+        XCTAssertFalse(app.staticTexts.element(labelContaining: "Yalnız gitme").exists, "Kartta güvenlik notu kaldı")
 
-        let stillThere = app.buttons["action-confirmStillThere"]
+        // Uzaktaysan "Hâlâ orada" menüde, yakındaysan döşemededir.
+        let stillThere = cardAction(app, id: "action-confirmStillThere", labelPrefix: "Hâlâ orada")
         XCTAssertTrue(stillThere.waitForExistence(timeout: 5), "Hâlâ orada düğmesi yok")
         stillThere.tap()
         // "Hâlâ orada" diyen demo kullanıcısı da sayılır: kart (ve bildirim) 4 der.
@@ -182,7 +187,8 @@ final class ReportFlowUITests: XCTestCase {
         sleep(2)
         XCTAssertTrue(injuredCat.waitForExistence(timeout: 10), "Örnek yaralı kedi işareti haritada bulunamadı")
         injuredCat.tap()
-        let resolve = app.buttons["action-resolve"]
+        // Yoldan geçenin "Çözüldü"sü "⋯ Diğer" menüsündedir (yanlışlıkla tek dokunuşla kapatılmasın).
+        let resolve = cardAction(app, id: "action-resolve", labelPrefix: "Çözüldü")
         XCTAssertTrue(resolve.waitForExistence(timeout: 5), "Yoldan geçen için Çözüldü düğmesi yok")
         resolve.tap()
         let recorded = app.staticTexts.element(labelContaining: "Yardımın kaydedildi")
@@ -200,10 +206,15 @@ final class ReportFlowUITests: XCTestCase {
         let spoken = (closingDog.value as? String) ?? ""
         XCTAssertTrue(spoken.contains("doğrulanmadı"), "İşaretin sesli değeri 'doğrulanmadı' demiyor: \(spoken)")
         closingDog.tap()
+        // Durum bloğu kimin ne dediğini ve nasıl göründüğünü söyler: "'İlgileniyorum' demeyen biri 'Çözüldü' dedi" /
+        // "20 dk önce · doğrulanmadı".
         let closingStatus = app.staticTexts
-            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "report-status", "Çözüldü dendi"))
+            .matching(NSPredicate(
+                format: "identifier == %@ AND label CONTAINS %@ AND label CONTAINS %@",
+                "report-status", "'Çözüldü' dedi", "doğrulanmadı"
+            ))
             .firstMatch
-        XCTAssertTrue(closingStatus.waitForExistence(timeout: 5), "Kartta 'Çözüldü dendi' görünmedi")
+        XCTAssertTrue(closingStatus.waitForExistence(timeout: 5), "Kartta \"'Çözüldü' dedi · doğrulanmadı\" görünmedi")
         sleep(1)
         screenshots.take("14-cozuldu-dendi-karti")
 
@@ -217,10 +228,9 @@ final class ReportFlowUITests: XCTestCase {
         confirmDispute.tap()
         let reopened = app.staticTexts.element(labelContaining: "yeniden yardım bekliyor")
         XCTAssertTrue(reopened.waitForExistence(timeout: 5), "İtiraz bildirimi görünmedi")
-        let waiting = app.staticTexts
-            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "report-status", "Yardım bekliyor"))
-            .firstMatch
-        XCTAssertTrue(waiting.waitForExistence(timeout: 5), "İtirazdan sonra kart 'Yardım bekliyor' demiyor")
+        // Bekleyen işarette durum bloğu yok; itiraz eden (itiraz edilen değil) yeniden "İlgileniyorum" diyebilir.
+        let claimAgain = app.buttons["action-claim"]
+        XCTAssertTrue(claimAgain.waitForExistence(timeout: 5), "İtirazdan sonra kartta 'İlgileniyorum' yok")
         sleep(1)
         screenshots.take("15-itiraz")
 
@@ -228,23 +238,27 @@ final class ReportFlowUITests: XCTestCase {
         close.tap()
         XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Kart kapanınca ana ekrana dönülmedi")
 
-        // "Aç ve zayıf" işaretindeki hayvan iyi görünüyor: "Yardım gerekmiyor" → "Hayvan orada ama iyi görünüyor".
-        // Demo verisindeki tek "Aç ve zayıf" işareti köpek, kullanıcının ~200 m güneydoğusunda.
+        // "Aç ve zayıf" işaretindeki hayvan iyi görünüyor: "⋯ Diğer" → "Yardım gerekmiyor" (alt satırı "Hayvan orada
+        // ama iyi görünüyor"). Demo verisindeki tek "Aç ve zayıf" işareti köpek, kullanıcının ~250 m güneydoğusunda.
         recenter.tap()
         sleep(2)
         let foodDog = mapMarker(in: app, label: "Aç ve zayıf, Köpek")
         XCTAssertTrue(foodDog.waitForExistence(timeout: 10), "Örnek 'Aç ve zayıf' işareti haritada bulunamadı")
         foodDog.tap()
-        let unneeded = app.buttons["action-reportGone"]
-        XCTAssertTrue(unneeded.waitForExistence(timeout: 5), "'Aç ve zayıf' kartında 'Yardım gerekmiyor' yok")
-        XCTAssertTrue(unneeded.label.contains("Yardım gerekmiyor"), "Düğme 'Yardım gerekmiyor' demiyor: \(unneeded.label)")
-        let stillNeeds = app.buttons["action-confirmStillThere"]
-        XCTAssertTrue(stillNeeds.label.contains("Hâlâ yardım lazım"), "Düğme 'Hâlâ yardım lazım' demiyor: \(stillNeeds.label)")
-        unneeded.tap()
-        let fine = app.buttons.element(identifier: "unneeded-fine", orLabel: "Hayvan orada ama iyi görünüyor")
-        XCTAssertTrue(fine.waitForExistence(timeout: 5), "'Ne gördün?' sorulmadı")
+        let stillNeeds = cardAction(app, id: "action-confirmStillThere", labelPrefix: "Hâlâ yardım lazım")
+        XCTAssertTrue(stillNeeds.waitForExistence(timeout: 5), "'Aç ve zayıf' kartında 'Hâlâ yardım lazım' yok")
+        XCTAssertTrue(stillNeeds.label.hasPrefix("Hâlâ yardım lazım"), "Öğe 'Hâlâ yardım lazım' demiyor: \(stillNeeds.label)")
+        // Menü açık kalır; "Yardım gerekmiyor" ve "Artık yok" ayrı öğelerdir, soru sorulmadan yapılır.
+        let fine = cardAction(app, id: "unneeded-fine", labelPrefix: "Yardım gerekmiyor")
+        XCTAssertTrue(fine.waitForExistence(timeout: 5), "'Aç ve zayıf' kartında 'Yardım gerekmiyor' yok")
+        // Alt satır menü öğesinin etiketinde, değerinde ya da ayrı bir metin olarak gelebilir.
+        let fineText = "\(fine.label) \((fine.value as? String) ?? "")"
+        XCTAssertTrue(
+            fineText.contains("iyi görünüyor") || app.staticTexts.element(labelContaining: "iyi görünüyor").exists,
+            "'Yardım gerekmiyor' altında 'Hayvan orada ama iyi görünüyor' yok: \(fineText)"
+        )
         sleep(1)
-        screenshots.take("16-ne-gordun")
+        screenshots.take("16-diger-menu")
 
         fine.tap()
         let cleaner = app.staticTexts.element(labelContaining: "daha temiz")
@@ -253,7 +267,7 @@ final class ReportFlowUITests: XCTestCase {
         sleep(1)
         screenshots.take("17-yardim-gerekmiyor")
 
-        // Şüpheli bir işaret kartın "⋯" menüsünden bildirilir; neden sabit listeden seçilir. İşaret yalnızca
+        // Şüpheli bir işaret kartın "⋯ Diğer" menüsünden bildirilir; neden sabit listeden seçilir. İşaret yalnızca
         // bildirenin haritasından kalkar. Acil köpek kullanıcının ~260 m batısında, ekranın sol yarısında.
         recenter.tap()
         sleep(2)
@@ -261,11 +275,11 @@ final class ReportFlowUITests: XCTestCase {
         XCTAssertTrue(emergencyDog.waitForExistence(timeout: 10), "Örnek acil köpek işareti haritada bulunamadı")
         emergencyDog.tap()
         let cardMenu = app.descendants(matching: .any).matching(identifier: "card-menu").firstMatch
-        XCTAssertTrue(cardMenu.waitForExistence(timeout: 5), "Kartta ⋯ menüsü yok")
-        // Acil işaretinde gidilen yer bir yakına gönderilebilir.
-        let shareLocation = app.descendants(matching: .any).matching(identifier: "share-location").firstMatch
-        XCTAssertTrue(shareLocation.exists, "Acil işaret kartında 'Konumu paylaş' yok")
+        XCTAssertTrue(cardMenu.waitForExistence(timeout: 5), "Kartta '⋯ Diğer' yok")
         cardMenu.tap()
+        // Acil işaretinde gidilen yer bir yakına gönderilebilir: yoldan geçene menüde (ilgilenene döşeme).
+        let shareLocation = app.descendants(matching: .any).element(identifier: "share-location", orLabel: "Konumu paylaş")
+        XCTAssertTrue(shareLocation.waitForExistence(timeout: 5), "Acil işaret kartının menüsünde 'Konumu paylaş' yok")
         let flagItem = app.buttons.element(identifier: "menu-flag", orLabel: "Bu işareti bildir")
         XCTAssertTrue(flagItem.waitForExistence(timeout: 5), "Menüde 'Bu işareti bildir' yok")
         flagItem.tap()
@@ -289,7 +303,7 @@ final class ReportFlowUITests: XCTestCase {
         // Kadıköy (ios/Kadikoy.gpx ile aynı).
         XCUIDevice.shared.location = XCUILocation(location: CLLocation(latitude: 40.9903, longitude: 29.0290))
         let app = XCUIApplication()
-        // Gece hatırlatması kapalı: test günün her saatinde aynı akışı dener (AppEnvironment.noNightReminderArgument).
+        // Güvenlik hatırlatmaları kapalı: test günün her saatinde aynı akışı dener (AppEnvironment.noNightReminderArgument).
         app.launchArguments = ["-demo", "-noNightReminder"]
         app.launch()
 
@@ -310,6 +324,21 @@ final class ReportFlowUITests: XCTestCase {
         app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier == %@ AND label == %@", "report-marker", label))
             .firstMatch
+    }
+
+    /// Kartta görünüyorsa düğme; değilse "⋯ Diğer" menüsü açılıp oradaki öğe. Menü öğelerinde kimlik her zaman
+    /// iletilmediği için etiketin başıyla da aranır. Menü zaten açıksa öğe hemen bulunur; menüye yeniden
+    /// dokunulmaz (dokunuş onu kapatırdı).
+    @MainActor
+    private func cardAction(_ app: XCUIApplication, id: String, labelPrefix: String) -> XCUIElement {
+        let item = app.buttons
+            .matching(NSPredicate(format: "identifier == %@ OR label BEGINSWITH %@", id, labelPrefix))
+            .firstMatch
+        if item.waitForExistence(timeout: 2) { return item }
+        let menu = app.descendants(matching: .any).matching(identifier: "card-menu").firstMatch
+        XCTAssertTrue(menu.waitForExistence(timeout: 5), "Kartta '⋯ Diğer' yok")
+        menu.tap()
+        return item
     }
 
     /// Öğe `timeout` içinde kaybolursa `true`.

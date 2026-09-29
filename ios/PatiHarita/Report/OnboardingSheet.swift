@@ -32,11 +32,8 @@ struct OnboardingSheet: View {
             color: .red,
             text: "İşaretleme: sağlıklı ve beslenen sokak hayvanlarını, mama noktalarını."
         ),
-        Rule(
-            symbol: "shield.lefthalf.filled",
-            color: .blue,
-            text: "Yalnız gitme, kimseyle tartışmaya girme, özel mülke girme. Hayati tehlike varsa 112'yi ara."
-        ),
+        // İlk "İlgileniyorum" ya da "Yol tarifi"ndeki uyarıyla aynı cümleler.
+        Rule(symbol: "shield.lefthalf.filled", color: .blue, text: Messages.safetyRule),
         Rule(
             symbol: "mappin.and.ellipse",
             color: .orange,

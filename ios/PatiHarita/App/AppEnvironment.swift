@@ -13,7 +13,8 @@ import Foundation
 /// - **demo**: plist yoksa ya da `-demo` argümanıyla; işaretler yalnızca bellekte. Cihaz ayarları (kabul edilen
 ///   kurallar vb.) plist'siz demo derlemesinde saklanır, `-demo` ile saklanmaz.
 ///
-/// `-noNightReminder` argümanı gece hatırlatmasını kapatır (arayüz testi günün her saatinde çalışır).
+/// `-noNightReminder` argümanı gece hatırlatmasını ve ilk gidişteki "Yardıma gidiyorsun" uyarısını kapatır (arayüz
+/// testi günün her saatinde aynı akışı dener; `-demo` cihaz durumunu saklamadığı için uyarı her açılışta çıkardı).
 ///
 /// Oturum kapatma bilerek yok: her cihaz tek bir anonim kimlikle kalır (hesap yaşı ve günlük haklar ona bağlı).
 @MainActor
@@ -32,11 +33,11 @@ final class AppEnvironment {
     let location: LocationProvider
     /// Takip sorusu (A7) için bu cihazın ilgilendiği işaretler.
     let watched: WatchedReports
-    /// Kurallar, "Yardıma ihtiyacı var mı?" sayaçları, gizlenen işaretler, gece hatırlatması.
+    /// Kurallar, "Yardıma ihtiyacı var mı?" sayaçları, gizlenen işaretler, güvenlik hatırlatmaları.
     let device: DeviceState
     /// Üst etikette gösterilen demo uyarısı (işaretlerin örnek olduğunu söyler).
     let setupWarning: String?
-    /// Gece (21.00–06.00) yardıma giderken güvenlik hatırlatması gösterilsin mi.
+    /// Yardıma giderken güvenlik hatırlatmaları (gece 21.00–06.00 ve ilk gidişte) gösterilsin mi.
     let nightReminderEnabled: Bool
 
     init(
@@ -79,7 +80,7 @@ final class AppEnvironment {
                 watched: WatchedReports(defaults: nil),
                 // Aynı nedenle gizlenen ve son 24 saatin işaretleri yalnızca bellekte. `-demo` ile (arayüz testi)
                 // hiçbir şey saklanmaz, test hep ilk açılıştan başlar. Plist'siz demo derlemesi (TestFlight) ise
-                // kabul edilen kuralları, hafif işaret sayacını ve gece hatırlatmasını hatırlar: kurallar her
+                // kabul edilen kuralları, hafif işaret sayacını ve güvenlik hatırlatmalarını hatırlar: kurallar her
                 // açılışta yeniden sorulmaz.
                 device: DeviceState(defaults: demoArgument ? nil : .standard, persistsReports: false),
                 setupWarning: demoWarning,

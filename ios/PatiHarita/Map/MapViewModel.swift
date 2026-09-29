@@ -1,6 +1,7 @@
 import AnimalKit
 import Foundation
 import Observation
+import UIKit
 
 /// Ana ekranın durumu. Akış:
 /// "Yardım gereken hayvan" → tür → ihtiyaç (hafif ihtiyaçta bazen "Yardıma ihtiyacı var mı?") → işaret haritada
@@ -104,8 +105,15 @@ final class MapViewModel {
         }
     }
 
-    /// Gece yardıma giderken güvenlik hatırlatması; "Devam et" deyince bekleyen iş yapılır.
+    /// Yardıma giderken güvenlik hatırlatması; "Devam et" deyince bekleyen iş yapılır.
     struct NightReminder: Identifiable, Equatable {
+        enum Kind: Equatable {
+            /// Gece acil, yaralı ya da yavru işaretine gidilirken (`nightReminderTitle`).
+            case night
+            /// Bu cihazda ilk "İlgileniyorum" ya da "Yol tarifi" (`Messages.goSafetyTitle`).
+            case firstGo
+        }
+
         enum Pending: Equatable {
             /// "İlgileniyorum"
             case claim
@@ -113,6 +121,7 @@ final class MapViewModel {
             case directions(URL)
         }
 
+        let kind: Kind
         let report: Report
         let pending: Pending
 
@@ -168,9 +177,6 @@ final class MapViewModel {
     static let duplicateDisputeTitle = "Evet, hâlâ yardım gerekiyor"
     static let duplicateDismissTitle = "Hayır, başka bir hayvan"
 
-    /// Mama kartında "Yardım gerekmiyor" (bkz. `unneededChoices`).
-    static let unneededQuestion = "Ne gördün?"
-    static let unneededCancelTitle = "Vazgeç"
     /// Karttaki "Düzenle" (`canEdit`, `startEditing`) ve düzeltme paneli.
     static let editButtonTitle = "Düzenle"
     static let editPanelTitle = "İşareti düzelt"
@@ -180,7 +186,7 @@ final class MapViewModel {
     static let retractQuestion = "Bu işareti silmek istiyor musun?"
     static let retractConfirmTitle = "Sil"
     static let retractCancelTitle = "Vazgeç"
-    /// Kartın "⋯" menüsü.
+    /// Kartın "⋯ Diğer" menüsünün son bölümü.
     static let flagMenuTitle = "Bu işareti bildir"
     static let hideMenuTitle = "Bu işareti gizle"
     static let flagMailMenuTitle = "E-postayla ayrıntı gönder"
@@ -197,14 +203,34 @@ final class MapViewModel {
     static let nightReminderTitle = "Gece yardıma gidiyorsun"
     static let nightReminderMessage = "Mümkünse biriyle git ve konumunu bir yakınınla paylaş. Işıksız, ıssız ya da kapalı bir yere (bina içi, inşaat, bodrum) girme. Durum şüpheliyse yaklaşma, 112'yi ara."
     static let nightReminderContinueTitle = "Devam et"
-    /// "Konumu paylaş" bu ihtiyaçların kartında (`shareLocationText`).
+
+    /// Hatırlatmanın başlığı: gece ya da ilk gidiş ("Yardıma gidiyorsun").
+    static func reminderTitle(_ kind: NightReminder.Kind) -> String {
+        switch kind {
+        case .night: nightReminderTitle
+        case .firstGo: Messages.goSafetyTitle
+        }
+    }
+
+    static func reminderMessage(_ kind: NightReminder.Kind) -> String {
+        switch kind {
+        case .night: nightReminderMessage
+        case .firstGo: Messages.safetyRule
+        }
+    }
+
+    /// "Konumu paylaş" bu ihtiyaçların kartında: ilgilenene döşeme, diğerlerine "⋯ Diğer" menüsünde.
     static let shareLocationNeeds: Set<Need> = [.emergency, .injured, .babies]
     static let shareLocationTitle = "Konumu paylaş"
 
     private(set) var reports: [Report] = []
     private(set) var now = Date()
     private(set) var mode: Mode = .browsing
+    /// Açık kart; yalnızca `selectReport(_:)` ile değişir (yakınlık da o an ölçülür).
     private(set) var selectedReportID: String? = nil
+    /// Kart açılırken hayvana yakın mıydın (`CardLayout.isNear`); kart açıkken düğmeler yer değiştirmesin diye
+    /// yeniden ölçülmez. Konum yoksa `false` ("uzak").
+    private(set) var cardIsNear = false
     private(set) var cameraRequest: CameraRequest? = nil
     private(set) var isCameraMoving = false
     private(set) var isZoomedTooFarOut = false
@@ -234,13 +260,11 @@ final class MapViewModel {
     private(set) var isSavingEdit = false
     /// Düzeltmede iğne işaretin konumundan izin verilenden uzağa kaydı (kamera durunca güncellenir).
     private(set) var isEditTargetTooFar = false
-    /// "Ne gördün?" sorulan mama işareti (bkz. `unneededChoices`).
-    private(set) var unneededCandidateID: String? = nil
     /// "Bu işarette ne sorun var?" sorulan işaret.
     private(set) var flagCandidateID: String? = nil
     /// "Bu işareti silmek istiyor musun?" sorulan işaret (düzeltme panelinden).
     private(set) var retractCandidateID: String? = nil
-    /// Gösterilecek gece hatırlatması.
+    /// Gösterilecek güvenlik hatırlatması (gece ya da ilk gidiş).
     private(set) var nightReminder: NightReminder? = nil
     /// Bu kimlik konsoldan engellendi (`banned/{me}` görüldü): üst etikette söylenir, yeni işaret açılmaz.
     private(set) var isBanned = false
@@ -369,12 +393,6 @@ final class MapViewModel {
         return activeReports.first { $0.id == disputeCandidateID }
     }
 
-    /// "Ne gördün?" sorulan işaret.
-    var unneededCandidate: Report? {
-        guard let unneededCandidateID else { return nil }
-        return activeReports.first { $0.id == unneededCandidateID }
-    }
-
     /// "Bu işarette ne sorun var?" sorulan işaret.
     var flagCandidate: Report? {
         guard let flagCandidateID else { return nil }
@@ -389,8 +407,7 @@ final class MapViewModel {
 
     /// Onay, seçim ya da hatırlatma açık: takip sorusu sayfası bunlar kapanınca gösterilir.
     var isShowingPrompt: Bool {
-        disputeCandidate != nil || unneededCandidate != nil || flagCandidate != nil
-            || retractCandidate != nil || nightReminder != nil
+        disputeCandidate != nil || flagCandidate != nil || retractCandidate != nil || nightReminder != nil
     }
 
     /// Kurallar sayfası gösterilmeli: bu sürümün kuralları bu cihazda henüz kabul edilmedi.
@@ -448,43 +465,42 @@ final class MapViewModel {
 
     // MARK: Kart
 
-    /// Kartın "⋯" menüsü (bildir, gizle) işareti koyana gösterilmez.
+    /// "⋯ Diğer" menüsündeki bildir ve gizle işareti koyana gösterilmez.
     func canFlag(_ report: Report) -> Bool {
         guard let userID else { return false }
         return report.reporterID != userID
     }
 
-    /// Karttaki eylemler (bkz. `cardActions(for:userID:at:)`).
-    func cardActions(for report: Report) -> [ReportAction] {
-        Self.cardActions(for: report, userID: userID, at: now)
+    /// Kartın düzeni (`CardLayout.plan`): birincil düğme, yakınlığa göre döşemeler ve "⋯ Diğer" menüsü.
+    /// Yakınlık kart açılırken ölçülen değerdir (`cardIsNear`).
+    func cardPlan(for report: Report) -> CardPlan {
+        CardLayout.plan(
+            for: report,
+            userID: userID,
+            at: now,
+            isNear: selectedReportID == report.id && cardIsNear,
+            canEdit: canEdit(report),
+            canShare: Self.shareLocationNeeds.contains(report.need),
+            canFlag: canFlag(report),
+            hasMail: flagMailURL(for: report) != nil
+        )
     }
 
-    /// `ReportLifecycle.availableActions`; ilki birincil eylemdir. Mamada "Yardım gerekmiyor" tek düğmedir:
-    /// `.reportGone` onun yerinde durur (başlığı `Messages.title`) ve "Ne gördün?" seçimini açar
-    /// (`unneededChoices`); `.reportUnneeded` ayrıca gösterilmez.
-    static func cardActions(for report: Report, userID: String?, at now: Date) -> [ReportAction] {
-        guard let userID else { return [] }
-        var actions = ReportLifecycle.availableActions(for: report, userID: userID, at: now)
-        guard report.need.allowsUnneeded,
-              let index = actions.firstIndex(where: { $0 == .reportUnneeded || $0 == .reportGone })
-        else { return actions }
-        actions.removeAll { $0 == .reportUnneeded || $0 == .reportGone }
-        actions.insert(.reportGone, at: index)
-        return actions
-    }
-
-    /// "Ne gördün?" seçenekleri (başlıkları `Messages.unneededChoiceTitle`): "Hayvan orada ama iyi görünüyor"
-    /// (`.reportUnneeded`) ve "Hayvan artık orada değil" (`.reportGone`); bu kişiye açık olanlar.
-    func unneededChoices(for report: Report) -> [ReportAction] {
-        guard let userID, report.need.allowsUnneeded else { return [] }
-        let available = ReportLifecycle.availableActions(for: report, userID: userID, at: now)
-        return [ReportAction.reportUnneeded, .reportGone].filter { available.contains($0) }
-    }
-
-    /// Acil, yaralı ve yavru kartlarında "Konumu paylaş" metni; diğerlerinde `nil`.
-    func shareLocationText(for report: Report) -> String? {
-        guard Self.shareLocationNeeds.contains(report.need) else { return nil }
-        return Messages.shareLocation(report.coordinate)
+    /// Kartı açar (`reportID`) ya da kapatır (`nil`). Yakınlık burada bir kez ölçülür: taze (≤ 2 dk), doğru
+    /// (≤ 50 m) bir konumla hayvana en fazla 100 m. Aynı kart yeniden açılınca yeniden ölçülür.
+    private func selectReport(_ reportID: String?) {
+        selectedReportID = reportID
+        var near = false
+        if let reportID, let fix = location.fix, let report = reports.first(where: { $0.id == reportID }) {
+            near = CardLayout.isNear(
+                distance: fix.coordinate.distance(to: report.coordinate),
+                accuracy: fix.horizontalAccuracy,
+                fixAge: Date().timeIntervalSince(fix.timestamp)
+            )
+        }
+        if near != cardIsNear {
+            cardIsNear = near
+        }
     }
 
     /// "E-postayla ayrıntı gönder": işaret kimliğiyle hazır e-posta; iletişim adresi yoksa `nil` (menüde yok).
@@ -614,7 +630,7 @@ final class MapViewModel {
         if let undoID = toast?.undoReportID, undoID != reportID {
             toast = nil
         }
-        selectedReportID = reportID
+        selectReport(reportID)
         // Kart haritanın alt yarısını örter: işaret, kart ile üst kenar arasındaki alanın ortasına gelsin.
         if let report = reports.first(where: { $0.id == reportID }) {
             cameraRequest = CameraRequest(target: report.coordinate)
@@ -622,7 +638,7 @@ final class MapViewModel {
     }
 
     func mapTapped() {
-        selectedReportID = nil
+        selectReport(nil)
     }
 
     func mapLongPressed(at coordinate: Coordinate) {
@@ -635,7 +651,7 @@ final class MapViewModel {
     }
 
     func closeCard() {
-        selectedReportID = nil
+        selectReport(nil)
     }
 
     /// Görünen alan, dinlenen alanın dışına taştıysa aboneliği yeniler.
@@ -650,7 +666,7 @@ final class MapViewModel {
             subscribedArea = nil
             reports = []
             // İşaretler kalkınca kart da kapanır; yeniden yakınlaşınca kendiliğinden açılmasın.
-            selectedReportID = nil
+            selectReport(nil)
             // Düzeltilen işaret de artık bilinmiyor.
             if isEditing {
                 finishEditing(select: nil, message: nil)
@@ -691,7 +707,7 @@ final class MapViewModel {
             show(Toast(message: Messages.banned, duration: Self.longToastDuration))
             return
         }
-        selectedReportID = nil
+        selectReport(nil)
         toast = nil
         pendingReport = nil
         dismissedDuplicateIDs = []
@@ -744,7 +760,7 @@ final class MapViewModel {
         pendingReport = nil
         mode = .browsing
         updateDuplicateCandidate()
-        selectedReportID = report.id
+        selectReport(report.id)
         cameraRequest = CameraRequest(target: report.coordinate)
         showNextFollowUp()
         guard let action else { return }
@@ -967,7 +983,7 @@ final class MapViewModel {
             show(Toast(message: ReportError.notEditable.errorDescription ?? "Bu işaret artık düzenlenemez."))
             return
         }
-        selectedReportID = nil
+        selectReport(nil)
         toast = nil
         pendingReport = nil
         retractCandidateID = nil
@@ -1066,7 +1082,7 @@ final class MapViewModel {
         isEditTargetTooFar = false
         updateDuplicateCandidate()
         if let reportID, let report = activeReports.first(where: { $0.id == reportID }) {
-            selectedReportID = report.id
+            selectReport(report.id)
             cameraRequest = CameraRequest(target: report.coordinate)
         }
         if let message {
@@ -1091,7 +1107,7 @@ final class MapViewModel {
             updateDuplicateCandidate()
         }
         if selectedReportID == report.id {
-            selectedReportID = nil
+            selectReport(nil)
         }
         // Önce: sunucu reddederse hata bildirimi bunun yerine geçer.
         show(Toast(message: Messages.reportDeleted))
@@ -1105,21 +1121,16 @@ final class MapViewModel {
 
     // MARK: İşaret eylemleri
 
-    /// Karttaki düğme. "Hâlâ yardım gerekiyor" önce onay ister (`disputeCandidate`), mamada "Yardım gerekmiyor"
-    /// önce ne görüldüğünü sorar (`unneededCandidate`), gece "İlgileniyorum" önce hatırlatır (`nightReminder`);
-    /// diğerleri hemen yapılır.
+    /// Karttaki düğme ya da menü öğesi. "Hâlâ yardım gerekiyor" önce onay ister (`disputeCandidate`),
+    /// "İlgileniyorum" gerekirse önce güvenliği hatırlatır (`nightReminder`); diğerleri hemen yapılır (mamada
+    /// "Yardım gerekmiyor" ve "Artık yok" menüde ayrı öğelerdir).
     func handle(_ action: ReportAction, on report: Report) {
         if action == .dispute {
             disputeCandidateID = report.id
             return
         }
-        if action == .reportGone || action == .reportUnneeded,
-           report.need.allowsUnneeded, !unneededChoices(for: report).isEmpty {
-            unneededCandidateID = report.id
-            return
-        }
-        if action == .claim, needsNightReminder(for: report, at: Date()) {
-            showNightReminder(NightReminder(report: report, pending: .claim))
+        if action == .claim, let kind = goReminderKind(for: report, at: Date()) {
+            showReminder(NightReminder(kind: kind, report: report, pending: .claim))
             return
         }
         Task { [weak self] in
@@ -1137,18 +1148,6 @@ final class MapViewModel {
 
     func cancelDispute() {
         disputeCandidateID = nil
-    }
-
-    /// "Ne gördün?" sorusunun yanıtı: `.reportUnneeded` ya da `.reportGone` (`unneededChoices`).
-    func chooseUnneeded(_ action: ReportAction, on report: Report) {
-        unneededCandidateID = nil
-        Task { [weak self] in
-            await self?.perform(action, on: report)
-        }
-    }
-
-    func cancelUnneeded() {
-        unneededCandidateID = nil
     }
 
     /// Bir eylemin sonucu (takip sorusu yeniden sorulacak mı diye).
@@ -1176,7 +1175,7 @@ final class MapViewModel {
             if let credibility = outcome.credibility {
                 // Öneriyi yapanın haritasından işaret hemen kalkar, kartı da kapanır; "Geri al" bildirimde.
                 if selectedReportID == report.id {
-                    selectedReportID = nil
+                    selectReport(nil)
                 }
                 show(Toast(
                     message: Messages.closerToast(
@@ -1228,21 +1227,30 @@ final class MapViewModel {
         return URL(string: "https://maps.apple.com/?daddr=\(destination)&dirflg=w")
     }
 
-    /// Karttaki "Yol tarifi": açılacak bağlantı. Gece hatırlatması gösterilecekse `nil`; bağlantıyı
+    /// Karttaki "Yol tarifi": açılacak bağlantı. Güvenlik hatırlatması gösterilecekse `nil`; bağlantıyı
     /// "Devam et" döndürür (`continueAfterNightReminder`).
     func requestDirections(for report: Report) -> URL? {
         guard let url = directionsURL(for: report) else { return nil }
-        if needsNightReminder(for: report, at: Date()) {
-            showNightReminder(NightReminder(report: report, pending: .directions(url)))
+        if let kind = goReminderKind(for: report, at: Date()) {
+            showReminder(NightReminder(kind: kind, report: report, pending: .directions(url)))
             return nil
         }
         return url
     }
 
-    // MARK: Gece hatırlatması
+    // MARK: Güvenlik hatırlatmaları
+
+    /// "İlgileniyorum" ya da "Yol tarifi"nden önce gösterilecek hatırlatma: ikisi de uyuyorsa gece hatırlatması,
+    /// yoksa bu cihazda bir kez "Yardıma gidiyorsun" (gece hatırlatması gösterildiyse o da sayılır). `-noNightReminder`
+    /// ikisini de kapatır (arayüz testi; demo cihaz durumu her açılışta sıfırlanır).
+    private func goReminderKind(for report: Report, at now: Date) -> NightReminder.Kind? {
+        guard environment.nightReminderEnabled else { return nil }
+        if needsNightReminder(for: report, at: now) { return .night }
+        return device.goSafetyTipShown ? nil : .firstGo
+    }
 
     /// Gece (yerel saatle 21.00–06.00) acil, yaralı ya da yavru işaretine gidilirken; kurulum başına haftada en
-    /// fazla bir kez. `-noNightReminder` ile kapalıdır (arayüz testi).
+    /// fazla bir kez.
     private func needsNightReminder(for report: Report, at now: Date) -> Bool {
         guard environment.nightReminderEnabled, Self.nightReminderNeeds.contains(report.need) else { return false }
         let hour = Calendar.current.component(.hour, from: now)
@@ -1252,8 +1260,15 @@ final class MapViewModel {
         return now.timeIntervalSince(shownAt) >= Self.nightReminderInterval || shownAt > now
     }
 
-    private func showNightReminder(_ reminder: NightReminder) {
-        device.markNightReminderShown(at: Date())
+    private func showReminder(_ reminder: NightReminder) {
+        switch reminder.kind {
+        case .night:
+            device.markNightReminderShown(at: Date())
+            // Gece metni ilk gidişin kuralını da söylüyor: aynı yolculukta ikinci uyarı çıkmasın.
+            device.markGoSafetyTipShown()
+        case .firstGo:
+            device.markGoSafetyTipShown()
+        }
         nightReminder = reminder
     }
 
@@ -1280,7 +1295,7 @@ final class MapViewModel {
 
     // MARK: Bildirme ve gizleme
 
-    /// "⋯" → "Bu işareti bildir": önce neden sorulur (`flagCandidate`).
+    /// "⋯ Diğer" → "Bu işareti bildir": önce neden sorulur (`flagCandidate`).
     func requestFlag(_ report: Report) {
         guard canFlag(report) else { return }
         flagCandidateID = report.id
@@ -1308,7 +1323,7 @@ final class MapViewModel {
         flagCandidateID = nil
     }
 
-    /// "⋯" → "Bu işareti gizle": yalnızca bu kişinin haritasından kalkar.
+    /// "⋯ Diğer" → "Bu işareti gizle": yalnızca bu kişinin haritasından kalkar.
     func hide(_ report: Report) {
         removeFromMyMap(report)
         show(Toast(message: Messages.reportHidden))
@@ -1319,7 +1334,7 @@ final class MapViewModel {
         device.hide(report.id, at: Date())
         watched.forget(report.id)
         if selectedReportID == report.id {
-            selectedReportID = nil
+            selectReport(nil)
         }
         updateDuplicateCandidate()
     }
@@ -1466,6 +1481,10 @@ final class MapViewModel {
 
     private func show(_ toast: Toast) {
         self.toast = toast
+        // Bildirim ekranın altında belirir; VoiceOver onu kendiliğinden okumaz.
+        if UIAccessibility.isVoiceOverRunning {
+            UIAccessibility.post(notification: .announcement, argument: toast.message)
+        }
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(toast.duration))
             if self?.toast?.id == toast.id {
