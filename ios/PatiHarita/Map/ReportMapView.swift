@@ -11,6 +11,15 @@ struct CameraRequest: Equatable {
     var zoom: Float?
 }
 
+/// İşaretlerken haritada gösterilen çevre: kişinin konumu ve iğnenin konabileceği en büyük uzaklık.
+struct PlacementArea: Equatable {
+    let center: Coordinate
+    /// Metre (`PlacementGate.allowedRadius`).
+    let radius: Double
+    /// İğne şimdi kaydedilemiyor: halka turuncu çizilir.
+    let isBlocked: Bool
+}
+
 /// Apple Haritalar'ın `MKMapView`'ını SwiftUI'a bağlar ve işaretleri senkronize eder.
 struct ReportMapView: UIViewRepresentable {
     static let defaultCenter = Coordinate(latitude: 41.0082, longitude: 28.9784) // İstanbul
@@ -19,6 +28,8 @@ struct ReportMapView: UIViewRepresentable {
     static let fadingAlpha: CGFloat = 0.6
     /// Gri noktanın görüntüsü küçük; dokunma alanı her yana bu kadar genişletilir.
     static let dotTouchPadding: CGFloat = 12
+    /// Çevrenin dışını karartan çokgendeki deliğin köşe sayısı.
+    static let placementHoleSegments = 64
 
     /// İğne olarak çizilen işaretler.
     let reports: [Report]
@@ -33,6 +44,8 @@ struct ReportMapView: UIViewRepresentable {
     /// Haritanın üst/alt arayüzün altında kalan kısmı. Kamera hedefi (ve yeni işaret iğnesi)
     /// her zaman kalan görünür alanın ortasındadır; harita yazıları da bu alanda kalır.
     let insets: UIEdgeInsets
+    /// İşaretlerken kesik çizgili çevre halkası ve dışının hafifçe kararması; yoksa `nil`.
+    var placementArea: PlacementArea? = nil
 
     var onCameraWillMove: @MainActor () -> Void = {}
     var onCameraMove: @MainActor (Coordinate) -> Void = { _ in }
@@ -57,6 +70,7 @@ struct ReportMapView: UIViewRepresentable {
         coordinator.parent = self
         coordinator.update(insets: insets)
         coordinator.syncAnnotations()
+        coordinator.syncPlacementOverlay()
 
         if let request = cameraRequest, request.id != coordinator.appliedCameraRequestID {
             coordinator.appliedCameraRequestID = request.id
@@ -80,6 +94,15 @@ struct ReportMapView: UIViewRepresentable {
         private var cameraBeforeLayout: (target: CLLocationCoordinate2D, zoom: Double)?
         /// Sürmekte olan programatik kamera hareketi. Dolgu bu sırada değişirse hedef korunur.
         private var cameraInFlight: (target: CLLocationCoordinate2D, zoom: Double)?
+        /// Parmağı hâlâ haritada olan kaydırma ve sıkıştırma hareketleri.
+        private var activeCameraGestures: Set<ObjectIdentifier> = []
+        /// Hareket sürerken dolgu değişti (kamera yeniden ortalanmadı): hareket bitince iğnenin altındaki merkez
+        /// bildirilir.
+        private var insetsChangedDuringGesture = false
+        /// Haritada çizili çevre (halka ve karartma) ve çizicileri; renk değişince yeniden eklenmeden güncellenir.
+        private var shownPlacementArea: PlacementArea?
+        private var placementOverlays: [MKOverlay] = []
+        private var ringRenderer: MKCircleRenderer?
 
         func attach(to mapView: LayoutReportingMapView) {
             self.mapView = mapView
@@ -134,6 +157,14 @@ struct ReportMapView: UIViewRepresentable {
             // Apple Haritalar yazısı ve "Yasal" bağlantısı alt panelin altında kalmasın.
             mapView.layoutMargins = newInsets
             guard hasLaidOut else { return }
+            // Kişi haritayı kaydırırken (ör. iğne çevreyi geçip paneldeki satır belirince) kamera yeniden
+            // ortalanmaz: programatik hareket parmağın altındaki haritayla çekişir ve hareket boyunca eski
+            // hedef bildirilirdi; iğne ekranda bir yerde, kayıtta başka yerde kalırdı. İğne yeni görünen
+            // alanın ortasını gösterir; o merkez sonraki karede ya da hareket bitince bildirilir.
+            if !activeCameraGestures.isEmpty {
+                insetsChangedDuringGesture = true
+                return
+            }
             // Görünen alan değişti: hedef yine görünen alanın ortasında kalsın.
             let target = cameraInFlight?.target ?? visibleCenter(of: mapView, insets: oldInsets)
             let zoom = cameraInFlight?.zoom ?? currentZoom(of: mapView)
@@ -335,6 +366,90 @@ struct ReportMapView: UIViewRepresentable {
             view.accessibilityValue = annotation.spokenValue
         }
 
+        // MARK: Çevre
+
+        /// İşaretlerken kişinin çevresi: kesik çizgili halka ve dışını hafifçe karartan, ortası delik bir çokgen.
+        /// Merkez ya da yarıçap değişince yeniden eklenir; yalnızca engel değişince halkanın rengi güncellenir.
+        func syncPlacementOverlay() {
+            guard let mapView, let parent else { return }
+            let area = parent.placementArea
+            guard area != shownPlacementArea else { return }
+            let previous = shownPlacementArea
+            shownPlacementArea = area
+            if let area, let previous, previous.center == area.center, previous.radius == area.radius {
+                if let ringRenderer {
+                    ringRenderer.strokeColor = Self.ringColor(isBlocked: area.isBlocked)
+                    ringRenderer.setNeedsDisplay()
+                }
+                return
+            }
+            if !placementOverlays.isEmpty {
+                mapView.removeOverlays(placementOverlays)
+                placementOverlays = []
+            }
+            ringRenderer = nil
+            guard let area else { return }
+
+            let center = CLLocationCoordinate2D(area.center)
+            let centerPoint = MKMapPoint(center)
+            // Mercator açı koruduğundan metre cinsinden daire yerelde harita noktası cinsinden de dairedir.
+            let radiusInPoints = area.radius * MKMapPointsPerMeterAtLatitude(center.latitude)
+            let segments = ReportMapView.placementHoleSegments
+            let hole: [MKMapPoint] = (0..<segments).map { index in
+                let angle = Double(index) / Double(segments) * 2 * Double.pi
+                return MKMapPoint(
+                    x: centerPoint.x + radiusInPoints * cos(angle),
+                    y: centerPoint.y + radiusInPoints * sin(angle)
+                )
+            }
+            let world = MKMapRect.world
+            let corners: [MKMapPoint] = [
+                MKMapPoint(x: world.minX, y: world.minY),
+                MKMapPoint(x: world.maxX, y: world.minY),
+                MKMapPoint(x: world.maxX, y: world.maxY),
+                MKMapPoint(x: world.minX, y: world.maxY),
+            ]
+            let dim = MKPolygon(
+                points: corners,
+                count: corners.count,
+                interiorPolygons: [MKPolygon(points: hole, count: hole.count)]
+            )
+            let ring = MKCircle(center: center, radius: area.radius)
+            // Yolların üstünde, yazıların altında: sokak adları okunur kalır.
+            mapView.addOverlay(dim, level: .aboveRoads)
+            mapView.addOverlay(ring, level: .aboveRoads)
+            placementOverlays = [dim, ring]
+        }
+
+        private static func ringColor(isBlocked: Bool) -> UIColor {
+            isBlocked ? .systemOrange : (UIColor(named: "AccentColor") ?? .systemBlue)
+        }
+
+        /// Çevrenin dışı: açık modda %12, koyu modda %25 siyah.
+        private static let dimColor = UIColor { traits in
+            UIColor.black.withAlphaComponent(traits.userInterfaceStyle == .dark ? 0.25 : 0.12)
+        }
+
+        private func makeRenderer(for overlay: any MKOverlay) -> MKOverlayRenderer {
+            if let circle = overlay as? MKCircle {
+                let renderer = MKCircleRenderer(circle: circle)
+                renderer.strokeColor = Self.ringColor(isBlocked: shownPlacementArea?.isBlocked ?? false)
+                renderer.lineWidth = 2
+                renderer.lineDashPattern = [6, 4]
+                renderer.fillColor = nil
+                ringRenderer = renderer
+                return renderer
+            }
+            if let polygon = overlay as? MKPolygon {
+                let renderer = MKPolygonRenderer(polygon: polygon)
+                renderer.fillColor = Self.dimColor
+                renderer.strokeColor = nil
+                renderer.lineWidth = 0
+                return renderer
+            }
+            return MKOverlayRenderer(overlay: overlay)
+        }
+
         // MARK: Hareketler
 
         @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
@@ -349,11 +464,35 @@ struct ReportMapView: UIViewRepresentable {
         }
 
         @objc private func handleUserCameraGesture(_ recognizer: UIGestureRecognizer) {
+            guard let parent else { return }
             // Dokunuş tanıyıcıları `.began` bildirmez, doğrudan `.ended` olur.
-            let started = recognizer is UITapGestureRecognizer ? recognizer.state == .ended : recognizer.state == .began
-            guard started, let parent else { return }
-            cameraInFlight = nil
-            parent.onCameraWillMove()
+            if recognizer is UITapGestureRecognizer {
+                guard recognizer.state == .ended else { return }
+                cameraInFlight = nil
+                parent.onCameraWillMove()
+                return
+            }
+            let gesture = ObjectIdentifier(recognizer)
+            switch recognizer.state {
+            case .began:
+                activeCameraGestures.insert(gesture)
+                cameraInFlight = nil
+                parent.onCameraWillMove()
+            case .changed:
+                // Bu sırada başlamış programatik hareketin hedefi değil, iğnenin altındaki merkez bildirilsin.
+                cameraInFlight = nil
+            case .ended, .cancelled, .failed:
+                guard activeCameraGestures.remove(gesture) != nil, activeCameraGestures.isEmpty else { return }
+                guard insetsChangedDuringGesture else { return }
+                insetsChangedDuringGesture = false
+                guard hasLaidOut, let mapView else { return }
+                // Dolgu değiştikten sonra harita kıpırdamamış olabilir: iğnenin şimdi gösterdiği yer bildirilir.
+                parent.onCameraMove(Coordinate(cameraInFlight?.target ?? visibleCenter(of: mapView, insets: insets)))
+            case .possible:
+                break
+            @unknown default:
+                break
+            }
         }
 
         func gestureRecognizer(
@@ -395,7 +534,11 @@ struct ReportMapView: UIViewRepresentable {
             MainActor.assumeIsolated {
                 guard hasLaidOut, let parent else { return }
                 let visible = visibleCenter(of: mapView, insets: insets)
+                var center = visible
                 if let inFlight = cameraInFlight {
+                    // Programatik hareketin merkezi hedefin kendisidir, varınca da: birkaç noktalık yuvarlama farkı
+                    // düzeltmedeki iğneyi "kaydırılmış" saydırmasın (1 m; yakınlık 17'de ~1 nokta).
+                    center = inFlight.target
                     // Yeni bir hareketle yarıda kesilen animasyonun bildirimi hedefi silmesin: hedefe varınca silinir.
                     let target = MKMapPoint(inFlight.target)
                     let reached = MKMapPoint(visible)
@@ -404,7 +547,6 @@ struct ReportMapView: UIViewRepresentable {
                         cameraInFlight = nil
                     }
                 }
-                let center = cameraInFlight?.target ?? visible
 
                 // Yarıçap dolgulardan bağımsız ölçülür: panel açılıp kapanınca "çok uzak" sınırı oynamasın
                 // (aksi hâlde sınırın hemen ötesinde kart açılıp kapanarak döngüye girebiliyordu).
@@ -443,6 +585,12 @@ struct ReportMapView: UIViewRepresentable {
                 view.canShowCallout = false
                 apply(annotation, to: view)
                 return view
+            }
+        }
+
+        nonisolated func mapView(_ mapView: MKMapView, rendererFor overlay: any MKOverlay) -> MKOverlayRenderer {
+            MainActor.assumeIsolated {
+                makeRenderer(for: overlay)
             }
         }
 

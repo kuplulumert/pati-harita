@@ -9,6 +9,8 @@ struct LegendSheet: View {
     /// Kanıtlı "Çözüldü dendi"nin başkalarının haritasında nasıl göründüğü (`config/public.closingMode`):
     /// yalnızca `demote`da işaret başkalarından da kalkar; gece kuralı ve paydaş satırı yalnızca orada geçerli.
     let closingMode: ClosingMode
+    /// Uygulamayla gelen alan verisinin sürümü ("2026-10-01"); veri yoksa `nil` (kaynak satırı gösterilmez).
+    var areaDataVersion: String? = nil
 
     /// "Kurallar": ilk açılıştaki sayfa, yalnızca okunur.
     @State private var showsRules = false
@@ -88,6 +90,7 @@ struct LegendSheet: View {
                 }
 
                 Section("Nasıl çalışır?") {
+                    Label(Messages.placementRule, systemImage: "location.circle.fill")
                     Label("Yardım gereken hayvan → türünü ve ihtiyacını seç.", systemImage: "1.circle.fill")
                     Label("Yakındakiler haritada görür, biri 'İlgileniyorum' der.", systemImage: "2.circle.fill")
                     Label(resolveStepText, systemImage: "3.circle.fill")
@@ -121,12 +124,22 @@ struct LegendSheet: View {
                 } header: {
                     Text("Kurallar ve iletişim")
                 } footer: {
-                    if let userID {
-                        Text("Kimlik: \(String(userID.prefix(6)))")
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.tertiary)
-                            .textSelection(.enabled)
-                            .accessibilityIdentifier("uid-prefix")
+                    VStack(alignment: .leading, spacing: 6) {
+                        // Alan ızgarası OpenStreetMap'ten türetilmiş bir veritabanıdır (ODbL): kaynak belirtilmeli.
+                        if let areaDataVersion {
+                            Text(Messages.areaDataCredit(dataVersion: areaDataVersion))
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                                .accessibilityIdentifier("area-data-credit")
+                        }
+                        if let userID {
+                            Text("Kimlik: \(String(userID.prefix(6)))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.tertiary)
+                                .textSelection(.enabled)
+                                .accessibilityIdentifier("uid-prefix")
+                        }
                     }
                 }
             }
@@ -194,5 +207,5 @@ struct LegendSheet: View {
 }
 
 #Preview {
-    LegendSheet(userID: "a1b2c3d4e5f6", closingMode: .demote)
+    LegendSheet(userID: "a1b2c3d4e5f6", closingMode: .demote, areaDataVersion: "2026-10-01")
 }

@@ -1,0 +1,987 @@
+[
+  {
+    "name": "İstanbul, Kadıköy (arayüz testi noktası)",
+    "lat": 40.9903,
+    "lon": 29.029,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Kadıköy (sürükleme hedefi)",
+    "lat": 40.9903,
+    "lon": 29.038,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Moda sahili",
+    "lat": 40.979,
+    "lon": 29.0255,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Yoğurtçu Parkı",
+    "lat": 40.9855,
+    "lon": 29.0345,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Fenerbahçe Parkı",
+    "lat": 40.969,
+    "lon": 29.035,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Caddebostan sahili",
+    "lat": 40.964,
+    "lon": 29.063,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Validebağ Korusu",
+    "lat": 41.02,
+    "lon": 29.04,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Üsküdar sahili",
+    "lat": 41.0265,
+    "lon": 29.0145,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Kartal sahili",
+    "lat": 40.887,
+    "lon": 29.188,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Taksim Meydanı",
+    "lat": 41.0369,
+    "lon": 28.985,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Sultanahmet",
+    "lat": 41.0055,
+    "lon": 28.9768,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Eminönü iskelesi",
+    "lat": 41.017,
+    "lon": 28.973,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Yıldız Korusu",
+    "lat": 41.048,
+    "lon": 29.012,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Bebek sahili",
+    "lat": 41.077,
+    "lon": 29.044,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Emirgan Korusu",
+    "lat": 41.108,
+    "lon": 29.052,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Bakırköy sahili",
+    "lat": 40.977,
+    "lon": 28.872,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Esenyurt",
+    "lat": 41.0343,
+    "lon": 28.6801,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Sarıyer merkez",
+    "lat": 41.167,
+    "lon": 29.057,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Beykoz merkez",
+    "lat": 41.134,
+    "lon": 29.096,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Bahçeköy (orman kenarındaki evler)",
+    "lat": 41.1765,
+    "lon": 28.9895,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Şile merkez",
+    "lat": 41.1756,
+    "lon": 29.6127,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Silivri merkez",
+    "lat": 41.0736,
+    "lon": 28.2464,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul Boğazı, Ortaköy–Beylerbeyi arası (su üstü)",
+    "lat": 41.0455,
+    "lon": 29.0345,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul Boğazı, Rumelihisarı–Anadoluhisarı arası (su üstü)",
+    "lat": 41.0838,
+    "lon": 29.0612,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Haliç, Fener–Hasköy arası (su üstü)",
+    "lat": 41.0335,
+    "lon": 28.954,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Adalar, Büyükada iskelesi",
+    "lat": 40.8745,
+    "lon": 29.128,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Adalar, Heybeliada",
+    "lat": 40.878,
+    "lon": 29.096,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Adalar, Kınalıada",
+    "lat": 40.909,
+    "lon": 29.0505,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Ankara, Kızılay",
+    "lat": 39.9208,
+    "lon": 32.8541,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Ankara, Ulus",
+    "lat": 39.9419,
+    "lon": 32.8543,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Ankara, Tunalı Hilmi Caddesi",
+    "lat": 39.9045,
+    "lon": 32.8615,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Ankara, Gençlik Parkı",
+    "lat": 39.938,
+    "lon": 32.8495,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Ankara, Keçiören",
+    "lat": 39.981,
+    "lon": 32.864,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İzmir, Alsancak",
+    "lat": 38.4379,
+    "lon": 27.1432,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İzmir, Konak Meydanı",
+    "lat": 38.4189,
+    "lon": 27.1287,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İzmir, Karşıyaka iskelesi",
+    "lat": 38.4555,
+    "lon": 27.1175,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Kaleiçi",
+    "lat": 36.8841,
+    "lon": 30.7056,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Konyaaltı sahili",
+    "lat": 36.868,
+    "lon": 30.638,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Lara",
+    "lat": 36.853,
+    "lon": 30.83,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Kemer merkez",
+    "lat": 36.6005,
+    "lon": 30.558,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Side",
+    "lat": 36.7675,
+    "lon": 31.389,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Alanya merkez",
+    "lat": 36.5438,
+    "lon": 31.9998,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Antalya, Kaş merkez",
+    "lat": 36.2018,
+    "lon": 29.6377,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Bursa, Heykel",
+    "lat": 40.1826,
+    "lon": 29.0665,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Eskişehir merkez",
+    "lat": 39.7767,
+    "lon": 30.5206,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Konya, Mevlana",
+    "lat": 37.8709,
+    "lon": 32.5049,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Kayseri merkez",
+    "lat": 38.7205,
+    "lon": 35.4826,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Adana merkez",
+    "lat": 36.9914,
+    "lon": 35.3308,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Mersin merkez",
+    "lat": 36.8121,
+    "lon": 34.6415,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Gaziantep merkez",
+    "lat": 37.0662,
+    "lon": 37.3833,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Şanlıurfa, Balıklıgöl",
+    "lat": 37.1492,
+    "lon": 38.7868,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Diyarbakır, Suriçi",
+    "lat": 37.9144,
+    "lon": 40.2306,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Mardin, eski şehir",
+    "lat": 37.3129,
+    "lon": 40.735,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Hatay, Antakya merkez",
+    "lat": 36.2021,
+    "lon": 36.1603,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Kahramanmaraş merkez",
+    "lat": 37.5753,
+    "lon": 36.9228,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Adıyaman merkez",
+    "lat": 37.7648,
+    "lon": 38.2786,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Malatya merkez",
+    "lat": 38.3552,
+    "lon": 38.3095,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Erzurum merkez",
+    "lat": 39.9043,
+    "lon": 41.2679,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Kars merkez",
+    "lat": 40.6013,
+    "lon": 43.0975,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Van merkez",
+    "lat": 38.501,
+    "lon": 43.373,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Hakkari merkez",
+    "lat": 37.5744,
+    "lon": 43.7408,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Trabzon, Meydan",
+    "lat": 41.005,
+    "lon": 39.73,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Rize merkez",
+    "lat": 41.0201,
+    "lon": 40.5234,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Artvin merkez",
+    "lat": 41.1828,
+    "lon": 41.8183,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Samsun merkez",
+    "lat": 41.2867,
+    "lon": 36.33,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Sinop merkez",
+    "lat": 42.0231,
+    "lon": 35.1531,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Edirne, Selimiye",
+    "lat": 41.6781,
+    "lon": 26.5594,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Çanakkale merkez",
+    "lat": 40.1553,
+    "lon": 26.4142,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Muğla, Bodrum merkez",
+    "lat": 37.0344,
+    "lon": 27.4305,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Muğla, Fethiye merkez",
+    "lat": 36.6214,
+    "lon": 29.1164,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Bursa, Cumalıkızık köyü",
+    "lat": 40.1755,
+    "lon": 29.1705,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İzmir, Şirince köyü",
+    "lat": 37.944,
+    "lon": 27.43,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "İzmir, Birgi (Ödemiş)",
+    "lat": 38.2553,
+    "lon": 28.0636,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Çanakkale, Bozcaada merkez",
+    "lat": 39.835,
+    "lon": 26.069,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Nevşehir, Uçhisar",
+    "lat": 38.6293,
+    "lon": 34.805,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Nevşehir, Göreme",
+    "lat": 38.6431,
+    "lon": 34.8289,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Ankara, Beypazarı",
+    "lat": 40.1675,
+    "lon": 31.9211,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Şanlıurfa, Harran",
+    "lat": 36.8636,
+    "lon": 39.0306,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Mardin, Midyat",
+    "lat": 37.419,
+    "lon": 41.339,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Trabzon, Uzungöl (Çaykara)",
+    "lat": 40.619,
+    "lon": 40.29,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Rize, Çamlıhemşin",
+    "lat": 41.049,
+    "lon": 40.924,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Rize, Çamlıhemşin, Tolikço mezrası (Fırtına vadisi)",
+    "lat": 40.9975,
+    "lon": 41.0587,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Hatay, Antakya, Alaattin konteyner kenti",
+    "lat": 36.2479,
+    "lon": 36.2423,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Kahramanmaraş, Dulkadiroğlu, Karacasu konteyner kenti",
+    "lat": 37.5012,
+    "lon": 37.0012,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Adıyaman, İndere kalıcı deprem konutları (Zey)",
+    "lat": 37.7925,
+    "lon": 38.2679,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Yunanistan, Midilli kent merkezi",
+    "lat": 39.109,
+    "lon": 26.553,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Suriye, Rakka–Haseke arası kırsal (özün dışı, bilinmiyor)",
+    "lat": 36.1021,
+    "lon": 39.8021,
+    "expect": [
+      "allowed"
+    ]
+  },
+  {
+    "name": "Marmara Denizi (arayüz testi noktası)",
+    "lat": 40.8,
+    "lon": 28.5,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Marmara Denizi, Marmara Adası–Silivri arası",
+    "lat": 40.7505,
+    "lon": 28.0005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Marmara Denizi, Adalar'ın güneyi",
+    "lat": 40.7005,
+    "lon": 29.0005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Karadeniz, Rumeli Feneri açığı",
+    "lat": 41.4005,
+    "lon": 29.3005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Karadeniz, İnebolu açığı",
+    "lat": 42.1005,
+    "lon": 34.0005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Karadeniz, Ordu–Giresun açığı",
+    "lat": 41.5005,
+    "lon": 38.0005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Akdeniz, Alanya açığı",
+    "lat": 35.9505,
+    "lon": 32.0005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Akdeniz, Gelidonya Burnu açığı",
+    "lat": 36.0005,
+    "lon": 30.5005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Akdeniz, Mersin Körfezi",
+    "lat": 36.3005,
+    "lon": 34.5005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Ege Denizi, Kuşadası Körfezi",
+    "lat": 37.9005,
+    "lon": 27.1005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Ege Denizi, Edremit Körfezi",
+    "lat": 39.4505,
+    "lon": 26.7005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Van Gölü",
+    "lat": 38.6505,
+    "lon": 42.9005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Van Gölü, Tatvan–Ahlat açığı",
+    "lat": 38.5505,
+    "lon": 42.7005,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Beyşehir Gölü",
+    "lat": 37.783,
+    "lon": 31.53,
+    "expect": [
+      "water"
+    ]
+  },
+  {
+    "name": "Tuz Gölü",
+    "lat": 38.7505,
+    "lon": 33.37,
+    "expect": [
+      "water",
+      "remote"
+    ]
+  },
+  {
+    "name": "İstanbul, Belgrad Ormanı iç",
+    "lat": 41.195,
+    "lon": 28.965,
+    "expect": [
+      "forest"
+    ]
+  },
+  {
+    "name": "İstanbul, Belgrad Ormanı iç (batı)",
+    "lat": 41.205,
+    "lon": 28.9255,
+    "expect": [
+      "forest"
+    ]
+  },
+  {
+    "name": "İstanbul, Belgrad Ormanı iç (kuzey)",
+    "lat": 41.22,
+    "lon": 28.9505,
+    "expect": [
+      "forest"
+    ]
+  },
+  {
+    "name": "İstanbul, Belgrad Ormanı kenarı, Bahçeköy evlerinin ~300 m batısı",
+    "lat": 41.184,
+    "lon": 28.9839,
+    "expect": [
+      "forest",
+      "allowed"
+    ]
+  },
+  {
+    "name": "İstanbul, Belgrad Ormanı kenarı, Bahçeköy evlerinin ~800 m batısı",
+    "lat": 41.184,
+    "lon": 28.978,
+    "expect": [
+      "forest"
+    ]
+  },
+  {
+    "name": "İstanbul, Atatürk Kent Ormanı iç",
+    "lat": 41.1354,
+    "lon": 29.0312,
+    "expect": [
+      "forest",
+      "allowed"
+    ],
+    "note": "Şehrin ortasında ~1 km genişliğinde orman: her hücresi yerleşime değdiği için açık kalabilir (vadi köyleri kuralıyla aynı)."
+  },
+  {
+    "name": "Kırklareli, Istranca ormanları (Demirköy batısı)",
+    "lat": 41.8005,
+    "lon": 27.6005,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Balıkesir, Kazdağı Milli Parkı",
+    "lat": 39.7005,
+    "lon": 26.8505,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Kayseri, Erciyes Dağı zirvesi",
+    "lat": 38.531,
+    "lon": 35.447,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Bursa, Uludağ zirvesi",
+    "lat": 40.07,
+    "lon": 29.22,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Rize, Kaçkar Dağı zirvesi",
+    "lat": 40.834,
+    "lon": 41.159,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Ağrı Dağı zirvesi",
+    "lat": 39.702,
+    "lon": 44.299,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Bitlis, Süphan Dağı zirvesi",
+    "lat": 38.93,
+    "lon": 42.83,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Aksaray, Hasan Dağı zirvesi",
+    "lat": 38.127,
+    "lon": 34.17,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Niğde, Aladağlar (Demirkazık)",
+    "lat": 37.822,
+    "lon": 35.159,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "Hakkari, Cilo Dağı",
+    "lat": 37.495,
+    "lon": 44.03,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "D715 Kulu–Cihanbeyli arası (bozkır yolu)",
+    "lat": 38.87,
+    "lon": 32.99,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "D300 Sultanhanı–Aksaray arası (bozkır yolu)",
+    "lat": 38.31,
+    "lon": 33.79,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  },
+  {
+    "name": "D975 Van–Başkale, Güzeldere geçidi",
+    "lat": 38.27,
+    "lon": 43.63,
+    "expect": [
+      "forest",
+      "remote"
+    ]
+  }
+]

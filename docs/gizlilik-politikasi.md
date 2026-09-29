@@ -17,23 +17,31 @@ Uygulama **hesap, ad, e-posta, telefon numarası, fotoğraf ya da açıklama ist
 | **İşaretin konumu** (enlem/boylam) | Bir işaret koyduğunuzda ya da düzelttiğinizde | İşaretin haritada gösterilmesi |
 | İşaretin türü ve ihtiyacı (ör. "Kedi · Aç ve zayıf") | Bir işaret koyduğunuzda ya da düzelttiğinizde | Yardım edeceklerin ne gerektiğini bilmesi |
 | **Rastgele anonim kimlik** | Uygulamayı ilk açtığınızda otomatik | "İşareti kim koydu / kim ilgileniyor" ayrımı; ör. yalnızca işareti koyanın düzeltebilmesi, günlük işaret hakkı |
-| Yaptığınız eylemler (İlgileniyorum, Hâlâ orada, Artık yok, Çözüldü, Yardım gerekmiyor, itiraz) ve zamanları | Bu düğmelere bastığınızda | İşaretin durumunun güncel tutulması |
+| Yaptığınız eylemler (İlgileniyorum, Hâlâ orada, Artık yok, Çözüldü, Yardım gerekmiyor, itiraz; "Hâlâ orada mı?" sorusuna verdiğiniz Evet ya da Hayır) ve zamanları | Bu düğmelere bastığınızda | İşaretin durumunun güncel tutulması |
 | Bildirdiğiniz işaretler (hangi işaret, seçtiğiniz neden, zaman ve anonim kimliğiniz) | "Bu işareti bildir" dediğinizde | Kurallara aykırı işaretleri incelemek |
 | Günlük haklarınızın sayaçları (hesap yaşı, son 24 saatte konan ve kapatılan işaretler) | İşaret koyduğunuzda ya da kapattığınızda | Kötüye kullanımı sınırlamak |
 | Cihaz bütünlüğü doğrulaması (Apple DeviceCheck / App Check) | Sunucuya her istekte | Sahte istemcileri ve botları engellemek |
 
-**İşaretin konumu anonim kimliğinizle birlikte saklanır.** İşaret iğnesi varsayılan olarak bulunduğunuz yere konur;
-bu yüzden saklanan nokta çoğu zaman o anda bulunduğunuz yere yakındır. İşaret koymadan önce iğneyi hayvanın olduğu
-yere kaydırabilirsiniz. Bunun dışında konum izni yalnızca cihazınızda kullanılır: haritayı bulunduğunuz yere getirmek,
-işaretlere uzaklığı göstermek ve iğne bulunduğunuz yerden çok uzaksa bunu sormak için. Sürekli konumunuz sunucuya
-gönderilmez ve saklanmaz.
+**İşaretin konumu anonim kimliğinizle birlikte saklanır.** İşaret yalnızca bulunduğunuz yerin yaklaşık 150 m (konum
+doğruluğuna göre en fazla 225 m) çevresine konabilir; bu yüzden saklanan nokta, işareti koyduğunuz anda bulunduğunuz
+yere yakındır ve anonim kimliğinizle birlikte saklanır. Bunun dışında konumunuz yalnızca cihazınızda kullanılır:
+haritayı bulunduğunuz yere getirmek, işaretlere uzaklığı göstermek, iğnenin çevrenizde olup olmadığını denetlemek ve
+yanından geçtiğiniz işaretler için "Hâlâ orada mı?" diye sormak için. Orman, yerleşim yeri dışı ve deniz denetimi
+uygulamanın içindeki haritayla cihazda yapılır; bunun için konumunuz hiçbir yere gönderilmez. Sürekli konumunuz
+sunucuya gönderilmez ve saklanmaz.
+
+'Hâlâ orada mı?' sorusuna Evet ya da Hayır derseniz yanıtınız, diğer eylemler gibi anonim kimliğinizle işarette
+saklanır (görenler ya da 'artık yok' diyenler listesi) ve o işaretin yakınından geçtiğinizi gösterebilir. İşaretler ve
+bu listeler uygulamayı kullanan herkesçe okunabilir; anonim kimliğiniz adınızla ilişkilendirilmez, ancak aynı kimliğin
+koyduğu işaretler bir araya getirilirse sık bulunduğunuz bölge hakkında fikir verebilir. "Yanlış mı? Bize yaz" ile
+e-posta gönderirseniz iğnenin yaklaşık yeri (~1 km) e-postada yer alır.
 
 Anonim kimlik adınızla, e-postanızla ya da cihazınızın reklam kimliğiyle ilişkilendirilmez. Uygulama
 reklam, analitik ya da izleme (tracking) aracı içermez.
 
 Şu bilgiler **yalnızca cihazınızda** tutulur ve sunucuya gönderilmez: kuralları kabul ettiğiniz sürüm, son işaretlerinizin
-sayısı ("Yardıma ihtiyacı var mı?" sorusu için), gizlediğiniz ya da bildirdiğiniz işaretlerin listesi ve gece güvenlik
-hatırlatmasının en son ne zaman gösterildiği.
+sayısı ("Yardıma ihtiyacı var mı?" sorusu için), gizlediğiniz ya da bildirdiğiniz işaretlerin listesi, gece güvenlik
+hatırlatmasının en son ne zaman gösterildiği ve 'Hâlâ orada mı?' sorulan işaretler ve sorunun ne sıklıkla gösterildiği.
 
 ## Kimler görebilir?
 

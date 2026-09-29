@@ -32,6 +32,14 @@ targets:
     platform: iOS
     sources:
       - path: PatiHarita
+      # Orman, yerleşim dışı ve su ızgarası (shared/area-tr.bin, tools/area-grid ile üretilir). Dosya yoksa hiçbir
+      # şey eklenmez ve uygulama her yeri serbest sayar. Tek dosya `optional` ile verilseydi proje yine üretilir
+      # ama eksik dosya "Copy Bundle Resources"ta derlemeyi bozardı; bu yüzden klasörden yalnızca o dosya alınır.
+      - path: ../shared
+        includes:
+          - area-tr.bin
+        buildPhase: resources
+        optional: true
     fileGroups:
       - Config
       - Kadikoy.gpx

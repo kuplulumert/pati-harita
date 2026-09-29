@@ -28,10 +28,10 @@ final class CardLayoutTests: ReportTestCase {
         XCTAssertEqual(CardLayout.nearRadius, 100)
         XCTAssertEqual(CardLayout.nearMaxAccuracy, 50)
         XCTAssertTrue(CardLayout.isNear(distance: 0, accuracy: 5, fixAge: 0))
-        XCTAssertTrue(CardLayout.isNear(distance: 100, accuracy: 50, fixAge: GentleCheck.maxFixAge))
+        XCTAssertTrue(CardLayout.isNear(distance: 100, accuracy: 50, fixAge: PlacementGate.maxFixAge))
         XCTAssertFalse(CardLayout.isNear(distance: 101, accuracy: 10, fixAge: 10))
         XCTAssertFalse(CardLayout.isNear(distance: 50, accuracy: 51, fixAge: 10))
-        XCTAssertFalse(CardLayout.isNear(distance: 50, accuracy: 10, fixAge: GentleCheck.maxFixAge + 1))
+        XCTAssertFalse(CardLayout.isNear(distance: 50, accuracy: 10, fixAge: PlacementGate.maxFixAge + 1))
         // CoreLocation geçersiz konumda negatif doğruluk verir.
         XCTAssertFalse(CardLayout.isNear(distance: 50, accuracy: -1, fixAge: 10))
         XCTAssertFalse(CardLayout.isNear(distance: .nan, accuracy: 10, fixAge: 10))

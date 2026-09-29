@@ -170,15 +170,21 @@ struct PinTail: Shape {
     }
 }
 
-/// Yeni işaret konumunu gösteren, haritanın ortasında sabit duran iğne.
+/// Yeni işaret konumunu gösteren, haritanın ortasında sabit duran iğne. Buraya şimdi işaret konamıyorsa
+/// (`PlacementVerdict` hazır değil) soluk ve gri çizilir.
 struct PlacementPin: View {
     var species: Species?
     var isLifted: Bool
+    var isBlocked: Bool = false
+
+    private var color: Color {
+        isBlocked ? Color.secondary : Color.accentColor
+    }
 
     var body: some View {
         VStack(spacing: -3) {
             Circle()
-                .fill(Color.accentColor)
+                .fill(color)
                 .frame(width: 50, height: 50)
                 .overlay(Circle().stroke(.white, lineWidth: 3))
                 .overlay {
@@ -192,11 +198,13 @@ struct PlacementPin: View {
                 }
                 .shadow(color: .black.opacity(0.3), radius: isLifted ? 8 : 3, y: isLifted ? 6 : 2)
             PinTail()
-                .fill(Color.accentColor)
+                .fill(color)
                 .frame(width: 16, height: 12)
         }
+        .opacity(isBlocked ? 0.6 : 1)
         .offset(y: isLifted ? -10 : 0)
         .animation(.spring(duration: 0.25), value: isLifted)
+        .animation(.easeInOut(duration: 0.2), value: isBlocked)
     }
 }
 
@@ -213,6 +221,7 @@ struct PlacementPin: View {
             MarkerPin(style: MarkerStyle(need: .emergency, species: .dog, badge: nil, isSelected: false, seenBadge: "99+"))
             PlacementPin(species: nil, isLifted: false)
             PlacementPin(species: .cat, isLifted: true)
+            PlacementPin(species: .dog, isLifted: false, isBlocked: true)
         }
         // "… dendi": "?" rozeti; hafif ihtiyaçlar soluk; kalkınca gri nokta. Haber vermeyen ilgilenen: gri rozet.
         HStack(alignment: .bottom) {

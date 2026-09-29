@@ -1,0 +1,6 @@
+# tools/area-grid/build_area_grid.py (Python 3.13). Windows'ta hepsi hazır tekerlekle (wheel) kurulur;
+# GDAL, rasterio, scipy ya da shapely gerekmez. --verify-bin bunların hiçbirini istemez.
+# İlk gerçek üretimden sonra kurulan sürümleri (pip freeze) README'deki tabloya yazın.
+numpy>=2.1,<3
+osmium>=4.0,<5
+pyshp>=2.3.1,<3

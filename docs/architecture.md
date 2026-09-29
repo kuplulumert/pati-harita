@@ -13,7 +13,10 @@ Her teknik karar tek bir hedefe göre verildi: **sokakta, telefon elde, birkaç 
 │ AnimalKit (saf Swift)           │            │   süresi dolanları kapatır           │
 │   ReportLifecycle · Geohash     │            │ TTL politikası: kapananları siler    │
 │   GentleCheck · Formatting      │            │ Auth (anonim) · App Check            │
+│   PlacementGate · AreaGrid      │            │                                      │
+│   NearbyPrompt                  │            │                                      │
 │ DeviceState (yalnızca cihazda)  │            │                                      │
+│ shared/area-tr.bin (pakette)    │            │                                      │
 └─────────────────────────────────┘            └──────────────────────────────────────┘
                     ▲                                         ▲
                     └──── shared/report-contract.json ────────┘
@@ -77,14 +80,28 @@ düşük derleme numarası (CFBundleVersion), daha eskisi kapatılamayan bir "G�
 
 Fotoğraf, açıklama, kullanıcı profili **bilerek yok**: hem akışı uzatır hem de depolama/moderasyon yükü getirir.
 
+### Nereye işaret konabilir (yalnızca istemci)
+
+Yeni işaret (ve düzeltmede kaydırılan iğne) yalnızca kişinin konumunun `150 m + min(doğruluk, 75 m)` çevresine
+konabilir; orman, yerleşim yeri dışı ve deniz ya da göl üstüne şimdilik konamaz. Karar saf ve tek yerdedir
+(`PlacementGate.verdict`, sabit öncelik: izin → Tam Konum → taklit konum → konum bekleniyor → çevrenin dışı → alan) ve
+panelin tek satırını ve ihtiyaç düğmelerini belirler. Alan, uygulamayla gelen 2 bitlik ızgaradan (`AreaGrid`,
+`shared/area-tr.bin`: 15″ hücreler, OpenStreetMap + Natural Earth, `tools/area-grid` ile üretilir) O(1) okunur;
+ağ ve geocoder yoktur, konum cihazdan çıkmaz. Izgara yoksa ya da nokta kutunun dışındaysa her yer serbesttir.
+Firestore kuralları cihazın konumunu göremez: bu denetim yalnızca istemcidedir (değiştirilmiş istemci ve konum
+taklidi aşabilir).
+
+"Hâlâ orada mı?" (`NearbyPrompt`) de istemcidedir: yanından geçilen işaret için kısa bir soru; yalnızca yanıt, kartın
+eylemleri gibi (`seenBy` / `goneReports`) yazılır.
+
 ### Yalnızca cihazda
 
 `DeviceState` (`UserDefaults`) sunucuya gitmez: kabul edilen kurallar sürümü (`acceptedTermsVersion`), "Yardıma
 ihtiyacı var mı?" için hafif işaret sayacı ve son 24 saatin işaretleri, kişinin bildirip gizlediği işaretler (8 gün
-sonra unutulur; haritadan, sayılardan ve "Aynı hayvan mı?" önerilerinden çıkar), gece hatırlatmasının son gösterimi ve
-bilinen engel durumu. Demo modunda işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri) ve engel
-durumu yalnızca bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta aynıdır; `-demo` argümanıyla (arayüz
-testi) hiçbir şey saklanmaz.
+sonra unutulur; haritadan, sayılardan ve "Aynı hayvan mı?" önerilerinden çıkar), gece hatırlatmasının son gösterimi,
+bilinen engel durumu ve "Hâlâ orada mı?" kaydı (sorulan işaretler ve sorunun son 24 saatteki gösterimleri). Demo modunda işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri) ve engel
+durumu (ve "Hâlâ orada mı?" kaydı) yalnızca bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta aynıdır;
+`-demo` argümanıyla (arayüz testi) hiçbir şey saklanmaz.
 
 ## Yaşam döngüsü
 
@@ -195,12 +212,14 @@ Gerekli bileşik indeks: `status ASC, geohash ASC` (`firestore.indexes.json`).
   `closedReason: 'removed'` ile kapatır ve kimliği `banned/{uid}` ile engeller. Bildirimlerin haritada otomatik bir etkisi
   yoktur. Kişinin "gizle" dediği işaretler yalnızca onun cihazında saklanır.
 - **Gürültüye karşı** (yalnızca istemci): ana düğme ve ihtiyaç adları yardım ihtiyacını sorar ("Yardım gereken hayvan",
-  "Aç ve zayıf"); hafif ihtiyaçlarda bazen "Yardıma ihtiyacı var mı?" sorulur; iğne taze konumdan 1 km'den uzaksa bir
-  kez sorulur; "Aç ve zayıf" işaretleri küçük, altta ve başlıkta ayrı sayılır; bu işaretlerde "Yardım gerekmiyor" ile
-  dürüstçe kapatılabilir. Hiçbiri işaretlemeyi engellemez.
-- **Saklanan veri**: hesap, ad, iletişim bilgisi, fotoğraf, serbest metin yoktur. İşaretin noktası (çoğu zaman koyanın
-  bulunduğu yer) ve eylemleri yapan anonim kimlikler işaretle birlikte saklanır; `reporterId`, `claimedBy` gibi alanlar
-  rastgele anonim kimliklerdir. Kişinin sürekli konumu gönderilmez. Ayrıntı: [gizlilik-politikasi.md](gizlilik-politikasi.md).
+  "Aç ve zayıf"); hafif ihtiyaçlarda bazen "Yardıma ihtiyacı var mı?" sorulur; "Aç ve zayıf" işaretleri küçük, altta
+  ve başlıkta ayrı sayılır; bu işaretlerde "Yardım gerekmiyor" ile dürüstçe kapatılabilir. Bunlar işaretlemeyi
+  engellemez. İşaret ise yalnızca kişinin çevresine konabilir (yukarıda); yanından geçenlere sorulan
+  "Hâlâ orada mı?" eski işaretlerin kalkmasına yardım eder.
+- **Saklanan veri**: hesap, ad, iletişim bilgisi, fotoğraf, serbest metin yoktur. İşaretin noktası (koyanın o anda
+  bulunduğu yerin ~225 m içinde) ve eylemleri yapan anonim kimlikler işaretle birlikte saklanır; `reporterId`,
+  `claimedBy` gibi alanlar rastgele anonim kimliklerdir. Kişinin sürekli konumu gönderilmez; alan denetimi ve
+  "Hâlâ orada mı?" cihazda yapılır. Ayrıntı: [gizlilik-politikasi.md](gizlilik-politikasi.md).
 - Kurallar alan listesini sabitler (fazla alan, uzun metin yazılamaz); kimlik alanları (tür, ihtiyaç, konum) yalnızca
   koyanın sınırlı düzeltmesiyle değişir, koyan ve oluşturma anı hiç değişmez.
 - `seenBy` yalnızca "Hâlâ orada" ile ve yalnızca yazanın kendi kimliği sona eklenerek büyür; başkasının kimliğini

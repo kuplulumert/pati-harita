@@ -32,6 +32,8 @@ struct OnboardingSheet: View {
             color: .red,
             text: "İşaretleme: sağlıklı ve beslenen sokak hayvanlarını, mama noktalarını."
         ),
+        // Arayüz zorunlu kılar (`PlacementGate`); kural yine de baştan söylenir.
+        Rule(symbol: "location.circle.fill", color: .orange, text: Messages.placementRule),
         // İlk "İlgileniyorum" ya da "Yol tarifi"ndeki uyarıyla aynı cümleler.
         Rule(symbol: "shield.lefthalf.filled", color: .blue, text: Messages.safetyRule),
         Rule(

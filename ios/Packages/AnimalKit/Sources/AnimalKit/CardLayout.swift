@@ -67,7 +67,7 @@ public struct CardPlan: Equatable, Sendable {
 public enum CardLayout {
     /// "Yakın": hayvana en fazla bu kadar metre ...
     public static let nearRadius: Double = 100
-    /// ... konumun doğruluğu bu kadar metre ya da daha iyiyse ve konum `GentleCheck.maxFixAge`den eski değilse.
+    /// ... konumun doğruluğu bu kadar metre ya da daha iyiyse ve konum `PlacementGate.maxFixAge`den eski değilse.
     public static let nearMaxAccuracy: Double = 50
 
     /// Birincil düğme olabilen eylemler. "Hâlâ yardım gerekiyor" bilerek ikincildir (ayrıca onay sorulur).
@@ -83,7 +83,7 @@ public enum CardLayout {
     public static func isNear(distance: Double, accuracy: Double, fixAge: TimeInterval) -> Bool {
         (0...nearRadius).contains(distance)
             && (0...nearMaxAccuracy).contains(accuracy)
-            && fixAge <= GentleCheck.maxFixAge
+            && fixAge <= PlacementGate.maxFixAge
     }
 
     /// Kartın düzeni. `userID` yoksa hiçbir eylem sunulmaz; Yol tarifi yine vardır.

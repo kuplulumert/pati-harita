@@ -17,6 +17,10 @@ Pati Harita, **yardıma ihtiyacı olan sokak hayvanlarının** haritasıdır. He
 - Yalnızca kendi gördüğün ve hâlâ yardıma ihtiyacı olduğunu düşündüğün hayvanı işaretle. Yanlış işaretlediysen
   düzelt ya da sil; hayvan artık yardıma ihtiyaç duymuyorsa bunu haritada bildir.
 
+İşaret yalnızca hayvanın yanındayken, bulunduğunuz yerin çevresine konabilir. Güvenlik nedeniyle şimdilik ormanlık
+alanlar, yerleşim yeri dışı ve deniz ya da göl üstü işaretlenemez. Konumu taklit ederek bu kuralları aşmak kötüye
+kullanımdır.
+
 ## Yasak kullanımlar (sıfır tolerans)
 
 Harita yalnızca hayvanlara yardım için kullanılabilir. Aşağıdakiler yasaktır:

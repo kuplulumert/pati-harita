@@ -54,6 +54,7 @@ struct MapScreen: View {
                                     .interactiveDismissDisabled()
                             }
                         }
+                    nearbyBanner
                     Spacer(minLength: 0)
                     if let toast = viewModel.toast {
                         ToastView(toast: toast) { viewModel.undo(toast) }
@@ -70,6 +71,22 @@ struct MapScreen: View {
                 }
                 .padding(.horizontal, 12)
                 .padding(.bottom, 8)
+                // Konum izni kapalıyken "Yardım gereken hayvan": işaret yalnızca konumun çevresine konabilir.
+                .alert(
+                    Messages.locationAlertTitle,
+                    isPresented: Binding(
+                        get: { viewModel.locationAlert },
+                        set: { if !$0 { viewModel.dismissLocationAlert() } }
+                    )
+                ) {
+                    Button(Messages.openSettingsTitle) {
+                        viewModel.dismissLocationAlert()
+                        if let url = URL(string: UIApplication.openSettingsURLString) { openURL(url) }
+                    }
+                    Button(Messages.locationAlertCancelTitle, role: .cancel) { viewModel.dismissLocationAlert() }
+                } message: {
+                    Text(Messages.locationAlertMessage)
+                }
             }
             // Açıklama sayfasıyla aynı görünüme bağlanmasın diye burada (iki `.sheet` bir arada sorun çıkarabiliyor).
             .sheet(item: followUpBinding) { followUp in
@@ -105,9 +122,17 @@ struct MapScreen: View {
         .animation(.snappy(duration: 0.3), value: viewModel.duplicateCandidateID)
         .animation(.snappy(duration: 0.3), value: viewModel.pendingReport)
         .animation(.snappy(duration: 0.3), value: viewModel.toast)
+        .animation(.snappy(duration: 0.3), value: viewModel.nearbyPrompt)
         .sensoryFeedback(.success, trigger: viewModel.reportsCreated)
+        // Engellenen dokunuş ya da iğne engele girdi.
+        .sensoryFeedback(.warning, trigger: viewModel.blockedFeedback)
+        .sensoryFeedback(.impact(weight: .light), trigger: viewModel.nearbyPromptsShown)
         .sheet(isPresented: $showsLegend) {
-            LegendSheet(userID: viewModel.environment.backend == .demo ? nil : viewModel.userID, closingMode: viewModel.closingMode)
+            LegendSheet(
+                userID: viewModel.environment.backend == .demo ? nil : viewModel.userID,
+                closingMode: viewModel.closingMode,
+                areaDataVersion: viewModel.environment.areaClassifier.dataVersion
+            )
                 .presentationDetents([.medium, .large])
         }
         // "Hâlâ yardım gerekiyor" onayı. `presenting`: düğme, soru açıldığı andaki işaretle çalışır.
@@ -137,11 +162,14 @@ struct MapScreen: View {
             Button(MapViewModel.retractCancelTitle, role: .cancel) { viewModel.cancelRetract() }
         }
         .task { await viewModel.run() }
-        // Öne gelince takip edilen işaretler (en fazla 10 dk'da bir) yeniden okunur.
+        // Öne gelince takip edilen işaretler (en fazla 10 dk'da bir) yeniden okunur; arka plana geçince
+        // "Hâlâ orada mı?" kesilir.
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active {
-                viewModel.appBecameActive()
-            }
+            viewModel.scenePhaseChanged(isActive: phase == .active)
+        }
+        // Açıklama sayfasının arkasındaki "Hâlâ orada mı?" şeridine dokunulamaz: sayfa açıkken soru sorulmaz.
+        .onChange(of: showsLegend) { _, shown in
+            viewModel.legendPresented(shown)
         }
         // `initial`: konum ekran ilk çizilmeden gelmişse de (izin önceden verilmişken olur) kullanıcının
         // çevresine gidilsin; yoksa harita varsayılan şehir merkezinde kalıyor ve oraya abone oluyordu.
@@ -207,6 +235,7 @@ struct MapScreen: View {
                 bottom: safeArea.bottom + bottomPanelHeight + 8,
                 right: 0
             ),
+            placementArea: viewModel.placementArea,
             onCameraWillMove: { viewModel.cameraWillMove() },
             onCameraMove: { viewModel.cameraMoved(to: $0) },
             onCameraIdle: { viewModel.cameraBecameIdle(center: $0, visibleRadius: $1) },
@@ -226,7 +255,11 @@ struct MapScreen: View {
                 Ellipse()
                     .fill(.black.opacity(0.25))
                     .frame(width: 14, height: 6)
-                PlacementPin(species: viewModel.placementSpecies, isLifted: viewModel.isCameraMoving)
+                PlacementPin(
+                    species: viewModel.placementSpecies,
+                    isLifted: viewModel.isCameraMoving,
+                    isBlocked: viewModel.placementVerdict != .ready
+                )
                     .alignmentGuide(VerticalAlignment.center) { $0[.bottom] }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -236,6 +269,22 @@ struct MapScreen: View {
     }
 
     // MARK: Üst çubuk
+
+    /// "Hâlâ orada mı?": üst çubuğun altında, haritanın üstünde; alt panel ve ana düğme yerinden oynamaz.
+    @ViewBuilder
+    private var nearbyBanner: some View {
+        if let prompt = viewModel.nearbyPrompt {
+            NearbyPromptBanner(
+                prompt: prompt,
+                distance: viewModel.distance(to: prompt.report),
+                showsUnneeded: viewModel.nearbyAvailableActions(for: prompt.report).contains(.reportUnneeded),
+                isBusy: viewModel.busyAction != nil,
+                onAnswer: { viewModel.answerNearbyPrompt($0) },
+                onOpen: { viewModel.nearbyPromptTapped() }
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+        }
+    }
 
     private var topBar: some View {
         HStack(spacing: 8) {
@@ -286,6 +335,10 @@ struct MapScreen: View {
                 isSavingEdit: viewModel.isSavingEdit,
                 isEditTargetTooFar: viewModel.isEditTargetTooFar,
                 canRetract: viewModel.canRetractEditing,
+                placementVerdict: viewModel.placementVerdict,
+                isEditingPinMoved: viewModel.isEditingPinMoved,
+                canRecenterPin: viewModel.canRecenterPin,
+                reportWrongURL: viewModel.reportWrongURL,
                 onSpecies: { viewModel.choose($0) },
                 onNeed: { viewModel.choose($0) },
                 onDuplicate: { viewModel.confirmDuplicate($0) },
@@ -293,6 +346,8 @@ struct MapScreen: View {
                 onConfirmPending: { viewModel.confirmPendingReport() },
                 onCancelPending: { viewModel.cancelPendingReport() },
                 onRetract: { viewModel.requestRetract() },
+                onRecenterPin: { viewModel.recenterPin() },
+                onRestorePin: { viewModel.restoreEditPin() },
                 onBack: { viewModel.backToSpecies() },
                 onCancel: { viewModel.cancelPlacing() }
             )
@@ -349,7 +404,7 @@ struct MapScreen: View {
             }
             .buttonStyle(.plain)
             .layoutPriority(1)
-            .accessibilityHint("Bulunduğun noktayı işaretler. Haritaya uzun basarak başka bir nokta da seçebilirsin.")
+            .accessibilityHint("Bulunduğun yerin çevresine işaret koyar. Haritaya uzun basarak çevrende başka bir nokta da seçebilirsin.")
             .accessibilityIdentifier("report-button")
             Spacer(minLength: 8)
             Button {

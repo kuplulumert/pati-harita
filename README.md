@@ -19,14 +19,18 @@ Durum etiketi önce ağır ihtiyaçları, sonra düşük öncelikli olanları sa
 Uygulama ilk açıldığında harita arkada yüklenirken tek sayfalık kurallar gösterilir: harita ne içindir, neler işaretlenir
 (yaralı ya da hasta, tehlikede ya da annesiz yavrular, çok zayıf ya da terk edilmiş hayvanlar), neler işaretlenmez
 (sağlıklı ve beslenen sokak hayvanları, mama noktaları), güvenlik ("Yalnız gitme, kimseyle tartışmaya girme, özel mülke
-girme. Hayati tehlike varsa 112'yi ara.") ve kötüye kullanıma sıfır tolerans. **Kabul ediyorum, başla** ile bir kez
+girme. Hayati tehlike varsa 112'yi ara."), yalnızca hayvanın yanındayken ve bulunduğun yerin çevresine işaretleme
+(orman, yerleşim yeri dışı ve deniz ya da göl üstü şimdilik işaretlenemez) ve kötüye kullanıma sıfır tolerans.
+**Kabul ediyorum, başla** ile bir kez
 kabul edilir; kurallar değişince (`AppInfo.termsVersion`) yeniden sorulur. Açıklama ekranındaki **Kurallar** ile yeniden
 okunabilir. Ayrıntılar: [Kullanım koşulları](docs/kullanim-kosullari.md), [Gizlilik politikası](docs/gizlilik-politikasi.md).
 
 ### İşaretleme: 3 dokunuş, birkaç saniye
 
-1. **Yardım gereken hayvan** → harita bulunduğun noktaya yaklaşır, ortada sabit bir iğne belirir.
-   Konum yanlışsa haritayı kaydırmak yeterli; iğne hep ortada kalır. Haritaya **uzun basmak** da o noktadan işaretlemeyi başlatır.
+1. **Yardım gereken hayvan** → harita bulunduğun noktaya yaklaşır, ortada sabit bir iğne belirir. İşaret **yalnızca
+   bulunduğun yerin 150 m çevresine** konabilir: çevre kesik çizgili bir halkayla gösterilir, dışı hafifçe kararır;
+   iğneyi bu çevre içinde haritayı kaydırarak ayarlarsın. Haritaya **uzun basmak** da çevrendeki bir noktadan
+   işaretlemeyi başlatır; uzak bir yere uzun basınca işaretleme başlamaz.
 2. **Tür**: Kedi · Köpek
 3. **İhtiyaç**: Acil yardım (en üstte, kırmızı) · Aç ve zayıf · Yaralı / hasta · Terk edilmiş / bakıma muhtaç ·
    Yavrular tehlikede · Veteriner desteği. Listenin üstünde tek satır: "Yalnızca yardıma ihtiyacı varsa işaretle.
@@ -35,29 +39,46 @@ okunabilir. Ayrıntılar: [Kullanım koşulları](docs/kullanim-kosullari.md), [
 İhtiyaca dokunduğun an işaret kaydedilir. Form, fotoğraf, açıklama yok. Yanlışlık olursa 5 saniye boyunca **Geri al** görünür.
 Bağlantı zayıfsa işaret yine anında haritada görünür ve bağlantı gelince gönderilir.
 
-Bazen kaydetmeden önce tek bir soru gelir; hiçbiri işaretlemeyi engellemez:
+Bazen kaydetmeden önce tek bir soru gelir (işaretlemeyi engellemez):
 
 - **Yardıma ihtiyacı var mı?** Yalnızca "Aç ve zayıf" ve "Terk edilmiş / bakıma muhtaç" için (bunlar sağlıklı bir sokak
   hayvanıyla en kolay karışanlar), bu cihazın ilk 3 böyle işaretinde ve sonra yalnızca son 24 saatte 2 ya da daha fazla
   (acil olmayan) işaret konduysa ("Son 24 saatte 2 işaret koydun."). **Yardıma ihtiyacı var, işaretle** kaydeder;
   **Sağlıklı görünüyor, vazgeç** teşekkür edip kapatır. Acil, yaralı, yavru ve veteriner işaretlerinde hiç sorulmaz.
-- **İğne uzakta mı?** Konum okuması taze (en fazla 2 dk) ve doğruysa (≤ 100 m) ve iğne 1 km'den uzaktaysa:
-  "İğne bulunduğun yerden 2,4 km uzakta. Hayvanı orada, son bir saat içinde gördün mü?" **Evet, orada gördüm** ya da
-  **İğneyi düzelt**. Acil yardımda sorulmaz.
 
 İğnenin 40 m yakınında aynı türden aktif bir işaret varsa ihtiyaç listesinin üstünde **Ben de gördüm**
 ("Aynı hayvan mı? Yakında Yaralı / hasta · 3 kişi bildirdi") önerisi çıkar. Dokununca yeni işaret açılmaz; mevcut işaret
 açılır ve ona **Hâlâ orada** denir, yani aynı hayvan ikinci kez işaretlenmek yerine bildirenlerin sayısı artar.
 İhtiyaç düğmeleri yine her zamanki gibi yeni işaret koyar.
 
+### Nereye işaret konabilir?
+
+- İşaret yalnızca bulunduğun yerin çevresine konabilir: hayvanın yanındayken işaretle. Çevre 150 m'dir; konum okuması
+  kabaysa en fazla 225 m'ye genişler. İğne çevrenin dışına kayınca ihtiyaç düğmeleri soluklaşır; **İğneyi konumuma
+  getir** iğneyi geri getirir.
+- Bunun için konum izni ve **Tam Konum** gerekir. Konum bulunana kadar ihtiyaç düğmeleri bekler ("Konumun
+  bulunuyor…"), konum gelince kendiliğinden açılır. İnternet gerekmez; işaret bağlantı gelince gönderilir.
+- Gönüllülerin güvenliği için **şimdilik** ormanlık alanlara, yerleşim yeri dışına ve deniz ya da göl üstüne işaret
+  konamaz (acil yardım dahil). Denetim uygulamanın içindeki yerleşim, orman ve su haritasıyla internetsiz yapılır;
+  konumun hiçbir yere gönderilmez. Harita yanılırsa **Yanlış mı? Bize yaz** ile haber verebilirsin (e-postada
+  iğnenin yaklaşık yeri, ~1 km, yer alır). Verinin nasıl üretildiği: `tools/area-grid/README.md`.
+- Bu harita (`shared/area-tr.bin`, 15″ ≈ 400 m'lik hücreler) OpenStreetMap verisinden (yerleşim ve orman) ve Natural
+  Earth'ten (deniz ve göller) üretilir. OpenStreetMap'ten türetilmiş bir veritabanı olduğu için
+  [ODbL 1.0](https://opendatacommons.org/licenses/odbl/1-0/) ile sunulur: © OpenStreetMap katkıcıları. Natural Earth
+  kamu malıdır. Uygulamanın açıklama ekranı kaynakları ve veri sürümünü gösterir. Dosya henüz üretilmediyse uygulama
+  her yeri serbest sayar (yalnızca 150 m kuralı geçerlidir).
+
 ### Yanlış işaretlemeyi düzeltmek
 
-İşareti koyan kişi, kartındaki **Düzenle** ile türü, ihtiyacı ve yeri düzeltebilir (panel: "İşareti düzelt · İğneyi en
-fazla 200 m kaydırabilirsin"). Tür seçilir, iğne kaydırılır, ihtiyaca dokununca kaydedilir ("İşaret güncellendi.").
+İşareti koyan kişi, kartındaki **Düzenle** ile türü, ihtiyacı ve yeri düzeltebilir (panel: "İşareti düzelt · Türü ve
+ihtiyacı düzeltebilirsin. İğneyi yalnızca yanındaysan kaydırabilirsin."). Tür seçilir, iğne kaydırılır, ihtiyaca
+dokununca kaydedilir ("İşaret güncellendi.").
 
 - Yalnızca işareti koyan; işaret hâlâ "yardım bekliyor"ken ve **kimse dokunmadan** (başka "Hâlâ orada", "Artık yok",
   "İlgileniyorum" ya da itiraz yokken).
-- İşaretlendikten sonraki **30 dakika** içinde, en fazla **3 kez**; her düzeltmede konum en fazla ~200 m kayar.
+- İşaretlendikten sonraki **30 dakika** içinde, en fazla **3 kez**; her düzeltmede konum en fazla ~200 m ve yalnızca
+  bulunduğun yerin 150 m çevresine kayar; orman, yerleşim dışı ve deniz kuralı yeni yer için de geçerlidir. Türü ve
+  ihtiyacı her yerden düzeltebilirsin.
 - İhtiyaç değişirse işaretin ömrü yeni ihtiyaca göre yeniden başlar (7 günlük üst sınır yine geçerli).
 - Aynı paneldeki **İşareti sil** ("Bu işareti silmek istiyor musun?") işareti tamamen kaldırır; yine yalnızca kimse
   dokunmamışken.
@@ -124,6 +145,16 @@ Güvenlik kartta değil, yola çıkarken söylenir: bu cihazda ilk **İlgileniyo
 (21.00–06.00) bu işaretlere **İlgileniyorum** ya da **Yol tarifi** denince haftada en fazla bir kez "Gece yardıma
 gidiyorsun" hatırlatması çıkar (ikisi birden uyuyorsa yalnızca bu çıkar ve ilk gidiş uyarısı yerine sayılır);
 **Devam et** ile eylem sürer.
+
+### Yanından geçtiğin işaret: "Hâlâ orada mı?"
+
+Uygulama açıkken bir işaretin 50 m yakınından geçersen üstte kısa bir soru belirir: "Yakınındaki kedi hâlâ orada mı?"
+(**Evet** · **Hayır** · **Bilmiyorum**). Evet, "Hâlâ orada" gibi sayılır (acil, yaralı ve yavruda kart da açılır);
+"Aç ve zayıf" işaretinde ardından "Yardıma ihtiyacı var mı?" sorulur. Hayır, "Artık yok" oyudur; tek kişinin oyu
+işareti kapatmaz. Acil, yaralı ve yavruda önce "Artık orada değil mi?" diye bir kez daha sorulur. Soru 20 saniye sonra
+kaybolur; aynı işaret bir daha sorulmaz, en fazla 10 dakikada bir ve günde 5 kez sorulur, üst üste 3 kez yanıtsız
+kalırsa 7 gün sorulmaz. Hızlı giderken, işaret koyarken ya da bir kart açıkken sorulmaz; kendi işaretin ve
+ilgilendiğin işaret sorulmaz. Hangi işaretlerin sorulduğu ve sorunun ne sıklıkla gösterildiği yalnızca cihazda tutulur.
 
 ### Şüpheli bir işaret: bildir ya da gizle
 
@@ -199,6 +230,7 @@ Tasarım ve gerekçeler: [docs/tasarim/](docs/tasarim/).
 | Kurallar | Firestore Security Rules | İstemcideki durum makinesinin aynısı sunucuda zorunlu |
 | Temizlik | Cloud Functions (zamanlanmış) + Firestore TTL | Süresi dolanları kapatır, kapananları siler |
 | Konum sorgusu | Geohash (geofire-common'ın Swift karşılığı) | Yalnızca görünen bölgedeki işaretler dinlenir |
+| Alan denetimi | Uygulamayla gelen 2 bitlik ızgara (`shared/area-tr.bin`: OpenStreetMap + Natural Earth) | Orman, yerleşim dışı ve su internetsiz denetlenir; konum cihazdan çıkmaz |
 
 Ayrıntılar: [docs/architecture.md](docs/architecture.md)
 
@@ -223,6 +255,10 @@ firebase/
 shared/
   report-contract.json        iOS ve Firebase'in ortak sabitleri
   geohash-vectors.json        geohash referans değerleri
+  area-tr.bin                 orman, yerleşim dışı ve su ızgarası (ODbL; üretilince eklenir)
+  area-golden.json            ızgaranın denetim noktaları
+tools/
+  area-grid/                  ızgarayı OpenStreetMap ve Natural Earth'ten üreten betik
 docs/
   architecture.md             mimari, veri modeli, kurallar
   kullanim-kosullari.md       kullanım koşulları (taslak)
@@ -249,7 +285,12 @@ Simülatörün varsayılan konumu Kadıköy'dür (`ios/Kadikoy.gpx`). Harita App
 
 Başlatma argümanları (*Edit Scheme → Run → Arguments*): `-demo` (plist olsa da demo modu), `-useEmulator` (yerel
 emülatörler, aşağıda), `-noNightReminder` (gece hatırlatmasını ve ilk gidişteki "Yardıma gidiyorsun" uyarısını kapatır;
-arayüz testi günün her saatinde aynı akışı denesin diye kullanır).
+arayüz testi günün her saatinde aynı akışı denesin diye kullanır), `-noNearbyPrompt` ("Hâlâ orada mı?" sorusunu
+kapatır; arayüz testinin ana akışı kullanır), `-areaClass water|forest|remote|allowed` (yalnızca demo modunda her
+noktayı o alan sayar; arayüz testi orman engelini ve ana akışı alan verisinden bağımsız dener).
+
+İşaret yalnızca konumun çevresine konabildiği için simülatörde bir konum ayarlı olmalı (şemada `Kadikoy.gpx`). Demo
+modu simülatörde okumanın yaşını saymaz: simülatör konumu seyrek verse de işaretleme "Konumun bulunuyor…"da kalmaz.
 
 Kendi iPhone'unuzda çalıştırmak için `cp Config/Secrets.example.xcconfig Config/Secrets.xcconfig` ile Apple Developer ekip kimliğinizi (`DEVELOPMENT_TEAM`) yazın.
 
@@ -260,6 +301,8 @@ CI, iOS dosyaları değişince (ya da elle: `gh workflow run ci.yml --ref <dal>`
 1. GitHub → **Actions** → son çalışma → *Artifacts* altından `PatiHarita-simulator`'ı indirin. İçinden `PatiHarita-simulator.zip` çıkar.
 2. [appetize.io](https://appetize.io)'da hesap açıp bu zip'i yükleyin (iOS). Uygulama tarayıcıda bir iPhone simülatöründe açılır.
 3. Konum: Appetize'ın ayarlarından konumu değiştirebilirsiniz; demo modu bakılan bölgeye örnek işaretler koyar.
+   İşaret yalnızca konumun çevresine konabildiği için Appetize'da bir konum ayarlayın; yoksa panel "Konumun
+   bulunuyor…"da bekler.
 
 Açılış ekran görüntüsü aynı çalışmada `simulator-screenshot` artifact'ındadır.
 
@@ -308,7 +351,7 @@ Xcode'da *Edit Scheme → Run → Arguments* altında `-useEmulator`'ı işaretl
 
 ```bash
 cd firebase && npm test                          # kurallar, sözleşme, temizlik fonksiyonu, geohash referansları
-cd ios/Packages/AnimalKit && swift test          # durum makinesi, geohash, sözleşme, biçimlendirme
+cd ios/Packages/AnimalKit && swift test          # durum makinesi, geohash, sözleşme, biçimlendirme, yakınlık kapısı, alan ızgarası
 # Xcode'da PatiHarita şeması → Cmd+U                # arayüz testi (PatiHaritaUITests): demo akışı simülatörde
 ```
 
@@ -318,9 +361,13 @@ AnimalKit testleri (Linux) ve iOS uygulamasının derlemesi ile arayüz testi (m
 depo özele dönerse macOS dakikaları 10 kat sayılır (bir iOS çalışması ≈ 200 dakika, ayda 2000 dakikalık hakkın onda biri).
 Ardından uygulamayı simülatörde açar ve arayüz testiyle ana akışı gerçek dokunuşlarla dener: kuralları kabul etme, işaret
 koyma ("Yardıma ihtiyacı var mı?" kontrolüyle), işareti düzeltme, işarete dokunma, "İlgileniyorum", "Hâlâ orada",
-"Ben de gördüm", uzun basma, yoldan geçenin "Çözüldü"sü, "… 'Çözüldü' dedi" kartı, itiraz, "Aç ve zayıf" işaretinde
-"⋯ Diğer" menüsünden "Yardım gerekmiyor" ve aynı menüden işaret bildirme. Her adımın ekran görüntüsü (`00-kurallar` … `19-bildirildi`)
-çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü).
+"Ben de gördüm", uzak bir yere uzun basmanın reddi, çevrede uzun basma, iğneyi çevrenin dışına sürükleme ve
+"İğneyi konumuma getir", yoldan geçenin "Çözüldü"sü, "… 'Çözüldü' dedi" kartı, itiraz, "Aç ve zayıf" işaretinde
+"⋯ Diğer" menüsünden "Yardım gerekmiyor" ve aynı menüden işaret bildirme. Ayrı testler orman engelini (`-areaClass forest`),
+uygulamayla gelen ızgarayla deniz engelini (ızgara üretilene kadar atlanır) ve "Hâlâ orada mı?" sorusunu (yaralı kedi
+ve "Aç ve zayıf" köpek) dener. Her adımın ekran görüntüsü (`00-kurallar` … `23-mama-yardim-gerekmiyor`)
+çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü). `swift test`, ızgara varsa
+`shared/area-golden.json`'daki her noktayı da denetler.
 
 ## Sonraki adımlar
 

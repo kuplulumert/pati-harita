@@ -2,7 +2,7 @@ import AnimalKit
 import Foundation
 
 /// Saate, sayıya ve kişiye göre değişen Türkçe metinler: kart, bildirimler, günlük sınır, takip sorusu,
-/// "Yardıma ihtiyacı var mı?" kontrolü, güvenlik.
+/// "Yardıma ihtiyacı var mı?" kontrolü, nereye işaret konabileceği, "Hâlâ orada mı?", güvenlik.
 enum Messages {
     // MARK: Kart
 
@@ -302,13 +302,114 @@ enum Messages {
         return "Son 24 saatte \(recentCount) işaret koydun. \(text)"
     }
 
-    static let distanceConfirmTitle = "Evet, orada gördüm"
-    static let distanceFixTitle = "İğneyi düzelt"
+    // MARK: Nereye işaret konabilir
 
-    /// "İğne bulunduğun yerden 2,4 km uzakta. Hayvanı orada, son bir saat içinde gördün mü?"
-    static func distanceQuestion(meters: Double) -> String {
-        "İğne bulunduğun yerden \(Formatting.distance(meters: meters)) uzakta. Hayvanı orada, son bir saat içinde gördün mü?"
+    /// Kurallar sayfasında ve açıklama ekranında aynı cümle.
+    static let placementRule = "Hayvanın yanındayken işaretle: işaret yalnızca bulunduğun yerin çevresine konabilir. Güvenlik için şimdilik orman, yerleşim yeri dışı ve deniz ya da göl üstü işaretlenemez."
+
+    /// Seçim panelinin başlığının altındaki tek satır; `ready`de `nil`. Düzeltmede "çevrenin dışında" yerine
+    /// türün ve ihtiyacın yine de düzeltilebildiği söylenir.
+    static func placementMessage(_ verdict: PlacementVerdict, isEditing: Bool) -> String? {
+        switch verdict {
+        case .ready:
+            return nil
+        case .needsPermission:
+            return "Konum izni kapalı. İşaret koymak için konum izni gerekiyor."
+        case .approximateOnly:
+            return "Tam Konum kapalı. İşaret koymak için Tam Konum gerekiyor."
+        case .simulatedLocation:
+            return "Konum taklit ediliyor gibi görünüyor. İşaret koymak için gerçek konum gerekiyor."
+        case .locating(let slow):
+            return slow
+                ? "Konumun hâlâ bulunamadı. Açık bir alana çıkmayı ya da biraz beklemeyi dene."
+                : "Konumun bulunuyor… İşaret, konumun belli olunca konabilir."
+        case .tooFar:
+            return isEditing
+                ? "Konumu yalnızca bulunduğun yerin 150 m çevresine taşıyabilirsin. Türü ve ihtiyacı konumu değiştirmeden düzeltebilirsin."
+                : "İğne çevrenin dışında. İşaret yalnızca bulunduğun yerin 150 m çevresine konabilir."
+        case .water:
+            return "Denizin ya da gölün üstüne işaret konamaz."
+        case .forest:
+            return "Gönüllülerin güvenliği için ormanlık alanlara şimdilik işaret konamaz."
+        case .remote:
+            return "Gönüllülerin güvenliği için yerleşim yeri dışına şimdilik işaret konamaz."
+        }
     }
+
+    /// Haritada çevrenin dışına uzun basıldı: işaretleme başlamaz.
+    static let farLongPress = "Uzun bastığın yer bulunduğun yerden uzakta. İşaret yalnızca bulunduğun yerin 150 m çevresine konabilir; hayvanın yanındaysan 'Yardım gereken hayvan'a dokun."
+
+    static let recenterPinTitle = "İğneyi konumuma getir"
+    static let restorePinTitle = "İğneyi eski yerine getir"
+    static let openSettingsTitle = "Ayarlar'ı aç"
+    static let reportWrongBlockTitle = "Yanlış mı? Bize yaz"
+
+    /// Konum izni kapalıyken "Yardım gereken hayvan".
+    static let locationAlertTitle = "Konum izni gerekiyor"
+    static let locationAlertMessage = "İşaret yalnızca bulunduğun yerin 150 m çevresine konabilir. Bunun için Ayarlar'dan konum iznini aç."
+    static let locationAlertCancelTitle = "Vazgeç"
+
+    /// "Yanlış mı? Bize yaz" e-postası. Yer ~1 km'ye yuvarlanır; kişi Mail'de göndermeden hiçbir şey gitmez.
+    static let reportWrongBlockMailSubject = "Pati Harita: yanlış işaret engeli"
+
+    static func reportWrongBlockMailBody(_ verdict: PlacementVerdict, dataVersion: String?, pin: Coordinate) -> String {
+        let block: String
+        switch verdict {
+        case .forest: block = "Orman"
+        case .remote: block = "Yerleşim yeri dışı"
+        case .water: block = "Deniz ya da göl"
+        case .ready, .needsPermission, .approximateOnly, .simulatedLocation, .locating, .tooFar: block = "-"
+        }
+        let lat = String(format: "%.2f", pin.latitude)
+        let lon = String(format: "%.2f", pin.longitude)
+        return "Engel: \(block)\nVeri sürümü: \(dataVersion ?? "-")\nYaklaşık yer (~1 km): https://maps.apple.com/?ll=\(lat),\(lon)\n\nBurada ne var? (ör. köy, site, park):\n"
+    }
+
+    /// Açıklama ekranında: alan verisinin kaynakları (ODbL gereği) ve sürümü.
+    static func areaDataCredit(dataVersion: String) -> String {
+        "Yerleşim ve orman verisi: © OpenStreetMap katkıcıları (ODbL) · Su: Natural Earth · Veri sürümü \(dataVersion)"
+    }
+
+    // MARK: "Hâlâ orada mı?"
+
+    /// "Yakınındaki kedi hâlâ orada mı?", "Yardıma ihtiyacı var mı?", "Artık orada değil mi?"
+    static func nearbyQuestion(_ step: NearbyPrompt.Step, report: Report) -> String {
+        switch step {
+        case .presence:
+            let animal = report.species.title.lowercased(with: Locale(identifier: "tr_TR"))
+            return "Yakınındaki \(animal) hâlâ orada mı?"
+        case .needsHelp:
+            return "Yardıma ihtiyacı var mı?"
+        case .confirmGone:
+            return "Artık orada değil mi?"
+        }
+    }
+
+    /// Sorunun altındaki satır: "Yaralı / hasta · 30 m".
+    static func nearbyDetail(_ step: NearbyPrompt.Step, report: Report, distance: Double?) -> String {
+        switch step {
+        case .presence:
+            guard let distance else { return report.need.title }
+            return "\(report.need.title) · \(Formatting.distance(meters: distance))"
+        case .needsHelp:
+            return "Aç ve zayıf olarak işaretlendi"
+        case .confirmGone:
+            return "Yaralı ya da korkmuş hayvanlar kolayca gözden kaçar. Yalnızca çevreye iyice baktıysan söyle."
+        }
+    }
+
+    /// Soru belirince VoiceOver'a.
+    static func nearbyAnnouncement(_ step: NearbyPrompt.Step, report: Report) -> String {
+        "Yakınında bir işaret var. " + nearbyQuestion(step, report: report)
+    }
+
+    static let nearbyYesTitle = "Evet"
+    static let nearbyNoTitle = "Hayır"
+    static let nearbyDontKnowTitle = "Bilmiyorum"
+    static let nearbyStillNeedsTitle = "Hâlâ yardım lazım"
+    static let nearbyUnneededTitle = "Yardım gerekmiyor"
+    static let nearbyGoneTitle = "Artık yok"
+    static let nearbyUnsureTitle = "Emin değilim"
 
     // MARK: Düzeltme, bildirme, gizleme
 

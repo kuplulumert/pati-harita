@@ -4,14 +4,25 @@ import XCTest
 /// Ana akışı demo modunda gerçek dokunuşlarla dener:
 /// kurallar → harita → "Yardım gereken hayvan" → tür → ihtiyaç → "Yardıma ihtiyacı var mı?" → işarete dokun →
 /// "Düzenle" ile tür ve ihtiyaç düzeltilir → "İlgileniyorum" → "Hâlâ orada" ile gören sayısı artar →
-/// "Aynı hayvan mı?" önerisi → uzun basma → yoldan geçen "Çözüldü" der → "… 'Çözüldü' dedi" kartı →
+/// "Aynı hayvan mı?" önerisi → uzak bir yere uzun basma reddedilir → çevrede uzun basma → iğneyi çevrenin dışına
+/// sürükleme → "İğneyi konumuma getir" → yoldan geçen "Çözüldü" der → "… 'Çözüldü' dedi" kartı →
 /// "Hâlâ yardım gerekiyor" itirazı → "Aç ve zayıf" işaretinde "⋯ Diğer" → "Yardım gerekmiyor" → "⋯ Diğer" ile
-/// işareti bildirme. Her adımın ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
+/// işareti bildirme. Ayrı testler: orman ve deniz engeli, yanından geçilen işaret için "Hâlâ orada mı?". Her adımın
+/// ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
 ///
 /// Düğmeler görünen metinleri yerine kimlikleriyle bulunur (`report-button`, `need-food`, `action-…`); metinler
 /// değişse de test aynı akışı dener. Kart, açılırken hayvana yakın olup olmadığına göre bazı eylemleri döşeme,
 /// bazılarını "⋯ Diğer" menüsünde gösterir; `cardAction` ikisinde de bulur.
+///
+/// İşaret yalnızca konumun çevresine konabildiği için testler simülatör konumunu verir (`launchDemoApp`); demo
+/// modu simülatörde okumanın yaşını saymaz. Alan verisinden bağımsız olsun diye her nokta `-areaClass` ile aynı
+/// alandır (ana akışta `allowed`); "Hâlâ orada mı?" ana akışta kapalıdır (`-noNearbyPrompt`).
 final class ReportFlowUITests: XCTestCase {
+    /// Kadıköy (ios/Kadikoy.gpx ile aynı). Demo örnek işaretleri kameranın çevresine konur.
+    static let kadikoy = CLLocationCoordinate2D(latitude: 40.9903, longitude: 29.0290)
+    /// Açık Marmara: shared/area-golden.json'daki deniz noktası.
+    static let marmara = CLLocationCoordinate2D(latitude: 40.80, longitude: 28.50)
+
     override func setUpWithError() throws {
         continueAfterFailure = false
     }
@@ -48,10 +59,15 @@ final class ReportFlowUITests: XCTestCase {
             app.staticTexts["need-guidance"].exists,
             "İhtiyaçların üstünde 'Yalnızca yardıma ihtiyacı varsa işaretle' satırı yok"
         )
+        // Simülatör konumu kapıya ulaşıyor: iğne konumun üstünde, ihtiyaçlar açık, engel satırı yok.
+        XCTAssertTrue(waitForEnabled(food, true), "Konum varken ihtiyaç düğmeleri açılmadı")
+        XCTAssertFalse(
+            app.descendants(matching: .any)["placement-message"].exists,
+            "Konumun üstündeki iğnede engel satırı var"
+        )
         screenshots.take("03-ihtiyac-secimi")
 
-        // Cihazın ilk hafif işaretleri: önce "Yardıma ihtiyacı var mı?" sorulur. Demo konumu iğnenin kendisi
-        // olduğu için uzaklık sorusu gelmez.
+        // Cihazın ilk hafif işaretleri: önce "Yardıma ihtiyacı var mı?" sorulur.
         food.tap()
         let checkConfirm = app.buttons["check-confirm"]
         XCTAssertTrue(checkConfirm.waitForExistence(timeout: 5), "'Yardıma ihtiyacı var mı?' sorulmadı")
@@ -166,22 +182,64 @@ final class ReportFlowUITests: XCTestCase {
         close.tap()
         XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Kart kapanınca ana ekrana dönülmedi")
 
-        // Haritada boş bir noktaya uzun basınca işaretleme o noktadan başlar.
-        let map = app.maps.firstMatch
-        XCTAssertTrue(map.exists, "Harita bulunamadı")
-        let point = emptyMapPoint(in: app, map: map)
-        point.press(forDuration: 1.2)
+        // Uzun basma yalnızca çevrede işaretlemeyi başlatır. Önce kullanıcının üstüne dönülür (yakınlık 16,
+        // ~1,8 m/nokta).
+        let recenter = app.buttons["Konumuma git"]
+        XCTAssertTrue(recenter.waitForExistence(timeout: 5), "Konumuma git düğmesi yok")
+        recenter.tap()
+        sleep(2)
         let speciesTitle = app.staticTexts.element(labelContaining: "Hangi hayvan?")
-        XCTAssertTrue(speciesTitle.waitForExistence(timeout: 5), "Uzun basınca işaretleme başlamadı")
+
+        // ~375 m uzağa uzun basma: işaretleme başlamaz, neden söylenir.
+        let farPoint = pointFromVisibleCenter(app, candidates: [
+            CGVector(dx: -120, dy: -170), CGVector(dx: 120, dy: -170), CGVector(dx: -140, dy: 150),
+        ])
+        farPoint.press(forDuration: 1.2)
+        let farToast = app.staticTexts.element(labelContaining: "150 m çevresine")
+        XCTAssertTrue(farToast.waitForExistence(timeout: 5), "Uzak bir yere uzun basınca neden söylenmedi")
+        XCTAssertFalse(speciesTitle.waitForExistence(timeout: 2), "Uzak bir yere uzun basınca işaretleme başladı")
+        screenshots.take("12a-uzak-uzun-basma")
+
+        // ~100 m öteye uzun basma: işaretleme o noktadan başlar.
+        let nearPoint = pointFromVisibleCenter(app, candidates: [
+            CGVector(dx: 55, dy: 0), CGVector(dx: -55, dy: 0), CGVector(dx: 0, dy: 55),
+        ])
+        nearPoint.press(forDuration: 1.2)
+        XCTAssertTrue(speciesTitle.waitForExistence(timeout: 5), "Çevrede uzun basınca işaretleme başlamadı")
         sleep(1)
         screenshots.take("12-uzun-basma")
+        cat.tap()
+        XCTAssertTrue(waitForEnabled(food, true), "Çevredeki iğnede ihtiyaç düğmeleri açılmadı")
+
+        // İğne çevrenin dışına sürüklenir: parmak sağdan sola, kamera doğuya gider. Yakınlık 17'de (~0,9 m/nokta)
+        // bir sürükleme ~280 m; tek başına 225 m sınırını aşar.
+        let map = app.maps.firstMatch
+        XCTAssertTrue(map.exists, "Harita bulunamadı")
+        for _ in 0..<2 {
+            map.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.25))
+                .press(forDuration: 0.1, thenDragTo: map.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.25)))
+            sleep(1)
+        }
+        let outside = placementMessage(app, containing: "çevrenin dışında")
+        XCTAssertTrue(outside.waitForExistence(timeout: 10), "Çevrenin dışındaki iğne için engel satırı çıkmadı")
+        XCTAssertTrue(waitForEnabled(food, false), "Çevrenin dışında ihtiyaç düğmeleri açık kaldı")
+        screenshots.take("12b-cevre-disi")
+
+        // "İğneyi konumuma getir": iğne kullanıcının üstüne döner, düğmeler yeniden açılır.
+        let recenterPin = app.buttons["placement-recenter"]
+        XCTAssertTrue(recenterPin.waitForExistence(timeout: 5), "'İğneyi konumuma getir' yok")
+        recenterPin.tap()
+        XCTAssertTrue(waitForEnabled(food, true), "İğne konuma dönünce ihtiyaç düğmeleri açılmadı")
+        XCTAssertTrue(
+            waitUntilGone(app.descendants(matching: .any)["placement-message"], timeout: 5),
+            "İğne konuma dönünce engel satırı kalkmadı"
+        )
         app.buttons["Vazgeç"].tap()
 
         // Yoldan geçen "Çözüldü" der (İlgileniyorum demeden). Demo hesabı 3 günlük ve bütçesi var: öneri
         // kanıtlıdır, kart kapanır ve işaret onun haritasından hemen kalkar. Bildirim saate göre değişir
         // ("yaklaşık 2 saat sonra" / gece "saat 08.00 civarında"); yalnızca ortak kısmı aranır.
         // Uzun basılan noktadan kullanıcının üstüne dönülür (yakınlık 16: gri noktalar çizilmez).
-        let recenter = app.buttons["Konumuma git"]
         XCTAssertTrue(recenter.waitForExistence(timeout: 5), "Konumuma git düğmesi yok")
         recenter.tap()
         sleep(2)
@@ -292,15 +350,156 @@ final class ReportFlowUITests: XCTestCase {
         screenshots.take("19-bildirildi")
     }
 
+    // MARK: Nereye işaret konamaz
+
+    /// Orman engeli, alan verisinden bağımsız: her nokta `-areaClass forest` ile orman sayılır. Engel tür
+    /// seçiminden itibaren söylenir; ihtiyaç düğmeleri kapalıdır ve basmak hiçbir şey kaydetmez.
+    @MainActor
+    func testRiskyAreaBlocked() throws {
+        let app = launchDemoApp(areaClass: "forest")
+        let screenshots = Screenshots(test: self)
+        acceptOnboarding(app)
+
+        let reportButton = app.buttons["report-button"]
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 30), "Ana ekran açılmadı")
+        sleep(2)
+        reportButton.tap()
+        let forest = placementMessage(app, containing: "ormanlık")
+        XCTAssertTrue(forest.waitForExistence(timeout: 10), "Ormanda engel satırı çıkmadı")
+
+        let dog = app.buttons["species-dog"]
+        XCTAssertTrue(dog.waitForExistence(timeout: 5), "Tür seçimi açılmadı")
+        dog.tap()
+        let vet = app.buttons["need-vet"]
+        XCTAssertTrue(waitForEnabled(vet, false), "Ormanda ihtiyaç düğmeleri açık")
+        // Kapalı düğmeye dokunmak işaret koymaz.
+        vet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        let saved = app.staticTexts.element(labelContaining: "işaretlendi")
+        XCTAssertFalse(saved.waitForExistence(timeout: 3), "Ormanda işaret kaydedildi")
+        screenshots.take("21-orman")
+        app.buttons["Vazgeç"].tap()
+    }
+
+    /// Uygulamayla gelen alan ızgarası: açık Marmara'da işaret konamaz. Bu, ızgaranın Release paketine
+    /// girdiğini gösterir; `shared/area-tr.bin` henüz üretilmediyse (tools/area-grid) atlanır.
+    @MainActor
+    func testSeaBlockedByBundledGrid() throws {
+        try XCTSkipUnless(Self.repositoryHasAreaGrid, "shared/area-tr.bin yok (tools/area-grid ile üretilir)")
+        let app = launchDemoApp(at: Self.marmara, areaClass: nil)
+        let screenshots = Screenshots(test: self)
+        acceptOnboarding(app)
+
+        let reportButton = app.buttons["report-button"]
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 30), "Ana ekran açılmadı")
+        sleep(2)
+        reportButton.tap()
+        let sea = placementMessage(app, containing: "Denizin")
+        XCTAssertTrue(sea.waitForExistence(timeout: 10), "Denizde engel satırı çıkmadı")
+        let cat = app.buttons["species-cat"]
+        XCTAssertTrue(cat.waitForExistence(timeout: 5), "Tür seçimi açılmadı")
+        cat.tap()
+        XCTAssertTrue(waitForEnabled(app.buttons["need-injured"], false), "Denizde ihtiyaç düğmeleri açık")
+        screenshots.take("20-deniz")
+        app.buttons["Vazgeç"].tap()
+        app.terminate()
+    }
+
+    // MARK: "Hâlâ orada mı?"
+
+    /// Yaralı kedinin yanından geçen kişiye sorulur; "Evet" gören sayısını artırır ve (dikkat isteyen ihtiyaç)
+    /// kartı açar. Aynı işaret bir daha sorulmaz.
+    @MainActor
+    func testNearbyPromptStillThere() throws {
+        let app = launchDemoApp(nearbyPrompt: true)
+        let screenshots = Screenshots(test: self)
+        acceptOnboarding(app)
+
+        let reportButton = app.buttons["report-button"]
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 30), "Ana ekran açılmadı")
+        // Harita karoları ve demo işaretleri yüklensin.
+        sleep(4)
+        let injuredCat = mapMarker(in: app, label: "Yaralı / hasta, Kedi")
+        XCTAssertTrue(injuredCat.waitForExistence(timeout: 10), "Örnek yaralı kedi işareti haritada bulunamadı")
+
+        // Demo örneği kullanıcının ~120 m kuzeyinde, 80 m batısında: kişi yanına yürür.
+        moveSimulatedLocation(north: 120, east: -80)
+        // Açılıştan sonraki 15 sn'lik bekleme de bu sürenin içinde.
+        let question = nearbyQuestion(app, containing: "Yakınındaki kedi hâlâ orada mı?")
+        XCTAssertTrue(question.waitForExistence(timeout: 25), "'Hâlâ orada mı?' sorulmadı")
+        screenshots.take("22-hala-orada-mi")
+
+        let yes = app.buttons["nearby-yes"]
+        XCTAssertTrue(waitForEnabled(yes, true, timeout: 3), "'Evet' açılmadı")
+        yes.tap()
+        let seenByFour = app.staticTexts.element(labelContaining: "4 kişi bildirdi")
+        XCTAssertTrue(seenByFour.waitForExistence(timeout: 5), "'Evet' gören sayısını artırmadı")
+        XCTAssertTrue(app.buttons["action-claim"].waitForExistence(timeout: 5), "Yaralı işarette 'Evet' kartı açmadı")
+        XCTAssertTrue(waitUntilGone(anyNearbyQuestion(app), timeout: 5), "Yanıttan sonra soru kalkmadı")
+
+        let close = app.buttons["Kapat"]
+        XCTAssertTrue(close.waitForExistence(timeout: 5), "Kartın kapat düğmesi yok")
+        close.tap()
+        XCTAssertFalse(anyNearbyQuestion(app).waitForExistence(timeout: 5), "Aynı işaret yeniden soruldu")
+    }
+
+    /// "Aç ve zayıf" köpeğin yanından geçen kişi: "Evet" → "Yardıma ihtiyacı var mı?" → "Yardım gerekmiyor".
+    /// Yeni açılış: cihazdaki soru kaydı boş.
+    @MainActor
+    func testNearbyPromptFoodUnneeded() throws {
+        let app = launchDemoApp(nearbyPrompt: true)
+        let screenshots = Screenshots(test: self)
+        acceptOnboarding(app)
+
+        let reportButton = app.buttons["report-button"]
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 30), "Ana ekran açılmadı")
+        sleep(4)
+        let foodDog = mapMarker(in: app, label: "Aç ve zayıf, Köpek")
+        XCTAssertTrue(foodDog.waitForExistence(timeout: 10), "Örnek 'Aç ve zayıf' işareti haritada bulunamadı")
+
+        // Demo örneği kullanıcının ~200 m güneyinde, 150 m doğusunda.
+        moveSimulatedLocation(north: -200, east: 150)
+        let question = nearbyQuestion(app, containing: "Yakınındaki köpek hâlâ orada mı?")
+        XCTAssertTrue(question.waitForExistence(timeout: 25), "'Hâlâ orada mı?' sorulmadı")
+        let yes = app.buttons["nearby-yes"]
+        XCTAssertTrue(waitForEnabled(yes, true, timeout: 3), "'Evet' açılmadı")
+        yes.tap()
+
+        // Mamada ikinci adım; düğmeler yeniden kısa bir bekleyişten sonra açılır.
+        let needsHelp = nearbyQuestion(app, containing: "Yardıma ihtiyacı var mı?")
+        XCTAssertTrue(needsHelp.waitForExistence(timeout: 5), "Mamada 'Yardıma ihtiyacı var mı?' sorulmadı")
+        let unneeded = app.buttons["nearby-unneeded"]
+        XCTAssertTrue(waitForEnabled(unneeded, true, timeout: 5), "'Yardım gerekmiyor' açılmadı")
+        screenshots.take("23-mama-yardim-gerekmiyor")
+        unneeded.tap()
+
+        let cleaner = app.staticTexts.element(labelContaining: "daha temiz")
+        XCTAssertTrue(cleaner.waitForExistence(timeout: 5), "'Yardım gerekmiyor' bildirimi görünmedi")
+        XCTAssertTrue(waitUntilGone(foodDog, timeout: 5), "'Yardım gerekmiyor' deyince işaret haritadan kalkmadı")
+    }
+
     // MARK: Yardımcılar
 
+    /// Demo modunda açar. Simülatör konumu (doğruluk 5 m) açılıştan önce verilir; işaret yalnızca bu konumun
+    /// çevresine konabilir. `areaClass`: her nokta bu alan (`nil`: uygulamayla gelen ızgara). "Hâlâ orada mı?"
+    /// yalnızca `nearbyPrompt` ile açıktır.
     @MainActor
-    private func launchDemoApp() -> XCUIApplication {
-        // Kadıköy (ios/Kadikoy.gpx ile aynı).
-        XCUIDevice.shared.location = XCUILocation(location: CLLocation(latitude: 40.9903, longitude: 29.0290))
+    private func launchDemoApp(
+        at coordinate: CLLocationCoordinate2D = ReportFlowUITests.kadikoy,
+        areaClass: String? = "allowed",
+        nearbyPrompt: Bool = false,
+        extraArguments: [String] = []
+    ) -> XCUIApplication {
+        setSimulatedLocation(coordinate)
         let app = XCUIApplication()
         // Güvenlik hatırlatmaları kapalı: test günün her saatinde aynı akışı dener (AppEnvironment.noNightReminderArgument).
-        app.launchArguments = ["-demo", "-noNightReminder"]
+        var arguments = ["-demo", "-noNightReminder"]
+        if !nearbyPrompt {
+            arguments.append("-noNearbyPrompt")
+        }
+        if let areaClass {
+            arguments += ["-areaClass", areaClass]
+        }
+        app.launchArguments = arguments + extraArguments
         app.launch()
 
         // Konum izni sorulursa "Uygulamayı Kullanırken İzin Ver".
@@ -312,6 +511,90 @@ final class ReportFlowUITests: XCTestCase {
             allow.tap()
         }
         return app
+    }
+
+    /// İlk açılıştaki kurallar (demo cihaz durumunu hatırlamaz: her açılış ilk açılış gibidir).
+    @MainActor
+    private func acceptOnboarding(_ app: XCUIApplication) {
+        let accept = app.buttons["onboarding-accept"]
+        XCTAssertTrue(accept.waitForExistence(timeout: 30), "Kurallar sayfası açılmadı")
+        accept.tap()
+        XCTAssertTrue(waitUntilGone(accept, timeout: 5), "Kabul edince kurallar sayfası kapanmadı")
+    }
+
+    @MainActor
+    private func setSimulatedLocation(_ coordinate: CLLocationCoordinate2D) {
+        XCUIDevice.shared.location = XCUILocation(location: CLLocation(
+            coordinate: coordinate,
+            altitude: 0,
+            horizontalAccuracy: 5,
+            verticalAccuracy: 5,
+            course: -1,
+            speed: 0,
+            timestamp: Date()
+        ))
+    }
+
+    /// Simülatör konumunu Kadıköy'den metre cinsinden kaydırır (demo örnekleriyle aynı hesap).
+    @MainActor
+    private func moveSimulatedLocation(north: Double, east: Double) {
+        let origin = Self.kadikoy
+        setSimulatedLocation(CLLocationCoordinate2D(
+            latitude: origin.latitude + north / 111_320,
+            longitude: origin.longitude + east / (111_320 * cos(origin.latitude * .pi / 180))
+        ))
+    }
+
+    /// Öğe `timeout` içinde açılır ya da kapanırsa `true`. Bir kez bakıp karar verilmez: karar konum
+    /// geldikçe değişir.
+    @MainActor
+    @discardableResult
+    private func waitForEnabled(_ element: XCUIElement, _ enabled: Bool, timeout: TimeInterval = 10) -> Bool {
+        guard element.waitForExistence(timeout: timeout) else { return false }
+        let expectation = XCTNSPredicateExpectation(
+            predicate: NSPredicate(format: "isEnabled == %@", NSNumber(value: enabled)),
+            object: element
+        )
+        return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed
+    }
+
+    /// Seçim panelindeki engel satırı, metninde `text` geçen.
+    @MainActor
+    private func placementMessage(_ app: XCUIApplication, containing text: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "placement-message", text))
+            .firstMatch
+    }
+
+    /// "Hâlâ orada mı?" şeridindeki soru, metninde `text` geçen.
+    @MainActor
+    private func nearbyQuestion(_ app: XCUIApplication, containing text: String) -> XCUIElement {
+        app.descendants(matching: .any)
+            .matching(NSPredicate(format: "identifier == %@ AND label CONTAINS %@", "nearby-question", text))
+            .firstMatch
+    }
+
+    /// Şeritteki soru, hangisi olursa.
+    @MainActor
+    private func anyNearbyQuestion(_ app: XCUIApplication) -> XCUIElement {
+        app.descendants(matching: .any).matching(identifier: "nearby-question").firstMatch
+    }
+
+    /// Haritanın görünen alanının (üst etiket ile alt düğme arası) ortasından `candidates` kadar kaymış ilk
+    /// nokta; işaretlerin üstüne (her yana 24 nokta pay) denk gelenler atlanır.
+    @MainActor
+    private func pointFromVisibleCenter(_ app: XCUIApplication, candidates: [CGVector]) -> XCUICoordinate {
+        let chip = app.staticTexts.element(labelContaining: "Demo modu")
+        let reportButton = app.buttons["report-button"]
+        let center = CGPoint(x: app.frame.midX, y: (chip.frame.minY + reportButton.frame.minY) / 2)
+        let markerFrames = app.descendants(matching: .any)
+            .matching(identifier: "report-marker")
+            .allElementsBoundByIndex
+            .map { $0.frame.insetBy(dx: -24, dy: -24) }
+        let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+        let points = candidates.map { CGPoint(x: center.x + $0.dx, y: center.y + $0.dy) }
+        let point = points.first { point in !markerFrames.contains { $0.contains(point) } } ?? points[0]
+        return origin.withOffset(CGVector(dx: point.x - app.frame.minX, dy: point.y - app.frame.minY))
     }
 
     /// Haritadaki işaret, erişilebilirlik etiketiyle ("Aç ve zayıf, Kedi"). Gri nokta da aynı etiketi taşır.
@@ -344,26 +627,14 @@ final class ReportFlowUITests: XCTestCase {
         return XCTWaiter.wait(for: [gone], timeout: timeout) == .completed
     }
 
-    /// Üst çubuk, alt panel ve işaretlerin üstüne denk gelmeyen bir harita noktası.
-    @MainActor
-    private func emptyMapPoint(in app: XCUIApplication, map: XCUIElement) -> XCUICoordinate {
-        let markerFrames = app.descendants(matching: .any)
-            .matching(identifier: "report-marker")
-            .allElementsBoundByIndex
-            .map { $0.frame.insetBy(dx: -24, dy: -24) }
-        let frame = map.frame
-        let candidates: [CGVector] = [
-            CGVector(dx: 0.8, dy: 0.3), CGVector(dx: 0.2, dy: 0.3), CGVector(dx: 0.8, dy: 0.6),
-            CGVector(dx: 0.2, dy: 0.6), CGVector(dx: 0.5, dy: 0.25), CGVector(dx: 0.35, dy: 0.45),
-            CGVector(dx: 0.65, dy: 0.45), CGVector(dx: 0.15, dy: 0.45), CGVector(dx: 0.85, dy: 0.45),
-        ]
-        for offset in candidates {
-            let point = CGPoint(x: frame.minX + frame.width * offset.dx, y: frame.minY + frame.height * offset.dy)
-            if !markerFrames.contains(where: { $0.contains(point) }) {
-                return map.coordinate(withNormalizedOffset: offset)
-            }
-        }
-        return map.coordinate(withNormalizedOffset: candidates[0])
+    /// Depodaki alan ızgarası (bu dosyaya göre ../../shared/area-tr.bin). Simülatördeki test süreci Mac'teki
+    /// kaynak klasörünü okuyabilir; ızgara varsa uygulamaya da girer (project.yml).
+    private static var repositoryHasAreaGrid: Bool {
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        return FileManager.default.fileExists(atPath: root.appendingPathComponent("shared/area-tr.bin").path)
     }
 }
 

@@ -5,6 +5,10 @@ import SwiftUI
 /// İhtiyaca dokunulduğu an işaret kaydedilir (toplam 3 dokunuş); hafif ihtiyaçta bazen önce kısa bir soru
 /// ("Yardıma ihtiyacı var mı?") ızgaranın yerine gelir.
 ///
+/// İşaret yalnızca kişinin çevresine, orman, yerleşim dışı ve su dışına konabilir (`PlacementGate`). Engel
+/// varsa başlığın altında tek bir satır söyler ve ihtiyaç düğmeleri kapanır; tür, geri, "Vazgeç" ve "Ben de gördüm"
+/// açık kalır. Engel ilk dokunuştan (tür seçimi) itibaren görünür.
+///
 /// Aynı panel düzeltmede de kullanılır ("İşareti düzelt"): iğne işaretin üstündedir, tür ve ihtiyaç yeniden
 /// seçilir, ihtiyaca dokununca düzeltme kaydedilir.
 struct ReportPanel: View {
@@ -16,7 +20,7 @@ struct ReportPanel: View {
     let duplicatePrompt: String?
     /// "3 yeni işaret hakkın kaldı" / "Yeni işaret hakkın saat 14.20'de açılır"; hak boldaysa `nil`.
     let allowanceText: String?
-    /// İhtiyaç seçildi, önce soru soruluyor ("Yardıma ihtiyacı var mı?" ya da uzaklık sorusu).
+    /// İhtiyaç seçildi, önce "Yardıma ihtiyacı var mı?" soruluyor.
     let pendingReport: MapViewModel.PendingReport?
     /// Düzeltilen işaret: şimdiki türü ve ihtiyacı işaretli görünür.
     let editingReport: Report?
@@ -26,20 +30,34 @@ struct ReportPanel: View {
     let isEditTargetTooFar: Bool
     /// Düzeltmede "İşareti sil" gösterilsin mi.
     let canRetract: Bool
+    /// İğne şimdi kaydedilebilir mi; değilse neden.
+    let placementVerdict: PlacementVerdict
+    /// Düzeltmede iğne işaretin yerinden kaydırıldı.
+    let isEditingPinMoved: Bool
+    /// Kullanılabilir konum var ve iğne ondan uzakta.
+    let canRecenterPin: Bool
+    /// "Yanlış mı? Bize yaz" e-postası; iletişim adresi yoksa `nil` (düğme gösterilmez).
+    let reportWrongURL: URL?
     let onSpecies: (Species) -> Void
     let onNeed: (Need) -> Void
     /// Öneriye dokunuldu: bekleyen işarette "Hâlâ orada", "… dendi" işaretinde itiraz.
     let onDuplicate: (Report) -> Void
     /// "Hayır, başka bir hayvan"
     let onDismissDuplicate: () -> Void
-    /// "Yardıma ihtiyacı var, işaretle" / "Evet, orada gördüm"
+    /// "Yardıma ihtiyacı var, işaretle"
     let onConfirmPending: () -> Void
-    /// "Sağlıklı görünüyor, vazgeç" / "İğneyi düzelt"
+    /// "Sağlıklı görünüyor, vazgeç"
     let onCancelPending: () -> Void
     /// "İşareti sil" (onay ayrıca sorulur).
     let onRetract: () -> Void
+    /// "İğneyi konumuma getir"
+    let onRecenterPin: () -> Void
+    /// "İğneyi eski yerine getir"
+    let onRestorePin: () -> Void
     let onBack: () -> Void
     let onCancel: () -> Void
+
+    @Environment(\.openURL) private var openURL
 
     /// İhtiyaç ızgarasının üstündeki tek satır: sağlıklı sokak hayvanı işaretlenmez.
     static let needGuidance = "Yalnızca yardıma ihtiyacı varsa işaretle. Sağlıklı sokak hayvanları işaretlenmez."
@@ -105,17 +123,22 @@ struct ReportPanel: View {
                 }
                 // Soru açıkken iğne sabittir (harita kaydırılamaz); ipucu gösterilmez.
                 if pendingReport == nil {
-                    Text(isEditing ? MapViewModel.editPanelSubtitle : "İğneyi ayarlamak için haritayı kaydır")
+                    Text(isEditing ? MapViewModel.editPanelSubtitle : MapViewModel.placementPanelSubtitle)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
+                // Tek ileti yeri: düzeltmede önce ~200 m sınırı, sonra kapının kararı.
                 if isEditing && isEditTargetTooFar {
                     Label(ReportError.editTooFar.errorDescription ?? "Konum en fazla 200 m kaydırılabilir.",
                           systemImage: "exclamationmark.triangle.fill")
                         .font(.footnote.weight(.medium))
                         .foregroundStyle(.orange)
                         .accessibilityIdentifier("edit-too-far")
+                } else if pendingReport == nil, let message = Messages.placementMessage(placementVerdict, isEditing: isEditing) {
+                    placementMessage(message)
                 }
+                placementButtons
                 if let allowanceText {
                     // Hak az kaldığında: son işaretten sonra sınır bildirimi sürpriz olmasın.
                     Label(allowanceText, systemImage: "hourglass")
@@ -150,6 +173,81 @@ struct ReportPanel: View {
         case .browsing, .choosingSpecies:
             return "Hangi hayvan?"
         }
+    }
+
+    // MARK: Nereye işaret konabilir
+
+    /// Kapının tek satırı: turuncu uyarı; konum beklenirken dönen gösterge ve soluk metin.
+    private func placementMessage(_ message: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 6) {
+            if case .locating = placementVerdict {
+                ProgressView()
+                    .controlSize(.small)
+                Text(message)
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Label(message, systemImage: "exclamationmark.triangle.fill")
+                    .font(.footnote.weight(.medium))
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .padding(.top, 2)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("placement-message")
+    }
+
+    /// İletinin altındaki düğmeler (iletiyle birleşmez, ayrı ayrı basılır).
+    @ViewBuilder
+    private var placementButtons: some View {
+        if pendingReport == nil {
+            let isAreaBlock = placementVerdict.isAreaBlock
+            let showsSettings = placementVerdict == .needsPermission || placementVerdict == .approximateOnly
+            let showsRecenter = !isEditing && canRecenterPin && (placementVerdict == .tooFar || isAreaBlock)
+            // Düzeltmede kaydırılan iğne engeldeyse eski yerine dönmek her engeli kaldırır.
+            let showsRestore = isEditing && isEditingPinMoved && (placementVerdict != .ready || isEditTargetTooFar)
+            let wrongURL = isAreaBlock ? reportWrongURL : nil
+            if showsSettings || showsRecenter || showsRestore || wrongURL != nil {
+                VStack(alignment: .leading, spacing: 6) {
+                    if showsSettings {
+                        placementButton(Messages.openSettingsTitle, systemImage: "gear") {
+                            if let url = URL(string: UIApplication.openSettingsURLString) {
+                                openURL(url)
+                            }
+                        }
+                        .accessibilityIdentifier("placement-settings")
+                    }
+                    if showsRecenter {
+                        placementButton(Messages.recenterPinTitle, systemImage: "location.fill", action: onRecenterPin)
+                            .accessibilityIdentifier("placement-recenter")
+                    }
+                    if showsRestore {
+                        placementButton(Messages.restorePinTitle, systemImage: "arrow.uturn.backward", action: onRestorePin)
+                            .disabled(isSaving)
+                            .accessibilityIdentifier("edit-restore-pin")
+                    }
+                    if let wrongURL {
+                        placementButton(Messages.reportWrongBlockTitle, systemImage: "envelope") {
+                            openURL(wrongURL)
+                        }
+                        .accessibilityIdentifier("placement-report-wrong")
+                    }
+                }
+                .padding(.top, 4)
+            }
+        }
+    }
+
+    private func placementButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .font(.footnote.weight(.semibold))
+        }
+        .buttonStyle(.bordered)
+        .buttonBorderShape(.capsule)
+        .controlSize(.small)
     }
 
     // MARK: Tür
@@ -273,17 +371,14 @@ struct ReportPanel: View {
 
     // MARK: Kaydetmeden önceki soru
 
-    /// "Yardıma ihtiyacı var mı?" ya da "İğne bulunduğun yerden 2,4 km uzakta. …": ızgaranın yerinde, iki düğme.
-    /// Hiçbiri işaretlemeyi engellemez; öne çıkan düğme işaretler.
+    /// "Yardıma ihtiyacı var mı?": ızgaranın yerinde, iki düğme. İşaretlemeyi engellemez; öne çıkan düğme işaretler.
     private func pendingQuestion(_ pending: MapViewModel.PendingReport) -> some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top, spacing: 10) {
                 NeedBadge(need: pending.need, size: 32)
                 VStack(alignment: .leading, spacing: 4) {
-                    if let title = pending.title {
-                        Text(title)
-                            .font(.headline)
-                    }
+                    Text(pending.title)
+                        .font(.headline)
                     Text(pending.message)
                         .font(.subheadline)
                         .fixedSize(horizontal: false, vertical: true)
@@ -402,8 +497,9 @@ struct ReportPanel: View {
                 }
             }
         }
-        .disabled(isSaving)
-        .opacity(isSaving ? 0.6 : 1)
+        // Engel başlıktaki satırda söylenir; düğmeler soluk ve kapalı.
+        .disabled(placementVerdict != .ready || isSaving)
+        .opacity(placementVerdict != .ready ? 0.4 : (isSaving ? 0.6 : 1))
     }
 }
 
@@ -446,7 +542,10 @@ private extension ReportPanel {
         pendingReport: MapViewModel.PendingReport? = nil,
         editingReport: Report? = nil,
         isEditTargetTooFar: Bool = false,
-        canRetract: Bool = false
+        canRetract: Bool = false,
+        placementVerdict: PlacementVerdict = .ready,
+        isEditingPinMoved: Bool = false,
+        canRecenterPin: Bool = false
     ) {
         self.init(
             mode: mode,
@@ -458,6 +557,10 @@ private extension ReportPanel {
             isSavingEdit: false,
             isEditTargetTooFar: isEditTargetTooFar,
             canRetract: canRetract,
+            placementVerdict: placementVerdict,
+            isEditingPinMoved: isEditingPinMoved,
+            canRecenterPin: canRecenterPin,
+            reportWrongURL: nil,
             onSpecies: { _ in },
             onNeed: { _ in },
             onDuplicate: { _ in },
@@ -465,6 +568,8 @@ private extension ReportPanel {
             onConfirmPending: {},
             onCancelPending: {},
             onRetract: {},
+            onRecenterPin: {},
+            onRestorePin: {},
             onBack: {},
             onCancel: {}
         )
@@ -494,17 +599,19 @@ private extension ReportPanel {
     .padding()
 }
 
-#Preview("Uzaklık sorusu") {
-    ReportPanel(
-        mode: .choosingNeed(.dog),
-        pendingReport: MapViewModel.PendingReport(
-            species: .dog,
-            need: .injured,
-            coordinate: Coordinate(latitude: 40.99, longitude: 29.03),
-            step: .distance(meters: 2400)
-        )
-    )
-    .padding()
+#Preview("Çevrenin dışında") {
+    ReportPanel(mode: .choosingNeed(.dog), placementVerdict: .tooFar, canRecenterPin: true)
+        .padding()
+}
+
+#Preview("Konum bulunuyor") {
+    ReportPanel(mode: .choosingSpecies, placementVerdict: .locating(slow: false))
+        .padding()
+}
+
+#Preview("Orman") {
+    ReportPanel(mode: .choosingNeed(.cat), placementVerdict: .forest, canRecenterPin: true)
+        .padding()
 }
 
 #Preview("İşareti düzelt") {

@@ -24,8 +24,13 @@
 	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSLocationTemporaryUsageDescriptionDictionary</key>
+	<dict>
+		<key>PlaceReport</key>
+		<string>İşaretin bulunduğun yerin yakınına konduğunu doğrulamak için tam konum gerekiyor.</string>
+	</dict>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Yardıma ihtiyacı olan hayvanı bulunduğun noktada hızlıca işaretleyebilmen ve yakındaki işaretleri görebilmen için konumun kullanılır.</string>
+	<string>Yardıma ihtiyacı olan hayvanı bulunduğun yerin yakınına işaretleyebilmen, yakındaki işaretleri görebilmen ve yanından geçtiğin işaretler için 'Hâlâ orada mı?' diye sorulabilmesi için konumun kullanılır. Konumun sürekli olarak sunucuya gönderilmez.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -3,14 +3,14 @@ import Foundation
 import Observation
 
 /// Yalnızca bu cihazda tutulan küçük durum: kabul edilen kurallar, "Yardıma ihtiyacı var mı?" sayaçları,
-/// kişinin haritasından kaldırdığı işaretler, gece hatırlatmasının son gösterimi, ilk gidişteki güvenlik uyarısı
-/// ve engel bilgisi.
+/// kişinin haritasından kaldırdığı işaretler, gece hatırlatmasının son gösterimi, ilk gidişteki güvenlik uyarısı,
+/// engel bilgisi ve "Hâlâ orada mı?" kaydı (sorulan işaretler, sıklık).
 ///
 /// `UserDefaults`'ta saklanır. `defaults` `nil` ise (`-demo` argümanı, arayüz testi) hiçbir şey saklanmaz: test
 /// her seferinde ilk açılıştaki gibi başlar. `persistsReports` `false` ise (plist'siz demo derlemesi, ör. TestFlight)
 /// cihaza ait olanlar (kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması, güvenlik uyarısı) saklanır;
-/// işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri) ve demo kimliğinin engel bilgisi yalnızca
-/// bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta yeniden kullanılır.
+/// işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri, "Hâlâ orada mı?" kaydı) ve demo
+/// kimliğinin engel bilgisi yalnızca bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta yeniden kullanılır.
 @MainActor
 @Observable
 final class DeviceState {
@@ -31,6 +31,8 @@ final class DeviceState {
         static let nightReminderShownAt = "nightReminder.shownAt"
         static let goSafetyTipShown = "goSafetyTip.shown"
         static let knownBanned = "banned.known"
+        static let nearbyAsked = "nearbyPrompt.asked.v1"
+        static let nearbyLog = "nearbyPrompt.log.v1"
     }
 
     /// Kabul edilen kurallar sürümü (`AppInfo.termsVersion`); hiç kabul edilmediyse 0.
@@ -46,6 +48,10 @@ final class DeviceState {
     @ObservationIgnored private(set) var goSafetyTipShown = false
     /// Son bakıldığında bu kimlik engelliydi: açılışta yeniden bakılır.
     @ObservationIgnored private(set) var knownBanned = false
+    /// "Hâlâ orada mı?" sorulan işaretler ve soruldukları an: aynı işaret bir daha sorulmaz.
+    @ObservationIgnored private var nearbyAsked: [String: Date] = [:]
+    /// "Hâlâ orada mı?" sıklığı (son 24 saatin gösterimleri, yanıtsız serisi, sessizlik).
+    @ObservationIgnored private var nearbyLog = NearbyPrompt.Log()
 
     /// Cihaza ait olanlar: kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması, güvenlik uyarısı.
     private let defaults: UserDefaults?
@@ -63,6 +69,8 @@ final class DeviceState {
         recentReports = Self.decode([RecentReport].self, from: reportDefaults?.data(forKey: Key.recentReports)) ?? []
         hiddenReports = Self.decode([String: Date].self, from: reportDefaults?.data(forKey: Key.hiddenReports)) ?? [:]
         knownBanned = reportDefaults?.bool(forKey: Key.knownBanned) ?? false
+        nearbyAsked = Self.decode([String: Date].self, from: reportDefaults?.data(forKey: Key.nearbyAsked)) ?? [:]
+        nearbyLog = Self.decode(NearbyPrompt.Log.self, from: reportDefaults?.data(forKey: Key.nearbyLog)) ?? NearbyPrompt.Log()
         prune(at: now)
     }
 
@@ -134,6 +142,33 @@ final class DeviceState {
         reportDefaults?.set(banned, forKey: Key.knownBanned)
     }
 
+    // MARK: "Hâlâ orada mı?"
+
+    /// Daha önce sorulan işaretler (`NearbyPrompt.askedRetention` içinde).
+    func nearbyAskedIDs(at now: Date) -> Set<String> {
+        Set(NearbyPrompt.prunedAsked(nearbyAsked, at: now).keys)
+    }
+
+    /// Soru gösterildiği an işaret "soruldu" sayılır: yanıtlanmasa da bir daha sorulmaz.
+    func markNearbyAsked(_ reportID: String, at now: Date) {
+        nearbyAsked[reportID] = now
+        nearbyAsked = NearbyPrompt.prunedAsked(nearbyAsked, at: now)
+        save(nearbyAsked, forKey: Key.nearbyAsked)
+    }
+
+    func nearbyPromptLog(at now: Date) -> NearbyPrompt.Log {
+        nearbyLog.pruned(at: now)
+    }
+
+    /// Gösterim, yanıt, yanıtsız kalma (3 kez üst üste: 7 gün sessizlik) ya da kesilme.
+    func recordNearbyPrompt(_ result: NearbyPrompt.Result, at now: Date) {
+        var log = nearbyLog
+        log.record(result, at: now)
+        guard log != nearbyLog else { return }
+        nearbyLog = log
+        save(nearbyLog, forKey: Key.nearbyLog)
+    }
+
     // MARK: Saklama
 
     private func prune(at now: Date) {
@@ -146,6 +181,16 @@ final class DeviceState {
         if hidden.count != hiddenReports.count {
             hiddenReports = hidden
             save(hiddenReports, forKey: Key.hiddenReports)
+        }
+        let asked = NearbyPrompt.prunedAsked(nearbyAsked, at: now)
+        if asked.count != nearbyAsked.count {
+            nearbyAsked = asked
+            save(nearbyAsked, forKey: Key.nearbyAsked)
+        }
+        let log = nearbyLog.pruned(at: now)
+        if log != nearbyLog {
+            nearbyLog = log
+            save(nearbyLog, forKey: Key.nearbyLog)
         }
     }
 

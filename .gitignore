@@ -20,3 +20,6 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 .firebase/
+
+# Alan ızgarasının ham verisi (GB boyutunda; önbellek normalde depo dışında durur, bkz. tools/area-grid/README.md)
+tools/area-grid/cache/
