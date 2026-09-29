@@ -5,14 +5,17 @@ import XCTest
 /// kurallar → harita → "Yardım gereken hayvan" → tür → ihtiyaç → "Yardıma ihtiyacı var mı?" → işarete dokun →
 /// "Düzenle" ile tür ve ihtiyaç düzeltilir → "İlgileniyorum" → "Hâlâ orada" ile gören sayısı artar →
 /// "Aynı hayvan mı?" önerisi → uzak bir yere uzun basma reddedilir → çevrede uzun basma → iğneyi çevrenin dışına
-/// sürükleme → "İğneyi konumuma getir" → yoldan geçen "Çözüldü" der → "… 'Çözüldü' dedi" kartı →
-/// "Hâlâ yardım gerekiyor" itirazı → "Aç ve zayıf" işaretinde "⋯ Diğer" → "Yardım gerekmiyor" → "⋯ Diğer" ile
-/// işareti bildirme. Ayrı testler: orman ve deniz engeli, yanından geçilen işaret için "Hâlâ orada mı?". Her adımın
-/// ekran görüntüsü test sonucuna, `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
+/// sürükleme → "İğneyi konumuma getir" → yoldan geçen "Çözüldü" der → "… 'Çözüldü' dedi" kartı (uzakta itiraz
+/// kapalı) → yanına gidip "Hâlâ yardım gerekiyor" itirazı → "Aç ve zayıf" işaretinin yanında "⋯ Diğer" →
+/// "Yardım gerekmiyor" → "⋯ Diğer" ile işareti bildirme. Ayrı testler: orman ve deniz engeli, yanından geçilen
+/// işaret için "Hâlâ orada mı?", uzaktaki işarette kapalı "Çözüldü". Her adımın ekran görüntüsü test sonucuna,
+/// `SCREENSHOT_DIR` tanımlıysa (CI) o klasöre de yazılır.
 ///
 /// Düğmeler görünen metinleri yerine kimlikleriyle bulunur (`report-button`, `need-food`, `action-…`); metinler
 /// değişse de test aynı akışı dener. Kart, açılırken hayvana yakın olup olmadığına göre bazı eylemleri döşeme,
-/// bazılarını "⋯ Diğer" menüsünde gösterir; `cardAction` ikisinde de bulur.
+/// bazılarını "⋯ Diğer" menüsünde gösterir; `cardAction` ikisinde de bulur. "Çözüldü" ve hayvanı gördüğünü söyleyen
+/// eylemler yalnızca hayvanın 150 m (+ doğruluk) yakınındayken açıktır (`ProximityPolicy`): yaralı kedi başlangıç
+/// konumuna ~145 m, diğer örnekler daha uzak; test o adımlardan önce simülatör konumunu hayvanın yanına taşır.
 ///
 /// İşaret yalnızca konumun çevresine konabildiği için testler simülatör konumunu verir (`launchDemoApp`); demo
 /// modu simülatörde okumanın yaşını saymaz. Alan verisinden bağımsız olsun diye her nokta `-areaClass` ile aynı
@@ -273,13 +276,19 @@ final class ReportFlowUITests: XCTestCase {
             ))
             .firstMatch
         XCTAssertTrue(closingStatus.waitForExistence(timeout: 5), "Kartta \"'Çözüldü' dedi · doğrulanmadı\" görünmedi")
+        // Köpek 150 m çevrenin dışında: "Hâlâ yardım gerekiyor" yerinde durur ama kapalıdır; altında "Hayvanın
+        // yanındayken (150 m)" yazar, sesli okumada da değeri budur.
+        let dispute = app.buttons["action-dispute"]
+        XCTAssertTrue(dispute.waitForExistence(timeout: 5), "Hâlâ yardım gerekiyor düğmesi yok")
+        XCTAssertTrue(waitForEnabled(dispute, false), "Uzaktaki işarette 'Hâlâ yardım gerekiyor' açık")
+        XCTAssertEqual(dispute.value as? String, "Hayvanın yanındayken (150 m)", "Kapalı itirazın nedeni okunmuyor")
         sleep(1)
         screenshots.take("14-cozuldu-dendi-karti")
 
-        // "Hâlâ yardım gerekiyor": önce onay sorulur (yalnızca hayvanı şimdi gördüysen), sonra işaret
-        // yeniden yardım bekler.
-        let dispute = app.buttons["action-dispute"]
-        XCTAssertTrue(dispute.waitForExistence(timeout: 5), "Hâlâ yardım gerekiyor düğmesi yok")
+        // Kişi köpeğin yanına yürür: kart açıkken düğme açılır. "Hâlâ yardım gerekiyor": önce onay sorulur
+        // (yalnızca hayvanı şimdi gördüysen), sonra işaret yeniden yardım bekler.
+        moveSimulatedLocation(north: -260, east: 20)
+        XCTAssertTrue(waitForEnabled(dispute, true), "Köpeğin yanına gidince 'Hâlâ yardım gerekiyor' açılmadı")
         dispute.tap()
         let confirmDispute = app.buttons["Evet, hâlâ yardım gerekiyor"]
         XCTAssertTrue(confirmDispute.waitForExistence(timeout: 5), "İtiraz onayı sorulmadı")
@@ -297,16 +306,22 @@ final class ReportFlowUITests: XCTestCase {
         XCTAssertTrue(reportButton.waitForExistence(timeout: 5), "Kart kapanınca ana ekrana dönülmedi")
 
         // "Aç ve zayıf" işaretindeki hayvan iyi görünüyor: "⋯ Diğer" → "Yardım gerekmiyor" (alt satırı "Hayvan orada
-        // ama iyi görünüyor"). Demo verisindeki tek "Aç ve zayıf" işareti köpek, kullanıcının ~250 m güneydoğusunda.
+        // ama iyi görünüyor"). Demo verisindeki tek "Aç ve zayıf" işareti köpek, başlangıç konumunun ~250 m
+        // güneydoğusunda. Bunu söylemek için yanında olmak gerekir: kişi köpeğin ~60 m batısına yürür (mavi nokta
+        // işaretin üstüne binmesin, dokunuş ıskalamasın).
+        moveSimulatedLocation(north: -200, east: 90)
+        // Yeni konum uygulamaya ulaşsın; "Konumuma git" onun üstüne döner.
+        sleep(1)
         recenter.tap()
         sleep(2)
         let foodDog = mapMarker(in: app, label: "Aç ve zayıf, Köpek")
         XCTAssertTrue(foodDog.waitForExistence(timeout: 10), "Örnek 'Aç ve zayıf' işareti haritada bulunamadı")
         foodDog.tap()
+        // Yakında "Hâlâ yardım lazım" döşemededir (uzakta menüde); `cardAction` ikisinde de bulur.
         let stillNeeds = cardAction(app, id: "action-confirmStillThere", labelPrefix: "Hâlâ yardım lazım")
         XCTAssertTrue(stillNeeds.waitForExistence(timeout: 5), "'Aç ve zayıf' kartında 'Hâlâ yardım lazım' yok")
         XCTAssertTrue(stillNeeds.label.hasPrefix("Hâlâ yardım lazım"), "Öğe 'Hâlâ yardım lazım' demiyor: \(stillNeeds.label)")
-        // Menü açık kalır; "Yardım gerekmiyor" ve "Artık yok" ayrı öğelerdir, soru sorulmadan yapılır.
+        // "Yardım gerekmiyor" ve "Artık yok" menüde ayrı öğelerdir, soru sorulmadan yapılır.
         let fine = cardAction(app, id: "unneeded-fine", labelPrefix: "Yardım gerekmiyor")
         XCTAssertTrue(fine.waitForExistence(timeout: 5), "'Aç ve zayıf' kartında 'Yardım gerekmiyor' yok")
         // Alt satır ("Hayvan orada ama iyi görünüyor") ekranda görünür, ama iOS menü öğesinin alt yazısını
@@ -321,8 +336,11 @@ final class ReportFlowUITests: XCTestCase {
         sleep(1)
         screenshots.take("17-yardim-gerekmiyor")
 
-        // Şüpheli bir işaret kartın "⋯ Diğer" menüsünden bildirilir; neden sabit listeden seçilir. İşaret yalnızca
-        // bildirenin haritasından kalkar. Acil köpek kullanıcının ~260 m batısında, ekranın sol yarısında.
+        // Şüpheli bir işaret kartın "⋯ Diğer" menüsünden bildirilir (bunun için yanında olmak gerekmez); neden sabit
+        // listeden seçilir. İşaret yalnızca bildirenin haritasından kalkar. Kişi başladığı yere döner: acil köpek
+        // ~260 m batıda, ekranın sol yarısında.
+        setSimulatedLocation(Self.kadikoy)
+        sleep(1)
         recenter.tap()
         sleep(2)
         let emergencyDog = mapMarker(in: app, label: "Acil yardım, Köpek")
@@ -475,6 +493,50 @@ final class ReportFlowUITests: XCTestCase {
         let cleaner = app.staticTexts.element(labelContaining: "daha temiz")
         XCTAssertTrue(cleaner.waitForExistence(timeout: 5), "'Yardım gerekmiyor' bildirimi görünmedi")
         XCTAssertTrue(waitUntilGone(foodDog, timeout: 5), "'Yardım gerekmiyor' deyince işaret haritadan kalkmadı")
+    }
+
+    // MARK: Uzaktan "Çözüldü" denemez
+
+    /// "İlgileniyorum" uzaktan da denir, "Çözüldü" ise yalnızca hayvanın yanındayken (ya da son 12 saatte yanına
+    /// uğradıysa). Uzaktaki köpeğe "İlgileniyorum" diyen kişinin birincil "Çözüldü"sü kapalıdır ve altında "Hayvanın
+    /// yanına gidince açılır" yazar; yanına yürüyünce kart açıkken açılır.
+    @MainActor
+    func testResolveNeedsVisit() throws {
+        let app = launchDemoApp()
+        let screenshots = Screenshots(test: self)
+        acceptOnboarding(app)
+
+        let reportButton = app.buttons["report-button"]
+        XCTAssertTrue(reportButton.waitForExistence(timeout: 30), "Ana ekran açılmadı")
+        sleep(4)
+        // Demo örneği kullanıcının ~250 m güneydoğusunda (200 m güney, 150 m doğu): 150 m çevrenin dışında.
+        let foodDog = mapMarker(in: app, label: "Aç ve zayıf, Köpek")
+        XCTAssertTrue(foodDog.waitForExistence(timeout: 10), "Örnek 'Aç ve zayıf' işareti haritada bulunamadı")
+        foodDog.tap()
+
+        let claim = app.buttons["action-claim"]
+        XCTAssertTrue(claim.waitForExistence(timeout: 5), "Kartta 'İlgileniyorum' yok")
+        claim.tap()
+        let thanks = app.staticTexts.element(labelContaining: "3 saat boyunca sende")
+        XCTAssertTrue(thanks.waitForExistence(timeout: 5), "İlgileniyorum onayı görünmedi")
+
+        // İlgilenenin sıradaki adımı "Çözüldü": yerinde, kapalı, nedeni altında ve sesli okumada değer olarak.
+        let resolve = app.buttons["action-resolve"]
+        XCTAssertTrue(resolve.waitForExistence(timeout: 5), "İlgilenenin kartında 'Çözüldü' yok")
+        XCTAssertTrue(waitForEnabled(resolve, false), "Uzaktaki işarette 'Çözüldü' açık")
+        XCTAssertEqual(resolve.value as? String, "Hayvanın yanına gidince açılır", "Kapalı 'Çözüldü'nün nedeni okunmuyor")
+        sleep(1)
+        screenshots.take("24-uzakta-cozuldu-kapali")
+
+        // Köpeğin ~60 m batısına yürür.
+        moveSimulatedLocation(north: -200, east: 90)
+        XCTAssertTrue(waitForEnabled(resolve, true), "Hayvanın yanına gidince 'Çözüldü' açılmadı")
+        sleep(1)
+        screenshots.take("25-yaninda-cozuldu-acik")
+
+        resolve.tap()
+        let recorded = app.staticTexts.element(labelContaining: "Yardımın kaydedildi")
+        XCTAssertTrue(recorded.waitForExistence(timeout: 5), "Çözüldü bildirimi görünmedi")
     }
 
     // MARK: Yardımcılar

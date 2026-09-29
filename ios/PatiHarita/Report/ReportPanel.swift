@@ -13,7 +13,8 @@ import SwiftUI
 /// seçilir, ihtiyaca dokununca düzeltme kaydedilir.
 struct ReportPanel: View {
     let mode: MapViewModel.Mode
-    /// İğnenin yakınındaki aynı türden işaret; varsa ihtiyaçların üstünde "Ben de gördüm" önerilir.
+    /// İğnenin yakınındaki aynı türden işaret; varsa ihtiyaçların üstünde "Ben de gördüm" önerilir. Yalnızca
+    /// hayvanın yanındayken verilir (`ProximityPolicy`); bu yüzden öneri hiç kapalı görünmez.
     let duplicate: Report?
     /// Öneri bir "… dendi" işaretiyse sorulacak soru ("Burada 2 sa önce bir kedi için 'Çözüldü' dendi. …");
     /// bekleyen işarette `nil`.

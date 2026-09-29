@@ -19,7 +19,7 @@ public enum CardItem: Hashable, Sendable {
 }
 
 /// Kartın düzeni: en fazla bir birincil düğme, en fazla iki döşeme ve "⋯ Diğer" menüsünün üç bölümü.
-/// Her öğe tam bir kez yer alır (bkz. `CardLayout.plan`).
+/// Her öğe tam bir kez yer alır (bkz. `CardLayout.plan`); kapalı öğeler de yerinde durur.
 public struct CardPlan: Equatable, Sendable {
     /// Dolu, büyük düğme: kişinin sıradaki adımı.
     public var primary: ReportAction?
@@ -31,23 +31,39 @@ public struct CardPlan: Equatable, Sendable {
     public var more: [CardItem]
     /// Menünün son bölümü: bildir, gizle, e-posta. İşareti koyana boş kalır.
     public var moderation: [CardItem]
+    /// Kartta yer alan ama şimdi basılamayan eylemler (`ProximityPolicy`): görünür kalır, kapalı gösterilir.
+    /// Birincil düğme de olabilir.
+    public var disabled: Set<ReportAction>
 
     public init(
         primary: ReportAction? = nil,
         tiles: [CardItem] = [],
         observe: [CardItem] = [],
         more: [CardItem] = [],
-        moderation: [CardItem] = []
+        moderation: [CardItem] = [],
+        disabled: Set<ReportAction> = []
     ) {
         self.primary = primary
         self.tiles = tiles
         self.observe = observe
         self.more = more
         self.moderation = moderation
+        self.disabled = disabled
     }
 
     /// Menüdeki bütün öğeler, bölüm sırasıyla.
     public var menuItems: [CardItem] { observe + more + moderation }
+
+    /// Eylem şimdi basılabilir mi?
+    public func isEnabled(_ action: ReportAction) -> Bool {
+        !disabled.contains(action)
+    }
+
+    /// Öğe şimdi basılabilir mi? Eylem dışındaki öğeler (Yol tarifi, Düzenle, bildir …) hep açıktır.
+    public func isEnabled(_ item: CardItem) -> Bool {
+        guard case .action(let action) = item else { return true }
+        return isEnabled(action)
+    }
 }
 
 /// Kartta hangi öğenin nerede duracağı. Saf mantıktır: yakınlığı ve izinleri uygulama verir.
@@ -61,9 +77,10 @@ public struct CardPlan: Equatable, Sendable {
 ///      uzakta Yol tarifi (yalnızca sahiplik bayatsa ya da birincil düğme varsa)
 ///   5. yardım bekliyor: yakında Hâlâ orada, uzakta Yol tarifi
 /// - Kalan her şey "⋯ Diğer" menüsüne. Mama işaretinde "Yardım gerekmiyor" ile "Artık yok" ayrı durur.
+/// - Yakınlık kapısından (`ProximityPolicy`) geçmeyen eylemler yerinde kalır, `CardPlan.disabled`a girer.
 ///
 /// Değişmez kural: `expire` dışındaki her açık eylem, Yol tarifi ve izin verilen Düzenle, Konumu paylaş,
-/// bildir, gizle ve e-posta kartta tam bir kez yer alır.
+/// bildir, gizle ve e-posta kartta tam bir kez yer alır; kapalı olanlar da.
 public enum CardLayout {
     /// "Yakın": hayvana en fazla bu kadar metre ...
     public static let nearRadius: Double = 100
@@ -88,9 +105,11 @@ public enum CardLayout {
 
     /// Kartın düzeni. `userID` yoksa hiçbir eylem sunulmaz; Yol tarifi yine vardır.
     ///
-    /// - `isNear`: kart açılırken ölçülen yakınlık (`isNear(distance:accuracy:fixAge:)`).
+    /// - `isNear`: kart açılırken ölçülen yakınlık (`isNear(distance:accuracy:fixAge:)`); yalnızca döşemeleri seçer.
     /// - `canEdit`: `ReportLifecycle.canEdit`. `canShare`: Konumu paylaş sunulsun mu.
     /// - `canFlag`: bildir ve gizle (işareti koyana hiç). `hasMail`: e-posta adresi var mı (yalnızca `canFlag` iken).
+    /// - `presence`: şimdiki okumayla yakınlık ve son uğrama (`ProximityPolicy`); yalnızca `disabled`ı belirler,
+    ///   hiçbir öğenin yerini değiştirmez.
     public static func plan(
         for report: Report,
         userID: String?,
@@ -99,7 +118,8 @@ public enum CardLayout {
         canEdit: Bool,
         canShare: Bool,
         canFlag: Bool,
-        hasMail: Bool
+        hasMail: Bool,
+        presence: ProximityPolicy.Presence
     ) -> CardPlan {
         let offered = userID.map { ReportLifecycle.availableActions(for: report, userID: $0, at: now) } ?? []
         let available = offered.filter { $0 != .expire }
@@ -134,7 +154,24 @@ public enum CardLayout {
         if canFlag {
             moderation = hasMail ? [.flag, .hide, .mail] : [.flag, .hide]
         }
-        return CardPlan(primary: primary, tiles: tiles, observe: observe, more: more, moderation: moderation)
+        let disabled = available.filter {
+            !ProximityPolicy.allowed(
+                action: $0,
+                report: report,
+                userID: userID,
+                isNear: presence.isNear,
+                lastNearAt: presence.lastNearAt,
+                now: now
+            )
+        }
+        return CardPlan(
+            primary: primary,
+            tiles: tiles,
+            observe: observe,
+            more: more,
+            moderation: moderation,
+            disabled: Set(disabled)
+        )
     }
 
     /// Döşemeler: yalnızca `available`daki eylemler ve izin verilen öğeler, en fazla iki.

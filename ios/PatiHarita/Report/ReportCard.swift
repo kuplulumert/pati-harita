@@ -5,7 +5,8 @@ import SwiftUI
 /// bildirdiğini söyler; durum bloğu yalnızca varsayılandan ("yardım bekliyor") farklı durumlarda çıkar.
 /// En fazla üç düğme görünür: birincil, kart açılırken ölçülen yakınlığa göre bir döşeme (ilgilenene acil, yaralı
 /// ve yavruda iki) ve "⋯ Diğer" menüsü. Hangi öğenin nerede duracağını `CardLayout.plan` seçer; her öğe tam bir
-/// kez yer alır. Hüküm vermez; ne olduğunu söyler.
+/// kez yer alır. Hayvanın yanında olmayı isteyen öğeler (`CardPlan.disabled`) yerinde kalır, soluk ve kapalıdır;
+/// altlarında nedeni yazar. Hüküm vermez; ne olduğunu söyler.
 struct ReportCard: View {
     let report: Report
     let userID: String?
@@ -235,32 +236,47 @@ struct ReportCard: View {
         }
     }
 
+    /// Kapalıysa (hayvanın yanında değil) soluk ve altında "Hayvanın yanına gidince açılır"; kimliği aynı kalır,
+    /// neden sesli okumada değer olarak söylenir.
     private func primaryButton(_ action: ReportAction) -> some View {
-        Button {
-            onAction(action)
-        } label: {
-            HStack(spacing: 8) {
-                if busyAction == action {
-                    ProgressView().tint(.white)
-                } else {
-                    Image(systemName: action.symbolName)
-                        .accessibilityHidden(true)
+        let isEnabled = plan.isEnabled(action)
+        return VStack(spacing: 6) {
+            Button {
+                onAction(action)
+            } label: {
+                HStack(spacing: 8) {
+                    if busyAction == action {
+                        ProgressView().tint(.white)
+                    } else {
+                        Image(systemName: action.symbolName)
+                            .accessibilityHidden(true)
+                    }
+                    Text(title(for: action))
+                        .multilineTextAlignment(.center)
                 }
-                Text(title(for: action))
-                    .multilineTextAlignment(.center)
+                .font(.headline)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .frame(minHeight: 52)
+                .background(primaryColor(action), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .opacity(isEnabled ? 1 : 0.4)
             }
-            .font(.headline)
-            .foregroundStyle(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 52)
-            .background(primaryColor(action), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .buttonStyle(PressableStyle())
+            .disabled(busyAction != nil || !isEnabled)
+            .accessibilityValue(isEnabled ? "" : Messages.nearOnlyPrimaryCaption)
+            // Arayüz testi düğmeyi başlığı yerine bununla bulur (başlık kişiye göre değişir).
+            .accessibilityIdentifier("action-\(action.rawValue)")
+            if !isEnabled {
+                Text(Messages.nearOnlyPrimaryCaption)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity)
+                    .accessibilityHidden(true)
+            }
         }
-        .buttonStyle(PressableStyle())
-        .disabled(busyAction != nil)
-        // Arayüz testi düğmeyi başlığı yerine bununla bulur (başlık kişiye göre değişir).
-        .accessibilityIdentifier("action-\(action.rawValue)")
     }
 
     /// Döşemeler ve "⋯ Diğer" yan yana; erişilebilirlik yazı boyutlarında tam genişlikte alt alta.
@@ -285,10 +301,16 @@ struct ReportCard: View {
             Button {
                 onAction(action)
             } label: {
-                TileLabel(title: title(for: action), systemImage: action.symbolName, isBusy: busyAction == action)
+                TileLabel(
+                    title: title(for: action),
+                    systemImage: action.symbolName,
+                    isBusy: busyAction == action,
+                    caption: plan.isEnabled(action) ? nil : Messages.nearOnlySubtitle
+                )
             }
             .buttonStyle(PressableStyle())
-            .disabled(busyAction != nil)
+            .disabled(busyAction != nil || !plan.isEnabled(action))
+            .accessibilityValue(plan.isEnabled(action) ? "" : Messages.nearOnlySubtitle)
             .accessibilityIdentifier("action-\(action.rawValue)")
         case .directions:
             Button(action: onDirections) {
@@ -353,7 +375,8 @@ struct ReportCard: View {
         .accessibilityIdentifier("card-menu")
     }
 
-    /// Alt satırlı öğeler ne olacağını söyler ("Hayvan orada ama iyi görünüyor", "işaret hemen kalkar").
+    /// Alt satırlı öğeler ne olacağını söyler ("Hayvan orada ama iyi görünüyor", "işaret hemen kalkar"); kapalı
+    /// öğe bunun yerine nedenini ("Hayvanın yanındayken (150 m)").
     @ViewBuilder
     private func menuItem(_ item: CardItem) -> some View {
         switch item {
@@ -362,10 +385,12 @@ struct ReportCard: View {
                 onAction(action)
             } label: {
                 Label(title(for: action), systemImage: action.symbolName)
-                if let subtitle = Messages.menuSubtitle(for: action, on: report, userID: userID) {
+                if let subtitle = menuSubtitle(for: action) {
                     Text(subtitle)
                 }
             }
+            .disabled(!plan.isEnabled(action))
+            .accessibilityValue(plan.isEnabled(action) ? "" : Messages.nearOnlySubtitle)
             // "Yardım gerekmiyor" eski seçim düğmesinin kimliğini korur.
             .accessibilityIdentifier(action == .reportUnneeded ? "unneeded-fine" : "action-\(action.rawValue)")
         case .directions:
@@ -393,6 +418,12 @@ struct ReportCard: View {
                 .accessibilityIdentifier("menu-mail")
             }
         }
+    }
+
+    /// Menüdeki alt satır: kapalı öğede nedeni, açık öğede ne olacağı (`Messages.menuSubtitle`).
+    private func menuSubtitle(for action: ReportAction) -> String? {
+        guard plan.isEnabled(action) else { return Messages.nearOnlySubtitle }
+        return Messages.menuSubtitle(for: action, on: report, userID: userID)
     }
 
     private func menuTitle(for item: CardItem) -> String {
@@ -425,23 +456,38 @@ private struct TileLabel: View {
     let title: String
     let systemImage: String
     let isBusy: Bool
+    /// Kapalı döşemede nedeni ("Hayvanın yanındayken (150 m)"): simge ve başlık soluk, bu satır değil.
+    var caption: String? = nil
 
     var body: some View {
         VStack(spacing: 4) {
-            if isBusy {
-                ProgressView().frame(height: 20)
-            } else {
-                Image(systemName: systemImage)
-                    .font(.system(size: 17, weight: .semibold))
-                    .frame(height: 20)
+            Group {
+                if isBusy {
+                    ProgressView().frame(height: 20)
+                } else {
+                    Image(systemName: systemImage)
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(height: 20)
+                        .accessibilityHidden(true)
+                }
+                // Üç döşeme yan yana gelebilir ("Hâlâ yardım gerekiyor"); sığmazsa iki satır.
+                Text(title)
+                    .font(.caption.weight(.medium))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.9)
+            }
+            .opacity(caption == nil ? 1 : 0.4)
+            if let caption {
+                // Sesli okumada düğmenin değeri olarak söylenir.
+                Text(caption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
                     .accessibilityHidden(true)
             }
-            // Üç döşeme yan yana gelebilir ("Hâlâ yardım gerekiyor"); sığmazsa iki satır.
-            Text(title)
-                .font(.caption.weight(.medium))
-                .multilineTextAlignment(.center)
-                .lineLimit(2)
-                .minimumScaleFactor(0.9)
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 4)
@@ -493,8 +539,16 @@ private struct HeightCap: Layout {
 // MARK: Önizlemeler
 
 private extension ReportCard {
-    /// Önizlemeler için: "me" kullanıcısı, düzen `CardLayout.plan` ile.
-    init(preview report: Report, now: Date, distance: Double?, look: ClosingLook? = nil, isNear: Bool = false) {
+    /// Önizlemeler için: "me" kullanıcısı, düzen `CardLayout.plan` ile. `presence`: yakınlık kapısı (varsayılan:
+    /// hayvanın yanında, her şey açık).
+    init(
+        preview report: Report,
+        now: Date,
+        distance: Double?,
+        look: ClosingLook? = nil,
+        isNear: Bool = false,
+        presence: ProximityPolicy.Presence = .near
+    ) {
         self.init(
             report: report,
             userID: "me",
@@ -510,7 +564,8 @@ private extension ReportCard {
                 canEdit: ReportLifecycle.canEdit(report, by: "me", at: now),
                 canShare: MapViewModel.shareLocationNeeds.contains(report.need),
                 canFlag: report.reporterID != "me",
-                hasMail: false
+                hasMail: false,
+                presence: presence
             ),
             busyAction: nil,
             flagMailURL: nil,
@@ -556,6 +611,22 @@ private extension ReportCard {
     report = (try? ReportLifecycle.apply(.claim, to: report, by: "me", at: now.addingTimeInterval(-60))) ?? report
     // Döşemeler "Artık yok" ve "Konumu paylaş"; "İlgilenmeyi bırak" menüde.
     return ReportCard(preview: report, now: now, distance: 30, isNear: true)
+        .padding()
+}
+
+#Preview("Sen ilgileniyorsun, uzakta") {
+    let now = Date()
+    var report = ReportLifecycle.makeReport(
+        id: "preview-helper-far",
+        species: .dog,
+        need: .food,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "someone",
+        now: now.addingTimeInterval(-90 * 60)
+    )
+    report = (try? ReportLifecycle.apply(.claim, to: report, by: "me", at: now.addingTimeInterval(-60))) ?? report
+    // Hayvanın yanına hiç gitmedi: "Çözüldü" kapalı, altında "Hayvanın yanına gidince açılır".
+    return ReportCard(preview: report, now: now, distance: 250, presence: .away)
         .padding()
 }
 

@@ -25,8 +25,9 @@ Uygulama **hesap, ad, e-posta, telefon numarası, fotoğraf ya da açıklama ist
 **İşaretin konumu anonim kimliğinizle birlikte saklanır.** İşaret yalnızca bulunduğunuz yerin yaklaşık 150 m (konum
 doğruluğuna göre en fazla 225 m) çevresine konabilir; bu yüzden saklanan nokta, işareti koyduğunuz anda bulunduğunuz
 yere yakındır ve anonim kimliğinizle birlikte saklanır. Bunun dışında konumunuz yalnızca cihazınızda kullanılır:
-haritayı bulunduğunuz yere getirmek, işaretlere uzaklığı göstermek, iğnenin çevrenizde olup olmadığını denetlemek ve
-yanından geçtiğiniz işaretler için "Hâlâ orada mı?" diye sormak için. Orman, yerleşim yeri dışı ve deniz denetimi
+haritayı bulunduğunuz yere getirmek, işaretlere uzaklığı göstermek, iğnenin çevrenizde olup olmadığını denetlemek,
+"Çözüldü" gibi yanıtların hayvanın yanında verildiğini denetlemek ve yanından geçtiğiniz işaretler için "Hâlâ orada mı?"
+diye sormak için. Orman, yerleşim yeri dışı ve deniz denetimi
 uygulamanın içindeki haritayla cihazda yapılır; bunun için konumunuz hiçbir yere gönderilmez. Sürekli konumunuz
 sunucuya gönderilmez ve saklanmaz.
 
@@ -41,7 +42,8 @@ reklam, analitik ya da izleme (tracking) aracı içermez.
 
 Şu bilgiler **yalnızca cihazınızda** tutulur ve sunucuya gönderilmez: kuralları kabul ettiğiniz sürüm, son işaretlerinizin
 sayısı ("Yardıma ihtiyacı var mı?" sorusu için), gizlediğiniz ya da bildirdiğiniz işaretlerin listesi, gece güvenlik
-hatırlatmasının en son ne zaman gösterildiği ve 'Hâlâ orada mı?' sorulan işaretler ve sorunun ne sıklıkla gösterildiği.
+hatırlatmasının en son ne zaman gösterildiği, 'Hâlâ orada mı?' sorulan işaretler ve sorunun ne sıklıkla gösterildiği ve
+son 24 saatte hangi işaretlerin yanında en son ne zaman bulunduğunuz (konumunuz değil; yalnızca işaret ve zaman).
 
 ## Kimler görebilir?
 

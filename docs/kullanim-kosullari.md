@@ -17,7 +17,9 @@ Pati Harita, **yardıma ihtiyacı olan sokak hayvanlarının** haritasıdır. He
 - Yalnızca kendi gördüğün ve hâlâ yardıma ihtiyacı olduğunu düşündüğün hayvanı işaretle. Yanlış işaretlediysen
   düzelt ya da sil; hayvan artık yardıma ihtiyaç duymuyorsa bunu haritada bildir.
 
-İşaret yalnızca hayvanın yanındayken, bulunduğunuz yerin çevresine konabilir. Güvenlik nedeniyle şimdilik ormanlık
+İşaret yalnızca hayvanın yanındayken, bulunduğunuz yerin çevresine konabilir. "Çözüldü" ve hayvanı gördüğünüzü
+söyleyen yanıtlar ("Hâlâ orada", "Artık yok", "Yardım gerekmiyor", "Hâlâ yardım gerekiyor") da yalnızca hayvanın
+yanındayken ya da yanından yeni ayrıldıysanız verilebilir. Güvenlik nedeniyle şimdilik ormanlık
 alanlar, yerleşim yeri dışı ve deniz ya da göl üstü işaretlenemez. Konumu taklit ederek bu kuralları aşmak kötüye
 kullanımdır.
 

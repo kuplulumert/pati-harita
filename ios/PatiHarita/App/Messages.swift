@@ -91,6 +91,17 @@ enum Messages {
         }
     }
 
+    // MARK: Yakınlık kapısı (`ProximityPolicy`)
+
+    /// Hayvanın yanındayken açılan öğenin alt satırı (menü, döşeme, takip sorusu); 150 m `PlacementGate.radius`.
+    static let nearOnlySubtitle = "Hayvanın yanındayken (150 m)"
+    /// Kapalı birincil "Çözüldü"nün altındaki satır.
+    static let nearOnlyPrimaryCaption = "Hayvanın yanına gidince açılır"
+    /// Kapalı eylem yine de istendi (kart açıkken uzaklaşıldı).
+    static var notNearby: String {
+        ReportError.notNearby.errorDescription ?? "Bunu söylemek için hayvanın 150 m yakınında olmalısın."
+    }
+
     // MARK: Eylem bildirimleri
 
     /// Öneri başlatmayan eylemlerden sonra (öneri başlatanlar için `closerToast`).

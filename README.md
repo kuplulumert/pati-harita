@@ -46,10 +46,10 @@ Bazen kaydetmeden önce tek bir soru gelir (işaretlemeyi engellemez):
   (acil olmayan) işaret konduysa ("Son 24 saatte 2 işaret koydun."). **Yardıma ihtiyacı var, işaretle** kaydeder;
   **Sağlıklı görünüyor, vazgeç** teşekkür edip kapatır. Acil, yaralı, yavru ve veteriner işaretlerinde hiç sorulmaz.
 
-İğnenin 40 m yakınında aynı türden aktif bir işaret varsa ihtiyaç listesinin üstünde **Ben de gördüm**
-("Aynı hayvan mı? Yakında Yaralı / hasta · 3 kişi bildirdi") önerisi çıkar. Dokununca yeni işaret açılmaz; mevcut işaret
-açılır ve ona **Hâlâ orada** denir, yani aynı hayvan ikinci kez işaretlenmek yerine bildirenlerin sayısı artar.
-İhtiyaç düğmeleri yine her zamanki gibi yeni işaret koyar.
+İğnenin 40 m yakınında aynı türden aktif bir işaret varsa ve o hayvanın yanındaysan (aşağıda, "Hayvanın yanındayken")
+ihtiyaç listesinin üstünde **Ben de gördüm** ("Aynı hayvan mı? Yakında Yaralı / hasta · 3 kişi bildirdi") önerisi
+çıkar. Dokununca yeni işaret açılmaz; mevcut işaret açılır ve ona **Hâlâ orada** denir, yani aynı hayvan ikinci kez
+işaretlenmek yerine bildirenlerin sayısı artar. İhtiyaç düğmeleri yine her zamanki gibi yeni işaret koyar.
 
 ### Nereye işaret konabilir?
 
@@ -132,6 +132,20 @@ zorlaşır. İlgilenen kişi yine tek dokunuşla kapatır.
 "Aç ve zayıf" işaretlerinde **Hâlâ orada** yerine **Hâlâ yardım lazım** yazar ve menüde **Yardım gerekmiyor** ("Hayvan
 orada ama iyi görünüyor") ile **Artık yok** ayrı öğelerdir; ikisi de soru sormadan yapılır.
 
+**Hayvanın yanındayken.** **Çözüldü** ve hayvanı şimdi gördüğünü söyleyen eylemler (**Hâlâ orada** / **Hâlâ yardım
+lazım**, **Artık yok**, **Yardım gerekmiyor**, **Hâlâ yardım gerekiyor**) yalnızca hayvanın yanındayken açıktır:
+taze (≤ 2 dk) ve ≤ 100 m doğru bir konumla işarete 150 m (konum kabaysa en fazla 225 m), dokunulduğu anda ölçülür.
+Yanından yeni ayrıldıysan da açık kalırlar: **Çözüldü** 12 saat (hayvanı veterinere götüren orada da diyebilsin),
+diğerleri 1 saat. Uzaktayken bu öğeler yerinde durur ama soluk ve kapalıdır; altlarında "Hayvanın yanındayken
+(150 m)", ilgilenenin birincil **Çözüldü**'sünün altında "Hayvanın yanına gidince açılır" yazar (sesli okumada da).
+Kart açıkken hayvanın yanına yürüyünce açılırlar. Takip sorusunda da **Hâlâ yardım gerekiyor** aynı şekilde kapalıdır;
+**Bilmiyorum** hep açıktır. İşaretlerken **Ben de gördüm** önerisi de yalnızca bu durumda çıkar. İşareti koyan
+**Hâlâ yardım gerekiyor**'u her yerden diyebilir (itiraz hiçbir şeyi gizlemez). **İlgileniyorum**, **İlgilenmeyi
+bırak**, **Evet, çözüldü**, **Geri al**, **Düzenle** (yeni konumu ayrıca denetlenir), **Yol tarifi**, **Konumu
+paylaş**, bildir ve gizle her yerden yapılabilir. Hangi işaretin yanında bulunduğun yalnızca cihazda, 24 saat tutulur;
+konumun hiçbir yere gönderilmez. Bu denetim yalnızca uygulamadadır: Firestore kuralları cihazın konumunu göremez
+(değiştirilmiş bir istemci ya da konum taklidi aşabilir).
+
 "… dendi" işaretinde durum bloğu kimin ne dediğini ve nasıl göründüğünü söyler: "'İlgileniyorum' demeyen biri
 'Çözüldü' dedi" / "20 dk önce · doğrulanmadı" (ya da "Haritadan kalkış: 14.20", "haritadan kalktı"). Onaylayabilen
 kişi "İlgilenmeye başlayan kişi 40 dk sonra 'Çözüldü' dedi. Doğru mu?" görür; daha önce itiraz ettiysen "· itiraz
@@ -153,7 +167,7 @@ Uygulama açıkken bir işaretin 50 m yakınından geçersen üstte kısa bir so
 "Aç ve zayıf" işaretinde ardından "Yardıma ihtiyacı var mı?" sorulur. Hayır, "Artık yok" oyudur; tek kişinin oyu
 işareti kapatmaz. Acil, yaralı ve yavruda önce "Artık orada değil mi?" diye bir kez daha sorulur. Soru 20 saniye sonra
 kaybolur; aynı işaret bir daha sorulmaz, en fazla 10 dakikada bir ve günde 5 kez sorulur, üst üste 3 kez yanıtsız
-kalırsa 7 gün sorulmaz. Hızlı giderken, işaret koyarken ya da bir kart açıkken sorulmaz; kendi işaretin ve
+kalırsa 7 gün sorulmaz. Hızlı giderken, konum taklit edilirken, işaret koyarken ya da bir kart açıkken sorulmaz; kendi işaretin ve
 ilgilendiğin işaret sorulmaz. Hangi işaretlerin sorulduğu ve sorunun ne sıklıkla gösterildiği yalnızca cihazda tutulur.
 
 ### Şüpheli bir işaret: bildir ya da gizle
@@ -182,6 +196,8 @@ Hayvan düşmanı biri işaretleri sessizce kapatamasın diye: **başkasının d
   aynı kurallara bağlıdır: aynı günlük hak, "?" rozeti, itiraz, geri alma, ikinci kişi onayı, süre dolumu.
 - Hayvanı gören herkes **Hâlâ yardım gerekiyor** diyerek itiraz edebilir: işaret yeniden yardım bekler, itiraz edilen kişi
   bu işareti bir daha kapatamaz ve üstlenemez.
+- **Uzaktan kapatma yok**: "Çözüldü", "Artık yok", "Yardım gerekmiyor" ve itiraz yalnızca hayvanın yanındayken ya da
+  yanından yeni ayrıldıysan denebilir (yukarıda, "Hayvanın yanındayken"); işareti koyanın itirazı hariç.
 - **Kanıtlı kapatma**: uygulaması en az 1 günlük olan kişinin (ya da işareti koyanın) önerisi günlük haktan düşer
   (24 saatte 8 puan; acil, yaralı, yavru, veteriner, terk edilmiş / bakıma muhtaç 2 puan; aç ve zayıf 1 puan). Kanıtlı
   işaret başkalarının haritasından "Aç ve zayıf" için 1, diğerleri için 2 **gündüz** saati sonra kalkar (gece 00.00–07.00
@@ -362,10 +378,12 @@ depo özele dönerse macOS dakikaları 10 kat sayılır (bir iOS çalışması �
 Ardından uygulamayı simülatörde açar ve arayüz testiyle ana akışı gerçek dokunuşlarla dener: kuralları kabul etme, işaret
 koyma ("Yardıma ihtiyacı var mı?" kontrolüyle), işareti düzeltme, işarete dokunma, "İlgileniyorum", "Hâlâ orada",
 "Ben de gördüm", uzak bir yere uzun basmanın reddi, çevrede uzun basma, iğneyi çevrenin dışına sürükleme ve
-"İğneyi konumuma getir", yoldan geçenin "Çözüldü"sü, "… 'Çözüldü' dedi" kartı, itiraz, "Aç ve zayıf" işaretinde
-"⋯ Diğer" menüsünden "Yardım gerekmiyor" ve aynı menüden işaret bildirme. Ayrı testler orman engelini (`-areaClass forest`),
-uygulamayla gelen ızgarayla deniz engelini (ızgara üretilene kadar atlanır) ve "Hâlâ orada mı?" sorusunu (yaralı kedi
-ve "Aç ve zayıf" köpek) dener. Her adımın ekran görüntüsü (`00-kurallar` … `23-mama-yardim-gerekmiyor`)
+"İğneyi konumuma getir", yoldan geçenin "Çözüldü"sü, "… 'Çözüldü' dedi" kartı (uzaktayken itiraz kapalı; simülatör
+konumu hayvanın yanına taşınınca açılır), itiraz, "Aç ve zayıf" işaretinin yanında "⋯ Diğer" menüsünden "Yardım
+gerekmiyor" ve aynı menüden işaret bildirme. Ayrı testler orman engelini (`-areaClass forest`),
+uygulamayla gelen ızgarayla deniz engelini (ızgara üretilene kadar atlanır), "Hâlâ orada mı?" sorusunu (yaralı kedi
+ve "Aç ve zayıf" köpek) ve uzaktaki işarette ilgilenenin kapalı "Çözüldü"sünü (yanına gidince açılır) dener. Her
+adımın ekran görüntüsü (`00-kurallar` … `25-yaninda-cozuldu-acik`)
 çalışmanın `simulator-screenshot` artifact'ındadır (`ui/` klasörü). `swift test`, ızgara varsa
 `shared/area-golden.json`'daki her noktayı da denetler.
 

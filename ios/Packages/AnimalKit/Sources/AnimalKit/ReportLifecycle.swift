@@ -87,6 +87,8 @@ public enum ReportError: Error, Equatable, LocalizedError {
     case notEditable
     /// Düzeltmede iğne en fazla ~200 m kaydırılabilir (`ReportLifecycle.editMaxLatDelta` / `editMaxLngDelta`).
     case editTooFar
+    /// Kapılı eylem hayvanın yanında değilken (`ProximityPolicy`). Yalnızca uygulama verir: kurallar konumu bilmez.
+    case notNearby
 
     public var errorDescription: String? {
         switch self {
@@ -106,6 +108,7 @@ public enum ReportError: Error, Equatable, LocalizedError {
         case .statusChanged: "Bu işaretin durumu az önce değişti."
         case .notEditable: "Bu işaret artık düzenlenemez: başkası gördü ya da 30 dakika geçti."
         case .editTooFar: "Konum en fazla 200 m kaydırılabilir."
+        case .notNearby: "Bunu söylemek için hayvanın 150 m yakınında olmalısın."
         }
     }
 }

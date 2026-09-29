@@ -2,14 +2,22 @@ import XCTest
 @testable import AnimalKit
 
 /// Kartın düzeni (`CardLayout.plan`): her durumda birincil düğme, döşemeler ve "⋯ Diğer" menüsü.
-/// Hiçbir eylem kaybolmaz; her öğe kartta tam bir kez yer alır.
+/// Hiçbir eylem kaybolmaz; her öğe kartta tam bir kez yer alır. Yakınlık kapısı yalnızca kapalı eylemleri seçer.
 final class CardLayoutTests: ReportTestCase {
     /// Uygulamada "Konumu paylaş" sunulan ihtiyaçlar (MapViewModel.shareLocationNeeds).
     private let shareNeeds: Set<Need> = [.emergency, .injured, .babies]
     private let flagHideMail: [CardItem] = [.flag, .hide, .mail]
 
     /// Uygulamanın vereceği girdilerle: Düzenle `canEdit`ten, bildir / gizle işareti koyan dışındakilere.
-    private func plan(_ report: Report, for userID: String, at now: Date, near: Bool = false, hasMail: Bool = true) -> CardPlan {
+    /// `presence` verilmezse kişi yakında sayılır (hiçbir eylem kapalı değil); döşemeleri yine `near` seçer.
+    private func plan(
+        _ report: Report,
+        for userID: String,
+        at now: Date,
+        near: Bool = false,
+        hasMail: Bool = true,
+        presence: ProximityPolicy.Presence = .near
+    ) -> CardPlan {
         CardLayout.plan(
             for: report,
             userID: userID,
@@ -18,8 +26,14 @@ final class CardLayoutTests: ReportTestCase {
             canEdit: ReportLifecycle.canEdit(report, by: userID, at: now),
             canShare: shareNeeds.contains(report.need),
             canFlag: report.reporterID != userID,
-            hasMail: hasMail
+            hasMail: hasMail,
+            presence: presence
         )
+    }
+
+    /// `now`dan `ago` saniye önce uğranmış, şimdi uzakta.
+    private func visited(_ ago: TimeInterval, before now: Date) -> ProximityPolicy.Presence {
+        ProximityPolicy.Presence(isNear: false, lastNearAt: now.addingTimeInterval(-ago))
     }
 
     // MARK: Yakınlık
@@ -405,23 +419,130 @@ final class CardLayoutTests: ReportTestCase {
                 canEdit: false,
                 canShare: true,
                 canFlag: false,
-                hasMail: true
+                hasMail: true,
+                presence: .away
             ),
             CardPlan(primary: nil, tiles: [.directions], observe: [], more: [.shareLocation], moderation: [])
         )
+    }
+
+    // MARK: Yakınlık kapısı
+
+    /// Uzaktaki yardım eden: "Çözüldü" birincil düğmede ama kapalı; "Artık yok" da kapalı. Yerler değişmez.
+    /// 12 saat içinde uğradıysa "Çözüldü" açılır (veterinerde); "Artık yok" için 1 saat.
+    func testFarHelperSeesResolveDisabled() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: seenReport(), by: bob, at: minutes(2))
+        let now = minutes(10)
+        let far = CardPlan(
+            primary: .resolve,
+            tiles: [.directions, .shareLocation],
+            observe: [.action(.reportGone)],
+            more: [.action(.release)],
+            moderation: flagHideMail,
+            disabled: [.resolve, .reportGone]
+        )
+        XCTAssertEqual(plan(claimed, for: bob, at: now, presence: .away), far)
+        XCTAssertFalse(far.isEnabled(.resolve))
+        XCTAssertFalse(far.isEnabled(.action(.reportGone)))
+        XCTAssertTrue(far.isEnabled(.action(.release)))
+        XCTAssertTrue(far.isEnabled(.directions))
+        XCTAssertTrue(far.isEnabled(.shareLocation))
+        XCTAssertTrue(far.isEnabled(.flag))
+
+        XCTAssertEqual(plan(claimed, for: bob, at: now, presence: visited(3 * 3600, before: now)).disabled, [.reportGone])
+        XCTAssertEqual(plan(claimed, for: bob, at: now, presence: visited(30 * 60, before: now)).disabled, [])
+        XCTAssertEqual(
+            plan(claimed, for: bob, at: now, presence: visited(12 * 3600 + 1, before: now)).disabled,
+            [.resolve, .reportGone]
+        )
+        // Yakında her şey açık.
+        XCTAssertEqual(plan(claimed, for: bob, at: now, presence: ProximityPolicy.Presence(isNear: true, lastNearAt: nil)).disabled, [])
+    }
+
+    /// Uzaktaki yoldan geçen: İlgileniyorum açık; Hâlâ orada, Artık yok ve Çözüldü kapalı; mamada Yardım gerekmiyor da.
+    func testFarPasserBy() throws {
+        let seen = try seenReport()
+        XCTAssertEqual(
+            plan(seen, for: dan, at: minutes(30), presence: .away),
+            CardPlan(
+                primary: .claim,
+                tiles: [.directions],
+                observe: [.action(.confirmStillThere), .action(.reportGone)],
+                more: [.action(.resolve), .shareLocation],
+                moderation: flagHideMail,
+                disabled: [.confirmStillThere, .reportGone, .resolve]
+            )
+        )
+        let food = try seenReport(need: .food)
+        XCTAssertEqual(
+            plan(food, for: dan, at: minutes(30), presence: .away).disabled,
+            [.confirmStillThere, .reportUnneeded, .reportGone, .resolve]
+        )
+        // Uğradıktan 2 saat sonra yalnızca "Çözüldü" açık.
+        XCTAssertEqual(
+            plan(food, for: dan, at: minutes(150), presence: visited(2 * 3600, before: minutes(150))).disabled,
+            [.confirmStillThere, .reportUnneeded, .reportGone]
+        )
+    }
+
+    /// "… dendi": uzaktaki yoldan geçenin itirazı kapalı; işareti koyan her yerden itiraz eder ve onaylar,
+    /// kapatan her yerden geri alır.
+    func testClosingGateAndReporterException() throws {
+        let byPasserBy = try ReportLifecycle.apply(.resolve, to: seenReport(), by: bob, at: minutes(30))
+        let now = minutes(35)
+        XCTAssertEqual(
+            plan(byPasserBy, for: dan, at: now, presence: .away),
+            CardPlan(
+                primary: nil,
+                tiles: [.action(.dispute)],
+                observe: [],
+                more: [.directions, .shareLocation],
+                moderation: flagHideMail,
+                disabled: [.dispute]
+            )
+        )
+        XCTAssertEqual(plan(byPasserBy, for: dan, at: now, presence: visited(59 * 60, before: now)).disabled, [])
+        XCTAssertEqual(plan(byPasserBy, for: dan, at: now, presence: visited(61 * 60, before: now)).disabled, [.dispute])
+
+        let reporter = plan(byPasserBy, for: alice, at: now, presence: .away)
+        XCTAssertEqual(reporter.primary, .confirmClosing)
+        XCTAssertEqual(reporter.tiles, [.action(.dispute)])
+        XCTAssertEqual(reporter.disabled, [])
+
+        XCTAssertEqual(plan(byPasserBy, for: bob, at: now, presence: .away).primary, .undoClosing)
+        XCTAssertEqual(plan(byPasserBy, for: bob, at: now, presence: .away).disabled, [])
+    }
+
+    /// İşareti koyan da uzaktan "Çözüldü" diyemez; "İlgilenen gelmedi" ve Düzenle kapısızdır.
+    func testReporterIsGatedExceptDispute() throws {
+        let claimed = try ReportLifecycle.apply(.claim, to: seenReport(), by: bob, at: minutes(2))
+        let stale = plan(claimed, for: alice, at: minutes(50), presence: .away)
+        XCTAssertEqual(stale.primary, .resolve)
+        XCTAssertEqual(stale.tiles, [.action(.release)])
+        XCTAssertEqual(stale.disabled, [.resolve, .confirmStillThere, .reportGone])
+
+        let fresh = plan(makeReport(need: .food), for: alice, at: minutes(10), presence: .away)
+        XCTAssertEqual(fresh.tiles, [.edit])
+        XCTAssertTrue(fresh.isEnabled(.edit))
+        XCTAssertTrue(fresh.isEnabled(.claim))
+        XCTAssertEqual(fresh.disabled, [.resolve, .confirmStillThere, .reportUnneeded, .reportGone])
     }
 
     // MARK: Değişmez kural
 
     /// Birincil + döşemeler + menü, çoklu küme olarak: `expire` dışındaki açık eylemler, Yol tarifi ve izin
     /// verilen Düzenle / Konumu paylaş / bildir / gizle / e-posta. Hiçbiri iki kez yok, en fazla iki döşeme,
-    /// "Evet, çözüldü" ile "Hâlâ yardım gerekiyor" aynı satırda değil.
+    /// "Evet, çözüldü" ile "Hâlâ yardım gerekiyor" aynı satırda değil. Yakınlık kapısı yalnızca `disabled`ı
+    /// değiştirir: kapalı eylemler de yerinde durur.
     func testEveryItemIsReachableExactlyOnce() throws {
         let observation: Set<CardItem> = [.action(.confirmStillThere), .action(.reportUnneeded), .action(.reportGone)]
         let moderationItems: Set<CardItem> = [.flag, .hide, .mail]
         let flagOptions: [(canFlag: Bool, hasMail: Bool)] = [(false, true), (true, false), (true, true)]
+        // Şimdi yakında; hiç uğramadı; 30 dk, 5 sa ve 13 sa önce uğradı.
+        let presenceAges: [TimeInterval?] = [nil, 30 * 60, 5 * 3600, 13 * 3600]
         var tileShapes = Set<[CardItem]>()
         var primaries = Set<ReportAction?>()
+        var disabledSeen = Set<ReportAction>()
         var checked = 0
 
         for (report, now) in try generatedStates() {
@@ -431,6 +552,13 @@ final class CardLayoutTests: ReportTestCase {
                     for canEdit in [false, true] {
                         for canShare in [false, true] {
                             let (canFlag, hasMail) = flagOptions[checked % flagOptions.count]
+                            let slot = checked % (presenceAges.count + 1)
+                            let presence = slot == presenceAges.count
+                                ? ProximityPolicy.Presence.near
+                                : ProximityPolicy.Presence(
+                                    isNear: false,
+                                    lastNearAt: presenceAges[slot].map { now.addingTimeInterval(-$0) }
+                                )
                             checked += 1
                             let plan = CardLayout.plan(
                                 for: report,
@@ -440,13 +568,50 @@ final class CardLayoutTests: ReportTestCase {
                                 canEdit: canEdit,
                                 canShare: canShare,
                                 canFlag: canFlag,
-                                hasMail: hasMail
+                                hasMail: hasMail,
+                                presence: presence
                             )
                             let minute = now.timeIntervalSince(t0) / 60
                             let context: () -> String = {
-                                let inputs = "yakın:\(isNear) düzenle:\(canEdit) paylaş:\(canShare) bildir:\(canFlag) e-posta:\(hasMail)"
+                                let inputs = "yakın:\(isNear) düzenle:\(canEdit) paylaş:\(canShare) bildir:\(canFlag) e-posta:\(hasMail) \(presence)"
                                 return "\(report.status) \(report.need) \(user) \(minute) dk \(inputs) \(actions) → \(plan)"
                             }
+
+                            // Kapı yerleri değiştirmez: yakındaki kişinin düzeniyle aynı, yalnızca `disabled` farklı.
+                            var placement = plan
+                            placement.disabled = []
+                            let nearPlan = CardLayout.plan(
+                                for: report,
+                                userID: user,
+                                at: now,
+                                isNear: isNear,
+                                canEdit: canEdit,
+                                canShare: canShare,
+                                canFlag: canFlag,
+                                hasMail: hasMail,
+                                presence: .near
+                            )
+                            XCTAssertEqual(placement, nearPlan, context())
+                            XCTAssertEqual(nearPlan.disabled, [], context())
+
+                            // Kapalı olan yalnızca kartta yer alan, kapılı ve bu kişiye kapısı olan eylemler.
+                            XCTAssertTrue(plan.disabled.isSubset(of: actions), context())
+                            XCTAssertTrue(plan.disabled.isSubset(of: ProximityPolicy.gatedActions), context())
+                            if user == report.reporterID {
+                                XCTAssertFalse(plan.disabled.contains(.dispute), context())
+                            }
+                            for action in actions where action != .expire {
+                                let allowed = ProximityPolicy.allowed(
+                                    action: action,
+                                    report: report,
+                                    userID: user,
+                                    isNear: presence.isNear,
+                                    lastNearAt: presence.lastNearAt,
+                                    now: now
+                                )
+                                XCTAssertEqual(plan.isEnabled(action), allowed, "\(action) \(context())")
+                            }
+                            disabledSeen.formUnion(plan.disabled)
 
                             var expected: [CardItem] = actions.filter { $0 != .expire }.map(CardItem.action)
                             expected.append(.directions)
@@ -509,6 +674,8 @@ final class CardLayoutTests: ReportTestCase {
         ]
         XCTAssertTrue(expectedShapes.isSubset(of: tileShapes), "\(expectedShapes.subtracting(tileShapes))")
         XCTAssertEqual(primaries, [nil, .claim, .resolve, .confirmClosing, .undoClosing])
+        // Her kapılı eylem bir yerde kapalı görüldü.
+        XCTAssertEqual(disabledSeen, ProximityPolicy.gatedActions)
     }
 
     // MARK: Yardımcılar

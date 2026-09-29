@@ -94,12 +94,23 @@ taklidi aşabilir).
 "Hâlâ orada mı?" (`NearbyPrompt`) de istemcidedir: yanından geçilen işaret için kısa bir soru; yalnızca yanıt, kartın
 eylemleri gibi (`seenBy` / `goneReports`) yazılır.
 
+Uzaktan eylem kapısı (`ProximityPolicy`) da yalnızca istemcidedir: "Çözüldü" ve hayvanı gördüğünü söyleyen eylemler
+("Hâlâ orada", "Artık yok", "Yardım gerekmiyor", itiraz) kullanılabilir bir okuma (`PlacementGate.isUsable`) işarete
+izin verilen çevredeyken (`PlacementGate.allowedRadius`) ya da cihaz o işaretin yanında yakın zamanda bulunduysa
+açıktır ("Çözüldü" 12 sa, diğerleri 1 sa; işareti koyanın itirazı kapısız). Uğrama anları (`DeviceState`, işaret başına
+son an, 24 sa) kabul edilen her okumada, işaretler değişince ve kart açılırken yüklü işaretler için yazılır. Kart
+kapalı öğeleri yerinde ve soluk gösterir (`CardPlan.disabled`). Okuma ve uğrama kayıtları gözlenmez; açık kartın ya da
+takip sorusunun sonucu değişince `MapViewModel.proximityRevision` artar ve görünümler yeniden çizilir. "Ben de gördüm"
+önerisi yalnızca kapıdan geçen işarete verilir. `MapViewModel.perform` her yoldan (kart, onay, "Ben de gördüm", takip
+sorusu, "Hâlâ orada mı?") o anki okumayla son kez denetler. Kurallar konumu bilmez.
+
 ### Yalnızca cihazda
 
 `DeviceState` (`UserDefaults`) sunucuya gitmez: kabul edilen kurallar sürümü (`acceptedTermsVersion`), "Yardıma
 ihtiyacı var mı?" için hafif işaret sayacı ve son 24 saatin işaretleri, kişinin bildirip gizlediği işaretler (8 gün
 sonra unutulur; haritadan, sayılardan ve "Aynı hayvan mı?" önerilerinden çıkar), gece hatırlatmasının son gösterimi,
-bilinen engel durumu ve "Hâlâ orada mı?" kaydı (sorulan işaretler ve sorunun son 24 saatteki gösterimleri). Demo modunda işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri) ve engel
+bilinen engel durumu, "Hâlâ orada mı?" kaydı (sorulan işaretler ve sorunun son 24 saatteki gösterimleri) ve yanına
+uğranan işaretler (işaret başına son an, 24 sa; konum değil). Demo modunda işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri, uğranan işaretler) ve engel
 durumu (ve "Hâlâ orada mı?" kaydı) yalnızca bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta aynıdır;
 `-demo` argümanıyla (arayüz testi) hiçbir şey saklanmaz.
 

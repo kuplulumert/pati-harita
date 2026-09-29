@@ -10,6 +10,9 @@ struct FollowUpSheet: View {
     let now: Date
     /// Başka bir eylem sürüyor: "Evet" / "Hâlâ yardım gerekiyor" o bitene kadar kapalı (yoksa yapılmadan kaybolurdu).
     let isBusy: Bool
+    /// Yakınlık kapısından geçmeyen yanıtlar (`MapViewModel.followUpDisabledAnswers`): görünür, kapalı ve altında
+    /// nedeni. "Bilmiyorum" hiç kapanmaz.
+    var disabledAnswers: Set<MapViewModel.FollowUpAnswer> = []
     let onAnswer: (MapViewModel.FollowUpAnswer) -> Void
 
     /// Zaman çizelgesinin bir satırı.
@@ -99,28 +102,39 @@ struct FollowUpSheet: View {
         .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
-    /// "Bilmiyorum" (varsayılan) dolu, diğerleri eşit ağırlıkta sade düğmelerdir.
+    /// "Bilmiyorum" (varsayılan) dolu, diğerleri eşit ağırlıkta sade düğmelerdir. Hayvanın yanında olmayı isteyen
+    /// yanıt kapalıdır ve altında "Hayvanın yanındayken (150 m)" yazar; kimliği aynı kalır, neden değer olarak okunur.
     private func optionButton(_ option: MapViewModel.FollowUp.Option) -> some View {
         let isDefault = option.answer == .dontKnow
-        let isDisabled = isBusy && !isDefault
+        let needsNear = !isDefault && disabledAnswers.contains(option.answer)
+        let isDisabled = (isBusy && !isDefault) || needsNear
         return Button {
             onAnswer(option.answer)
         } label: {
-            Text(option.title)
-                .font(.headline)
-                .multilineTextAlignment(.center)
-                .foregroundStyle(isDefault ? Color(.systemBackground) : Color.primary)
-                .padding(.horizontal, 12)
-                .frame(maxWidth: .infinity)
-                .frame(minHeight: 50)
-                .background(
-                    isDefault ? Color.accentColor : Color(.tertiarySystemFill),
-                    in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-                )
+            VStack(spacing: 2) {
+                Text(option.title)
+                    .font(.headline)
+                if needsNear {
+                    Text(Messages.nearOnlySubtitle)
+                        .font(.footnote)
+                        .accessibilityHidden(true)
+                }
+            }
+            .multilineTextAlignment(.center)
+            .foregroundStyle(isDefault ? Color(.systemBackground) : Color.primary)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .frame(maxWidth: .infinity)
+            .frame(minHeight: 50)
+            .background(
+                isDefault ? Color.accentColor : Color(.tertiarySystemFill),
+                in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+            )
         }
         .buttonStyle(PressableStyle())
         .disabled(isDisabled)
         .opacity(isDisabled ? 0.5 : 1)
+        .accessibilityValue(needsNear ? Messages.nearOnlySubtitle : "")
         .accessibilityIdentifier("follow-up-\(option.answer.rawValue)")
     }
 }
@@ -171,4 +185,28 @@ struct FollowUpSheet: View {
         ]
     )
     return FollowUpSheet(followUp: followUp, now: now, isBusy: false) { _ in }
+}
+
+#Preview("Gördüğün işaret, uzaktayken") {
+    let now = Date()
+    var report = ReportLifecycle.makeReport(
+        id: "preview-far",
+        species: .dog,
+        need: .injured,
+        at: Coordinate(latitude: 40.99, longitude: 29.03),
+        reporterID: "someone",
+        now: now.addingTimeInterval(-4 * 3600)
+    )
+    report = (try? ReportLifecycle.apply(.confirmStillThere, to: report, by: "me", at: now.addingTimeInterval(-3 * 3600))) ?? report
+    report = (try? ReportLifecycle.apply(.resolve, to: report, by: "passer-by", at: now.addingTimeInterval(-20 * 60))) ?? report
+    let followUp = MapViewModel.FollowUp(
+        report: report,
+        message: Messages.followUp(report, viewer: "me", leavesAt: nil, now: now),
+        options: [
+            MapViewModel.FollowUp.Option(answer: .dispute, title: "Evet, hâlâ yardım gerekiyor"),
+            MapViewModel.FollowUp.Option(answer: .dontKnow, title: "Hayır / bilmiyorum"),
+        ]
+    )
+    // Son bir saatte hayvanın yanında değildi: itiraz kapalı, altında nedeni.
+    return FollowUpSheet(followUp: followUp, now: now, isBusy: false, disabledAnswers: [.dispute]) { _ in }
 }

@@ -97,6 +97,8 @@ struct LegendSheet: View {
                     Label("Hayvanı yine görürsen 'Hâlâ orada', göremezsen 'Artık yok' de.", systemImage: "arrow.triangle.2.circlepath")
                     Label("'Aç ve zayıf' işaretindeki hayvan iyi görünüyorsa 'Yardım gerekmiyor' de.", systemImage: "hand.thumbsup")
                     Label("'Çözüldü' ya da 'Yardım gerekmiyor' denen bir hayvanı şimdi görüyorsan ve hâlâ yardıma ihtiyacı varsa 'Hâlâ yardım gerekiyor' de.", systemImage: "exclamationmark.circle")
+                    // `ProximityPolicy`: 150 m + doğruluk payı; "Çözüldü" 12 sa, diğerleri 1 sa daha açık kalır.
+                    Label("'Çözüldü', 'Hâlâ orada', 'Artık yok', 'Yardım gerekmiyor' ve 'Hâlâ yardım gerekiyor' hayvanın yanındayken (150 m) açılır; yanından yeni ayrıldıysan bir süre daha açık kalır. İşareti koyan 'Hâlâ yardım gerekiyor'u her yerden diyebilir.", systemImage: "figure.walk.circle")
                     Label("Yanlış işaretlediysen kimse dokunmadan, ilk 30 dakikada kartındaki 'Düzenle' ile türü, ihtiyacı ve yeri (en fazla 200 m) düzeltebilir ya da silebilirsin.", systemImage: "pencil")
                     Label("Şüpheli bir işareti kartın '⋯ Diğer' menüsünden bildirebilir ya da yalnızca kendi haritandan gizleyebilirsin.", systemImage: "flag")
                 }

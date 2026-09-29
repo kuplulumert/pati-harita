@@ -4,12 +4,12 @@ import Observation
 
 /// Yalnızca bu cihazda tutulan küçük durum: kabul edilen kurallar, "Yardıma ihtiyacı var mı?" sayaçları,
 /// kişinin haritasından kaldırdığı işaretler, gece hatırlatmasının son gösterimi, ilk gidişteki güvenlik uyarısı,
-/// engel bilgisi ve "Hâlâ orada mı?" kaydı (sorulan işaretler, sıklık).
+/// engel bilgisi, "Hâlâ orada mı?" kaydı (sorulan işaretler, sıklık) ve yanına uğranan işaretler (`ProximityPolicy`).
 ///
 /// `UserDefaults`'ta saklanır. `defaults` `nil` ise (`-demo` argümanı, arayüz testi) hiçbir şey saklanmaz: test
 /// her seferinde ilk açılıştaki gibi başlar. `persistsReports` `false` ise (plist'siz demo derlemesi, ör. TestFlight)
 /// cihaza ait olanlar (kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması, güvenlik uyarısı) saklanır;
-/// işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri, "Hâlâ orada mı?" kaydı) ve demo
+/// işaret kimliklerine bağlı olanlar (gizlenen ve son 24 saatin işaretleri, "Hâlâ orada mı?" kaydı, uğranan işaretler) ve demo
 /// kimliğinin engel bilgisi yalnızca bellektedir, çünkü örnek işaretlerin kimlikleri her açılışta yeniden kullanılır.
 @MainActor
 @Observable
@@ -22,6 +22,8 @@ final class DeviceState {
 
     /// Gizlenen işaret bu kadar sonra unutulur: hiçbir işaret `ReportLifecycle.maxAge`'den uzun yaşamaz.
     static let hiddenRetention: TimeInterval = ReportLifecycle.maxAge + 24 * 3600
+    /// Yanındayken uğrama anı her okumada ilerler; diske yeni işaret eklenince ya da en fazla bu aralıkla yazılır.
+    static let lastNearSaveInterval: TimeInterval = 60
 
     private enum Key {
         static let acceptedTermsVersion = "acceptedTermsVersion"
@@ -33,6 +35,7 @@ final class DeviceState {
         static let knownBanned = "banned.known"
         static let nearbyAsked = "nearbyPrompt.asked.v1"
         static let nearbyLog = "nearbyPrompt.log.v1"
+        static let lastNear = "proximity.lastNear.v1"
     }
 
     /// Kabul edilen kurallar sürümü (`AppInfo.termsVersion`); hiç kabul edilmediyse 0.
@@ -52,6 +55,11 @@ final class DeviceState {
     @ObservationIgnored private var nearbyAsked: [String: Date] = [:]
     /// "Hâlâ orada mı?" sıklığı (son 24 saatin gösterimleri, yanıtsız serisi, sessizlik).
     @ObservationIgnored private var nearbyLog = NearbyPrompt.Log()
+    /// Cihazın her işaretin yakınında en son bulunduğu an (`ProximityPolicy.lastNearRetention` tutulur). Gözlenmez:
+    /// yanındayken her okumada değişir; kart ve takip sorusu sonuç değişince `MapViewModel.proximityRevision` ile
+    /// yeniden çizilir.
+    @ObservationIgnored private var lastNear: [String: Date] = [:]
+    @ObservationIgnored private var lastNearSavedAt: Date?
 
     /// Cihaza ait olanlar: kabul edilen kurallar, hafif işaret sayacı, gece hatırlatması, güvenlik uyarısı.
     private let defaults: UserDefaults?
@@ -71,6 +79,7 @@ final class DeviceState {
         knownBanned = reportDefaults?.bool(forKey: Key.knownBanned) ?? false
         nearbyAsked = Self.decode([String: Date].self, from: reportDefaults?.data(forKey: Key.nearbyAsked)) ?? [:]
         nearbyLog = Self.decode(NearbyPrompt.Log.self, from: reportDefaults?.data(forKey: Key.nearbyLog)) ?? NearbyPrompt.Log()
+        lastNear = Self.decode([String: Date].self, from: reportDefaults?.data(forKey: Key.lastNear)) ?? [:]
         prune(at: now)
     }
 
@@ -169,6 +178,31 @@ final class DeviceState {
         save(nearbyLog, forKey: Key.nearbyLog)
     }
 
+    // MARK: Uğranan işaretler
+
+    /// Cihazın bu işaretin yakınında en son bulunduğu an; kayıt yoksa `nil`.
+    func lastNearAt(_ reportID: String) -> Date? {
+        lastNear[reportID]
+    }
+
+    /// Okumanın yakınındaki işaretlere uğrama anı yazılır, eskiler atılır (`ProximityPolicy.updatedLastNear`).
+    func recordNearVisits(reports: [Report], fix: LocationFix?, rejectsSimulated: Bool, at now: Date) {
+        let updated = ProximityPolicy.updatedLastNear(
+            lastNear,
+            reports: reports,
+            fix: fix,
+            rejectsSimulated: rejectsSimulated,
+            at: now
+        )
+        guard updated != lastNear else { return }
+        let keysChanged = updated.count != lastNear.count || updated.keys.contains { lastNear[$0] == nil }
+        lastNear = updated
+        let saveDue = lastNearSavedAt.map { abs(now.timeIntervalSince($0)) >= Self.lastNearSaveInterval } ?? true
+        guard keysChanged || saveDue else { return }
+        lastNearSavedAt = now
+        save(lastNear, forKey: Key.lastNear)
+    }
+
     // MARK: Saklama
 
     private func prune(at now: Date) {
@@ -191,6 +225,11 @@ final class DeviceState {
         if log != nearbyLog {
             nearbyLog = log
             save(nearbyLog, forKey: Key.nearbyLog)
+        }
+        let near = ProximityPolicy.prunedLastNear(lastNear, at: now)
+        if near.count != lastNear.count {
+            lastNear = near
+            save(lastNear, forKey: Key.lastNear)
         }
     }
 

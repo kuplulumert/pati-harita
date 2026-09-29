@@ -132,6 +132,18 @@ final class MapViewModel {
         case dispute
         /// "Bilmiyorum": yalnızca yanıtlandı sayılır.
         case dontKnow
+
+        /// Yanıtın yaptığı eylem; "Bilmiyorum"da `nil`.
+        var action: ReportAction? {
+            switch self {
+            case .confirm:
+                return .confirmClosing
+            case .dispute:
+                return .dispute
+            case .dontKnow:
+                return nil
+            }
+        }
     }
 
     /// Bu yarıçaptan geniş alan görünüyorsa sorgu yapılmaz (şehir ölçeğinde gereksiz veri).
@@ -225,7 +237,8 @@ final class MapViewModel {
     /// Açık kart; yalnızca `selectReport(_:)` ile değişir (yakınlık da o an ölçülür).
     private(set) var selectedReportID: String? = nil
     /// Kart açılırken hayvana yakın mıydın (`CardLayout.isNear`); kart açıkken düğmeler yer değiştirmesin diye
-    /// yeniden ölçülmez. Konum yoksa `false` ("uzak").
+    /// yeniden ölçülmez. Konum yoksa `false` ("uzak"). Hangi düğmenin kapalı olduğu ise her çizimde yeniden
+    /// ölçülür (`presence(for:)`).
     private(set) var cardIsNear = false
     private(set) var cameraRequest: CameraRequest? = nil
     private(set) var isCameraMoving = false
@@ -281,6 +294,9 @@ final class MapViewModel {
     private(set) var nearbyPrompt: NearbyQuestion? = nil
     /// Her yeni "Hâlâ orada mı?" sorusunda artar; hafif titreşimi tetikler.
     private(set) var nearbyPromptsShown = 0
+    /// Açık kartta ya da takip sorusunda yakınlık kapısının sonucu değişince artar (`refreshProximity`). Okuma ve
+    /// uğrama kaydı gözlenmez; kapalı öğeler buna bakarak yeniden çizilir (hayvanın yanına yürüyünce hemen açılır).
+    private(set) var proximityRevision = 0
 
     let environment: AppEnvironment
     private var repository: ReportRepository { environment.repository }
@@ -332,6 +348,8 @@ final class MapViewModel {
     @ObservationIgnored private var nearbyEvaluationPending = false
     /// Sorunun adımı değişince artar: eski adımın zamanlayıcıları hiçbir şey yapmaz.
     @ObservationIgnored private var nearbyStepToken = 0
+    /// Açık kartta ve takip sorusunda en son açık bulunan kapılı eylemler (işaret kimliğine göre).
+    @ObservationIgnored private var proximityState: [String: Set<ReportAction>] = [:]
 
     init(environment: AppEnvironment) {
         self.environment = environment
@@ -527,26 +545,85 @@ final class MapViewModel {
     }
 
     /// Kartın düzeni (`CardLayout.plan`): birincil düğme, yakınlığa göre döşemeler ve "⋯ Diğer" menüsü.
-    /// Yakınlık kart açılırken ölçülen değerdir (`cardIsNear`).
+    /// Döşemeleri kart açılırken ölçülen yakınlık seçer (`cardIsNear`); hangi öğenin kapalı olduğunu şimdiki okuma
+    /// ve son uğrama (`presence`). Saat `now` değil şimdi: az önce yazılan uğrama anı 30 sn'lik tik gelene kadar
+    /// "gelecekte" sayılıp düğmeleri kapatmasın. `proximityRevision` okunur: sonuç değişince kart yeniden çizilir.
     func cardPlan(for report: Report) -> CardPlan {
-        CardLayout.plan(
+        _ = proximityRevision
+        let date = Date()
+        return CardLayout.plan(
             for: report,
             userID: userID,
-            at: now,
+            at: date,
             isNear: selectedReportID == report.id && cardIsNear,
             canEdit: canEdit(report),
             canShare: Self.shareLocationNeeds.contains(report.need),
             canFlag: canFlag(report),
-            hasMail: flagMailURL(for: report) != nil
+            hasMail: flagMailURL(for: report) != nil,
+            presence: presence(for: report, at: date)
         )
+    }
+
+    // MARK: Yakınlık kapısı (uzaktan eylem)
+
+    /// Kişinin bu işarete göre yeri: şimdiki okumayla yanında mı (150 m + doğruluk payı) ve en son ne zaman
+    /// yanındaydı. Okuma kapının kullandığıdır (`gateFix`: demo simülatörde yaşı sayılmaz).
+    func presence(for report: Report, at date: Date = Date()) -> ProximityPolicy.Presence {
+        ProximityPolicy.Presence(
+            isNear: ProximityPolicy.isNear(
+                report.coordinate,
+                fix: location.gateFix(at: date),
+                rejectsSimulated: environment.rejectsSimulatedFixes,
+                at: date
+            ),
+            lastNearAt: device.lastNearAt(report.id)
+        )
+    }
+
+    /// Eylem yakınlık kapısından geçiyor mu? Dokunulduğu anki okumayla (`ProximityPolicy.allowed`); kapısız
+    /// eylemde hep `true`. Yalnızca istemcide: Firestore kuralları konumu bilmez.
+    func proximityAllows(_ action: ReportAction, on report: Report, at date: Date = Date()) -> Bool {
+        let presence = presence(for: report, at: date)
+        return ProximityPolicy.allowed(
+            action: action,
+            report: report,
+            userID: userID,
+            isNear: presence.isNear,
+            lastNearAt: presence.lastNearAt,
+            now: date
+        )
+    }
+
+    /// Okumanın yakınındaki yüklü işaretlere uğrama anı yazılır: kabul edilen her okumada, işaretler değişince ve
+    /// kart açılırken. İşaret başına bir uzaklık; ucuz.
+    private func recordNearVisits(at date: Date) {
+        device.recordNearVisits(
+            reports: reports,
+            fix: location.gateFix(at: date),
+            rejectsSimulated: environment.rejectsSimulatedFixes,
+            at: date
+        )
+    }
+
+    /// Açık kartın ve takip sorusunun kapılı eylemlerinden şimdi açık olanlar değiştiyse `proximityRevision` artar.
+    /// Kabul edilen her okumada, işaretler değişince, 30 sn'lik tikte ve kart ya da soru açılınca; en fazla iki işaret.
+    private func refreshProximity(at date: Date) {
+        var state: [String: Set<ReportAction>] = [:]
+        for report in [selectedReport, followUp?.report].compactMap({ $0 }) {
+            state[report.id] = ProximityPolicy.gatedActions.filter { proximityAllows($0, on: report, at: date) }
+        }
+        guard state != proximityState else { return }
+        proximityState = state
+        proximityRevision &+= 1
     }
 
     /// Kartı açar (`reportID`) ya da kapatır (`nil`). Yakınlık burada bir kez ölçülür: taze (≤ 2 dk), doğru
     /// (≤ 50 m) bir konumla hayvana en fazla 100 m. Aynı kart yeniden açılınca yeniden ölçülür.
     private func selectReport(_ reportID: String?) {
         if reportID != nil {
-            // Kart açıldı: "Hâlâ orada mı?" kesilir (sayılmaz).
+            // Kart açıldı: "Hâlâ orada mı?" kesilir (sayılmaz); yanındaysa uğrama da yazılır.
             endNearbyPrompt(.interrupted)
+            recordNearVisits(at: Date())
         }
         selectedReportID = reportID
         var near = false
@@ -560,6 +637,7 @@ final class MapViewModel {
         if near != cardIsNear {
             cardIsNear = near
         }
+        refreshProximity(at: Date())
     }
 
     /// "E-postayla ayrıntı gönder": işaret kimliğiyle hazır e-posta; iletişim adresi yoksa `nil` (menüde yok).
@@ -604,6 +682,8 @@ final class MapViewModel {
         while !Task.isCancelled {
             try? await Task.sleep(for: .seconds(30))
             now = Date()
+            // Okuma eskidi ya da uğrama penceresi doldu: kapalı öğeler güncellensin.
+            refreshProximity(at: now)
             evaluateNearbyPrompt(now: now)
         }
     }
@@ -806,8 +886,13 @@ final class MapViewModel {
     }
 
     /// Düzeltilen işaret bu arada kapandıysa, süresi dolduysa ya da başkası dokunduysa düzeltme biter. Sorulan
-    /// işaret artık yardım beklemiyorsa soru kalkar; yakında yeni bir işaret belirmiş olabilir.
+    /// işaret artık yardım beklemiyorsa soru kalkar; yakında yeni bir işaret belirmiş olabilir. Yanındaki
+    /// işaretlere uğrama yazılır.
     private func reportsChanged() {
+        // Yeni gelen (ör. az önce konan) işaretin yanındaysa uğrama hemen yazılsın.
+        let date = Date()
+        recordNearVisits(at: date)
+        refreshProximity(at: date)
         if let prompt = nearbyPrompt {
             let current = activeReports.first { $0.id == prompt.report.id }
             if current?.isWaiting(at: Date()) != true {
@@ -922,6 +1007,12 @@ final class MapViewModel {
     /// ("Evet, hâlâ yardım gerekiyor") itiraz edilir: kişi hayvanın başında, ayrıca onay sorulmaz.
     func confirmDuplicate(_ report: Report) {
         let action = duplicateAction(for: report)
+        // Yarış: öneri gösterilirken yakınlık bitti. İşaretleme sürer, öneri kalkar.
+        if let action, !proximityAllows(action, on: report) {
+            show(Toast(message: Messages.notNearby))
+            updateDuplicateCandidate()
+            return
+        }
         pendingReport = nil
         returnToBrowsing()
         updateDuplicateCandidate()
@@ -943,19 +1034,25 @@ final class MapViewModel {
     }
 
     /// İhtiyaç seçilirken: iğneye (kamera hedefine) `duplicateRadius` içindeki en yakın, aynı türden ve
-    /// üzerinde bir şey yapılabilen aktif işaret (gizlenmiş "… dendi" de). İğne çevrenin dışındaysa ve başka her
-    /// durumda (düzeltme dahil) öneri yoktur. Konum beklenirken ya da alan engelinde öneri kalır: yeni işaret
-    /// açmaz.
+    /// üzerinde bir şey yapılabilen aktif işaret (gizlenmiş "… dendi" de). Eylem yakınlık kapısından geçmeli
+    /// (`proximityAllows`): hayvanın yanında değilken öneri yoktur, yani açık görünüp reddedilmez. İğne çevrenin
+    /// dışındaysa ve başka her durumda (düzeltme dahil) öneri yoktur. Alan engelinde öneri kalır: yeni işaret açmaz.
     private func updateDuplicateCandidate() {
         var candidateID: String?
         if case .choosingNeed(let species) = mode, placementVerdict != .tooFar, let target = cameraTarget {
             let radius = Self.duplicateRadius
+            let date = Date()
             let nearest = activeReports
-                .filter { $0.species == species && !dismissedDuplicateIDs.contains($0.id) && duplicateAction(for: $0) != nil }
-                .map { (id: $0.id, distance: $0.coordinate.distance(to: target)) }
-                .filter { $0.distance <= radius }
+                .filter { $0.species == species && !dismissedDuplicateIDs.contains($0.id) }
+                .map { (report: $0, distance: $0.coordinate.distance(to: target)) }
+                .filter { candidate in
+                    guard candidate.distance <= radius, let action = duplicateAction(for: candidate.report) else {
+                        return false
+                    }
+                    return proximityAllows(action, on: candidate.report, at: date)
+                }
                 .min { $0.distance < $1.distance }
-            candidateID = nearest?.id
+            candidateID = nearest?.report.id
         }
         // Aynı değeri yeniden yazmak paneli boşuna yeniden çizdirirdi.
         if candidateID != duplicateCandidateID {
@@ -1224,6 +1321,8 @@ final class MapViewModel {
     /// Kabul edilen her konum okumasında (gözlenmeyen geri çağrı).
     private func locationFixed() {
         let now = Date()
+        recordNearVisits(at: now)
+        refreshProximity(at: now)
         if isPlacing {
             if startedWithoutFix, !userMovedPin, !isEditing, pendingReport == nil,
                let fix = location.gateFix(at: now), PlacementGate.isUsable(fix, at: now) {
@@ -1233,6 +1332,10 @@ final class MapViewModel {
                 cameraRequest = CameraRequest(target: fix.coordinate, zoom: Self.placementZoom)
             }
             updatePlacementVerdict(now: now)
+            // "Ben de gördüm" yakınlığa bağlı: okuma değişince yeniden denetlenir (iğne sürüklenirken değil).
+            if !isCameraMoving {
+                updateDuplicateCandidate()
+            }
         }
         checkNearbyPromptRange(now: now)
         if let last = lastNearbyFixEvaluation, now.timeIntervalSince(last) < Self.nearbyFixEvaluationInterval {
@@ -1490,8 +1593,13 @@ final class MapViewModel {
 
     /// Karttaki düğme ya da menü öğesi. "Hâlâ yardım gerekiyor" önce onay ister (`disputeCandidate`),
     /// "İlgileniyorum" gerekirse önce güvenliği hatırlatır (`nightReminder`); diğerleri hemen yapılır (mamada
-    /// "Yardım gerekmiyor" ve "Artık yok" menüde ayrı öğelerdir).
+    /// "Yardım gerekmiyor" ve "Artık yok" menüde ayrı öğelerdir). Yakınlık kapısından geçmeyen eylem (kart
+    /// açıkken uzaklaşıldı) hiçbir şey sormadan nedenini söyler.
     func handle(_ action: ReportAction, on report: Report) {
+        guard proximityAllows(action, on: report) else {
+            show(Toast(message: Messages.notNearby))
+            return
+        }
         if action == .dispute {
             disputeCandidateID = report.id
             return
@@ -1522,16 +1630,23 @@ final class MapViewModel {
         case done
         /// Başka bir eylem sürüyordu ya da oturum yok; hiçbir şey yazılmadı.
         case busy
+        /// Kişi hayvanın yanında değil (`ProximityPolicy`); hiçbir şey yazılmadı.
+        case notNearby
         /// Sunucudaki güncel hâl eylemi artık kabul etmiyor (ör. öneri onaylandı, itiraz edildi, kapandı).
         case rejected
         /// Bağlantı ya da başka bir hata; sonra yeniden denenebilir.
         case failed
     }
 
-    /// Eylemi yapar ve sonucu bildirir.
+    /// Eylemi yapar ve sonucu bildirir. Yakınlık kapısı her yoldan (kart, onay, "Ben de gördüm", takip sorusu,
+    /// "Hâlâ orada mı?") burada son kez, o anki okumayla denetlenir.
     @discardableResult
     func perform(_ action: ReportAction, on report: Report) async -> ActionResult {
         guard let userID = session.userID, busyAction == nil else { return .busy }
+        guard proximityAllows(action, on: report) else {
+            show(Toast(message: Messages.notNearby))
+            return .notNearby
+        }
         busyAction = action
         defer { busyAction = nil }
         // "Hâlâ orada" diyen kişi sayıya eklenecek mi? Eylemden önceki hâle bakılır.
@@ -1771,6 +1886,7 @@ final class MapViewModel {
                 // Takip sorusu sayfası açılır: "Hâlâ orada mı?" kesilir.
                 endNearbyPrompt(.interrupted)
                 followUp = makeFollowUp(for: report, userID: userID, at: now)
+                refreshProximity(at: now)
                 return
             }
         }
@@ -1828,7 +1944,7 @@ final class MapViewModel {
             switch result {
             case .done, .rejected:
                 answered = true
-            case .busy, .failed:
+            case .busy, .failed, .notNearby:
                 answered = false
             }
             if answered {
@@ -1845,6 +1961,21 @@ final class MapViewModel {
     /// Sayfa kaydırılıp kapatıldı: "Bilmiyorum" gibi.
     func dismissFollowUp() {
         answerFollowUp(.dontKnow)
+    }
+
+    /// Takip sorusunda şimdi kapalı yanıtlar: hayvanın yanında değilken işareti koyan dışındakilerin "Hâlâ yardım
+    /// gerekiyor"u. "Evet" kapısızdır, "Bilmiyorum" hep açıktır. `proximityRevision` okunur: hayvanın yanına
+    /// yürüyünce sayfa hemen güncellenir.
+    func followUpDisabledAnswers(_ followUp: FollowUp) -> Set<FollowUpAnswer> {
+        _ = proximityRevision
+        let date = Date()
+        var disabled: Set<FollowUpAnswer> = []
+        for option in followUp.options {
+            if let action = option.answer.action, !proximityAllows(action, on: followUp.report, at: date) {
+                disabled.insert(option.answer)
+            }
+        }
+        return disabled
     }
 
     // MARK: Bildirim
@@ -1904,6 +2035,8 @@ final class MapViewModel {
         }
         guard !location.isMovingFast,
               let fix = location.gateFix(at: now),
+              // Taklit konum yakın sayılmaz (`ProximityPolicy`): yanıtı reddedilecek soru sorulmasın.
+              !(environment.rejectsSimulatedFixes && fix.isSimulatedBySoftware),
               let match = NearbyPrompt.candidate(
                 in: activeReports,
                 userID: userID,

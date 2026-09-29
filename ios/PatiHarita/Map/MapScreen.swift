@@ -90,7 +90,13 @@ struct MapScreen: View {
             }
             // Açıklama sayfasıyla aynı görünüme bağlanmasın diye burada (iki `.sheet` bir arada sorun çıkarabiliyor).
             .sheet(item: followUpBinding) { followUp in
-                FollowUpSheet(followUp: followUp, now: viewModel.now, isBusy: viewModel.busyAction != nil) { answer in
+                FollowUpSheet(
+                    followUp: followUp,
+                    now: viewModel.now,
+                    isBusy: viewModel.busyAction != nil,
+                    // Hayvanın yanında değilken itiraz kapalı (işareti koyanınki hariç).
+                    disabledAnswers: viewModel.followUpDisabledAnswers(followUp)
+                ) { answer in
                     viewModel.answerFollowUp(answer)
                 }
                 .presentationDetents([.medium, .large])
