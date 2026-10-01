@@ -193,3 +193,25 @@ describe("paylaşılan sözleşme", () => {
     expect(embedded.replace(/\r\n/g, "\n")).toBe(rules.replace(/\r\n/g, "\n"));
   });
 });
+
+// Ücretsiz planda (Spark) TTL politikası kurulamıyor; indeksler firebase.spark.json ile TTL'siz dosyadan
+// yüklenir. İki dosya TTL dışında hiç ayrışmamalı, yoksa Spark'ta yüklenen indeksler eksik kalır.
+describe("Spark indeks dosyası", () => {
+  const read = (name: string) => JSON.parse(readFileSync(resolve(ROOT, "firebase", name), "utf8"));
+
+  it("firestore.indexes.json'dan yalnızca purgeAt TTL'si eksik", () => {
+    const full = read("firestore.indexes.json");
+    const spark = read("firestore.indexes.spark.json");
+    const withoutTtl = JSON.parse(JSON.stringify(full));
+    for (const override of withoutTtl.fieldOverrides) delete override.ttl;
+    expect(spark).toEqual(withoutTtl);
+    expect(full.fieldOverrides.find((o: { fieldPath: string }) => o.fieldPath === "purgeAt").ttl).toBe(true);
+  });
+
+  it("firebase.spark.json yalnızca indeks dosyasında ayrışır", () => {
+    const full = read("firebase.json");
+    const spark = read("firebase.spark.json");
+    expect(spark.firestore.indexes).toBe("firestore.indexes.spark.json");
+    expect({ ...spark, firestore: { ...spark.firestore, indexes: full.firestore.indexes } }).toEqual(full);
+  });
+});

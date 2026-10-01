@@ -1,0 +1,88 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "geohash",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "expiresAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "reports",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "claimExpiresAt",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": [
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "purgeAt",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "reporterId",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "claimedBy",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "closingBy",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "seenBy",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "goneReports",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "objectors",
+      "indexes": []
+    },
+    {
+      "collectionGroup": "reports",
+      "fieldPath": "disputed",
+      "indexes": []
+    }
+  ]
+}

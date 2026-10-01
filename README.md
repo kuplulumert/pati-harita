@@ -358,8 +358,13 @@ Xcode'da *Edit Scheme → Run → Arguments* altında `-useEmulator`'ı işaretl
 4. `firebase/.firebaserc` içindeki `demo-patiharita`'yı kendi proje kimliğinizle değiştirip dağıtın:
    ```bash
    cd firebase
-   npx firebase deploy --only firestore            # kurallar, indeksler, TTL
+   npx firebase deploy --only firestore            # kurallar, indeksler, TTL (TTL Blaze ister)
    npx firebase deploy --only functions            # Blaze (kullandıkça öde) planı gerekir
+   ```
+   Ücretsiz planda (Spark) TTL politikası kurulamaz; kuralları ve TTL'siz indeksleri ayrı yükleyin:
+   ```bash
+   npx firebase deploy --only firestore:rules
+   npx firebase deploy --only firestore:indexes --config firebase.spark.json
    ```
 5. **App Check**: Debug derlemeler hata ayıklama sağlayıcısını, Release derlemeler DeviceCheck'i kullanır. Konsolda uygulamayı kaydedin; zorunlu kılmayı (enforcement) yayından önce açın.
 
