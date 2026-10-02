@@ -175,6 +175,16 @@ final class MapViewModel {
     static let nearbyRecheckHorizon: TimeInterval = 15 * 60
     /// Bir yazım reddedilince `banned/{me}`'e en fazla bu aralıkla bakılır.
     static let bannedCheckInterval: TimeInterval = 10 * 60
+    /// Kamera kişiye gidince görünecek yarıçap (metre): `browsingZoom`'da bir telefon ekranı ~1 km yarıçaplıdır.
+    /// Abonelik bunun 1,5 katıyla (`minQueryRadius`) yapılır; harita varınca bildireceği gerçek alan onun içinde
+    /// kalır, yeniden abone olunmaz.
+    static let browsingViewRadius: Double = 1_000
+    /// Ortalama isteğinden sonra harita hedefe bu kadar metre yaklaşınca "vardı" sayılır. Hedefe giderken harita
+    /// merkez olarak hedefin kendisini bildirir; pay yalnızca yuvarlama içindir. Bir kamera isteğinin varsayılan şehir
+    /// merkezini hedefleyip hedeflemediği (`updateInitialAreaGate`) de aynı payla ölçülür.
+    static let centeringTolerance: Double = 5
+    /// Harita ortalamada hedefe varmasa da eski bölge bildirimleri en fazla bu kadar saniye yok sayılır.
+    static let centeringStaleWindow: TimeInterval = 5
 
     /// "Hâlâ yardım gerekiyor" onayı: sabahki bir görüşe dayanan yanlış itirazları azaltır.
     static let disputeQuestion = "Hayvan hâlâ yardım bekliyor mu? Bunu yalnızca hayvanı şimdi gördüysen söyle."
@@ -312,6 +322,19 @@ final class MapViewModel {
     @ObservationIgnored private var userRecordSubscription: ReportSubscription?
     @ObservationIgnored private var publicConfigSubscription: ReportSubscription?
     @ObservationIgnored private var hasCenteredOnUser = false
+    /// Açılışta harita varsayılan şehir merkezini gösterir; kişinin konumu gelene kadar o yere abone olunmaz
+    /// (`InitialAreaGate`). Bir kez açılınca geri kapanmaz; üst etiket o zamana kadar "Konumun bulunuyor…" der
+    /// (işaret yok demek yanlış olurdu: henüz bakılmadı).
+    private(set) var initialAreaIsOpen = false
+    /// Konum erişiminin kullanılabilir olduğu an; ilk okumanın beklenmesi buradan sayılır.
+    @ObservationIgnored private var locationAccessAvailableSince: Date?
+    /// Kişi haritayı kendisi oynattı (`cameraWillMove`).
+    @ObservationIgnored private var hasMovedMapByHand = false
+    /// Konum beklenirken süre dolunca ilk alan kapısına yeniden bakar (`updateInitialAreaGate`).
+    @ObservationIgnored private var initialAreaRecheck: Task<Void, Never>?
+    /// İlk okumada kamera kişiye gönderildi: harita oraya varana (ya da süre dolana) kadar gelen bölge bildirimleri
+    /// eski görünümdendir (`cameraBecameIdle`). `requestID`: ortalama isteği; yerine başkası geldiyse beklenmez.
+    @ObservationIgnored private var centering: (target: Coordinate, requestID: UUID, expires: Date)?
     /// "Hayır, başka bir hayvan" denen öneriler; yeni işaretleme başlayınca sıfırlanır.
     @ObservationIgnored private var dismissedDuplicateIDs: Set<String> = []
     /// Bu işaretleme boyunca "Yardıma ihtiyacı var" denen ihtiyaçlar: "İğneyi düzelt"ten sonra yeniden sorulmaz.
@@ -659,6 +682,9 @@ final class MapViewModel {
         }
         activeSince = Date()
         location.start()
+        // İzin zaten verilmişse ilk okumanın beklenmesi şimdi başlar; sorulmadıysa kapı yanıtı bekler.
+        noteLocationAccess()
+        updateInitialAreaGate()
         await session.ensureSignedIn()
         guard let userID = session.userID else { return }
         observeAccount(userID)
@@ -694,6 +720,16 @@ final class MapViewModel {
         now = Date()
         activeSince = now
         location.start()
+        if !initialAreaIsOpen {
+            // Arka planda geçen süre ilk okumanın beklenmesinden sayılmaz: konum yeniden başladı, bekleme baştan
+            // başlar.
+            initialAreaRecheck?.cancel()
+            initialAreaRecheck = nil
+            locationAccessAvailableSince = nil
+            noteLocationAccess()
+            // Kapı açılırsa ilk abonelik de buradan yapılır.
+            refreshSubscription()
+        }
         Task { [weak self] in
             await self?.refreshWatched()
         }
@@ -756,9 +792,16 @@ final class MapViewModel {
         requestNearbyEvaluation()
         guard !hasCenteredOnUser, let coordinate = location.coordinate else { return }
         hasCenteredOnUser = true
-        cameraRequest = CameraRequest(target: coordinate, zoom: Self.browsingZoom)
-        // İlk abonelik varsayılan şehir merkezine göreydi; kullanıcının çevresi için yenilensin.
+        let request = CameraRequest(target: coordinate, zoom: Self.browsingZoom)
+        cameraRequest = request
+        // Harita oraya gidene kadar varsayılan şehir merkezinden eski bir bölge bildirimi gelebilir; o alana abone
+        // olunmaz (`cameraBecameIdle`). Abone olunacak alan kişinin çevresidir ve haritanın bölge bildirmesi
+        // beklenmeden burada belirlenir: kamera zaten oradaysa harita bildirim yapmaz.
+        centering = (coordinate, request.id, Date().addingTimeInterval(Self.centeringStaleWindow))
+        visibleArea = (coordinate, Self.browsingViewRadius)
+        // Kapı başka yoldan açılmış ve varsayılan şehir merkezine abone olunmuşsa kişinin çevresi için yenilensin.
         subscribedArea = nil
+        refreshSubscription()
     }
 
     func recenterOnUser() {
@@ -787,6 +830,10 @@ final class MapViewModel {
     /// Kişi haritayı kendisi hareket ettirmeye başladı (programatik kamera hareketi değil).
     func cameraWillMove() {
         isCameraMoving = true
+        // Harita artık kişinin elinde: açılışta konum beklenmez ve yarıda kalan ortalama bekletmez. Abone olunacak alan
+        // hareket bitince bildirilir (`cameraBecameIdle`); hareketin başındaki eski alana şimdi abone olunmaz.
+        hasMovedMapByHand = true
+        centering = nil
         if isPlacing {
             userMovedPin = true
         }
@@ -802,14 +849,37 @@ final class MapViewModel {
     }
 
     func cameraBecameIdle(center: Coordinate, visibleRadius: Double) {
+        // Bu bildirim kişinin kendi hareketini bitiriyorsa harita kişinin gösterdiği yerdedir: ortalama bekletmez
+        // (konum, kişi haritayı tutarken ya da kaydırırken gelmiş olabilir).
+        if isCameraMoving {
+            centering = nil
+        }
         isCameraMoving = false
         cameraTarget = center
-        visibleArea = (center, visibleRadius)
+        // İlk okumada kamera kişiye gönderildiyse, harita oraya varana kadar gelen bölge bildirimi eski görünümdendir
+        // (varsayılan şehir merkezi): görünen alan sayılmaz ve ona abone olunmaz. Abonelik kişinin çevresine
+        // yapıldı (`userLocationChanged`); oraya varan ilk bildirim görünen alanı gerçek yarıçapla yeniler.
+        var isStaleView = false
+        if let pending = centering {
+            if cameraRequest?.id != pending.requestID
+                || Date() >= pending.expires
+                || center.distance(to: pending.target) <= Self.centeringTolerance {
+                // Harita vardı, ortalamanın yerini başka bir kamera isteği aldı ya da süre doldu.
+                centering = nil
+            } else {
+                isStaleView = true
+            }
+        }
+        if !isStaleView {
+            visibleArea = (center, visibleRadius)
+        }
         let dots = visibleRadius <= ClosingDisplay.streetDotMaxRadius
         if dots != showsStreetDots {
             showsStreetDots = dots
         }
-        refreshSubscription()
+        if !isStaleView {
+            refreshSubscription()
+        }
         // İğne kaydırıldı: yakındaki aynı hayvan yeniden aranır, karar ve düzeltme uzaklığı yeniden denetlenir.
         updatePlacementVerdict(now: Date())
         updateDuplicateCandidate()
@@ -851,7 +921,10 @@ final class MapViewModel {
 
     /// Görünen alan, dinlenen alanın dışına taştıysa aboneliği yeniler.
     /// Küçük kaydırmalarda yeniden sorgu yapılmaz (alan 1,5 kat geniş dinlenir).
+    /// Açılışta kişinin konumu gelene kadar varsayılan şehir merkezine abone olunmaz (`InitialAreaGate`); kapı
+    /// açılınca (`updateInitialAreaGate`) ilk abonelik buradan, görünen alana yapılır.
     private func refreshSubscription() {
+        updateInitialAreaGate()
         guard let area = visibleArea, session.userID != nil else { return }
         isZoomedTooFarOut = area.radius > Self.maxQueryRadius
         guard !isZoomedTooFarOut else {
@@ -870,6 +943,7 @@ final class MapViewModel {
             }
             return
         }
+        guard initialAreaIsOpen else { return }
         if let subscribed = subscribedArea,
            subscribed.center.distance(to: area.center) + area.radius <= subscribed.radius {
             return
@@ -883,6 +957,61 @@ final class MapViewModel {
             self.reportsChanged()
         }
         subscribedArea = (area.center, radius)
+    }
+
+    /// Konum erişimi kullanılabilir hale geldiği an (izin verildi ya da zaten verilmişti) not edilir; ilk okumanın
+    /// beklenmesi buradan sayılır. Erişim kalkınca (soru yeniden soruldu, reddedildi) an unutulur; yeniden verilince
+    /// bekleme baştan başlar.
+    private func noteLocationAccess() {
+        switch location.access {
+        case .full, .approximate:
+            if locationAccessAvailableSince == nil {
+                locationAccessAvailableSince = Date()
+            }
+        case .notDetermined, .denied:
+            locationAccessAvailableSince = nil
+        }
+    }
+
+    /// Açılış kapısını değerlendirir (`InitialAreaGate`): açılmışsa kilitlenir (bir daha kapanmaz). İzin verilmiş
+    /// ama ilk okuma gelmediyse süre dolunca `refreshSubscription` yeniden çağrılır; izin sorusu ekrandayken süre
+    /// yoktur. Kapı açıldıktan sonra görünen alana abone olmak `refreshSubscription`'ın işidir: kapıyı açan her olay
+    /// (izin yanıtı, ilk okuma, süre dolması, harita hareketi) oradan geçer.
+    private func updateInitialAreaGate() {
+        guard !initialAreaIsOpen else { return }
+        // Konum gelmeden başka bir kamera isteği (kart, düzeltme…) haritayı varsayılan şehir merkezinden başka yere
+        // götürdü. Konum yokken işaretleme kamerayı olduğu yere, yani varsayılan şehir merkezine gönderir: bu bir
+        // yönlendirme sayılmaz, o yere abone olunmaz.
+        var redirected = false
+        if let request = cameraRequest, !hasCenteredOnUser {
+            redirected = request.target.distance(to: ReportMapView.defaultCenter) > Self.centeringTolerance
+        }
+        let verdict = InitialAreaGate.verdict(
+            centeredOnUser: hasCenteredOnUser,
+            movedByPerson: hasMovedMapByHand,
+            redirected: redirected,
+            access: location.access,
+            accessAvailableSince: locationAccessAvailableSince,
+            at: Date()
+        )
+        switch verdict {
+        case .open:
+            initialAreaIsOpen = true
+            initialAreaRecheck?.cancel()
+            initialAreaRecheck = nil
+        case .waitingForPermission:
+            initialAreaRecheck?.cancel()
+            initialAreaRecheck = nil
+        case .waitingForFix(let remaining):
+            guard initialAreaRecheck == nil else { return }
+            initialAreaRecheck = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(remaining))
+                guard !Task.isCancelled, let self else { return }
+                // Uyanma erken kalırsa kapı yine bekliyor der ve kalan süre için yeniden kurulur.
+                self.initialAreaRecheck = nil
+                self.refreshSubscription()
+            }
+        }
     }
 
     /// Düzeltilen işaret bu arada kapandıysa, süresi dolduysa ya da başkası dokunduysa düzeltme biter. Sorulan
@@ -1347,9 +1476,12 @@ final class MapViewModel {
 
     /// İzin ya da Tam Konum değişti.
     private func locationAccessChanged() {
+        // Açılış kapısı: reddedildiyse açılır, verildiyse ilk okumanın beklenmesi başlar.
+        noteLocationAccess()
         if isPlacing {
             updatePlacementVerdict(now: Date())
         }
+        refreshSubscription()
     }
 
     /// "İğneyi konumuma getir".

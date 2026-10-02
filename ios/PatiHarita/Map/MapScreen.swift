@@ -314,6 +314,8 @@ struct MapScreen: View {
         // Engellenen kimlik: kalıcı olarak söylenir.
         if viewModel.isBanned { return Messages.banned }
         if viewModel.userID == nil { return "Bağlanıyor…" }
+        // İlk alana henüz bakılmadı: "yardım bekleyen yok" demek yanlış olurdu.
+        if !viewModel.initialAreaIsOpen { return "Konumun bulunuyor…" }
         if viewModel.isZoomedTooFarOut { return "İşaretleri görmek için yakınlaştır" }
         return Messages.waitingHeadline(viewModel.waitingCounts)
     }

@@ -202,6 +202,9 @@ Görünen harita alanının yarıçapının 1,5 katı için `Geohash.queryBounds
 
 - Küçük kaydırmalarda yeniden sorgu yapılmaz (dinlenen alan görünen alanı hâlâ kapsıyorsa).
 - 25 km'den geniş alan görünüyorsa sorgu yapılmaz, "yakınlaştır" denir.
+- Açılışta harita kişinin konumu bulunana kadar varsayılan şehir merkezini gösterir; o yere abone olunmaz, ilk abonelik
+  kişinin çevresine yapılır (konum izni yoksa, konum kısa sürede bulunamazsa ya da kişi haritayı kendisi kaydırırsa
+  görünen alana).
 - `Geohash.swift`, Firebase'in `geofire-common` kütüphanesinin birebir karşılığıdır; `shared/geohash-vectors.json`
   referans değerleri Node tarafında geofire-common'a karşı, iOS tarafında Swift koduna karşı test edilir.
 

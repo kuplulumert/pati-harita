@@ -117,6 +117,19 @@ jobs:
             -skipPackagePluginValidation \
             ONLY_ACTIVE_ARCH=NO \
             CODE_SIGNING_ALLOWED=NO
+      # Gizlilik bildirimi pakete girmezse App Store Connect yüklemeyi reddeder; derlemede kimse fark etmez.
+      - name: Gizlilik bildirimi pakette mi
+        working-directory: ios/build/Build/Products/Release-iphonesimulator
+        run: |
+          MANIFEST=PatiHarita.app/PrivacyInfo.xcprivacy
+          if [ ! -f "$MANIFEST" ]; then
+            echo "::error::PrivacyInfo.xcprivacy uygulama paketinde yok (ios/PatiHarita altında olmalı, Copy Bundle Resources'a girmeli)."
+            exit 1
+          fi
+          if ! plutil -lint "$MANIFEST"; then
+            echo "::error::PrivacyInfo.xcprivacy geçerli bir plist değil."
+            exit 1
+          fi
       - name: Simülatör paketi
         working-directory: ios/build/Build/Products/Release-iphonesimulator
         run: |
